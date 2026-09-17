@@ -17,6 +17,7 @@
  * | `openExternal` | 扩展宿主 `vscode.env.openExternal` | 页面原生 `window.open` |
  * | `openSessionInNewTab`（+ `editorTabs`） | 扩展宿主开一个 WebviewPanel（#72 多开） | **无**——官方 web 没有编辑器标签页，能力恒缺席 |
  * | `isSessionInPanel` / `openSessionPanel`（#121） | 扩展宿主按面板↔会话的跟踪如实回答 + 把面板亮到该会话 | **false / 静默空操作**——官方 web 没有「宿主面板」这个概念，那一端的「打开会话」就是官方 `sessions.open` |
+ * | `onPanelSessions`（#147） | 扩展宿主先回一条快照（`session.panelSessions`），此后每次面板↔会话映射变化都广播 `dshOne.panelSessions` | **永不推送**（订阅返回一个退订函数、立刻回空集）——官方 web 那一端没有「宿主面板」这件事实，集合恒为空 = 不抑制任何提醒 |
  * | `openSettings`（+ `settingsPage`） | 扩展宿主开/聚焦设置页（设置独立成编辑器页，#70） | **无**——官方 web 的设置是官方底部那一行，没有独立设置页；能力恒缺席，侧栏齿轮在那一端不渲染 |
  * | `createWorkspaceDirectory`（+ `workspaceCreate`） | 扩展宿主建目录并注册（`dshOne.workspace.create` 命令：`~/.dsh/workspaces/<名>`） | **无**——官方 web 的「新建目录」归官方 directory-flow 占用者（见 #99 的说明），能力恒缺席 |
  * | `openWorkspaceFolder`（+ `workspaceOpen`） | 扩展宿主 `dshOne.workspace.openFolder` 命令（`vscode.openFolder`，可要求新窗口） | **无**——官方 web 是浏览器里的一页，没有「编辑器窗口」可以放这个文件夹，能力恒缺席 |
@@ -68,6 +69,7 @@ import {
   type HostCapabilityErrorCode,
   type HostCapabilityMethod,
 } from '../../../pure/hostCapabilities.ts'
+import { parsePanelSessionsMessage } from '../../../pure/sessionPanelRouting.ts'
 import type { CommitInfoResult } from '../../../pure/chatContract.ts'
 import { hostCall, hostCallAvailable, type HostCallFailure } from './hostClient.ts'
 
@@ -151,6 +153,25 @@ export interface HostCapabilities {
    * 走它；这里再抛错只会让每次点当前会话都在控制台留一行噪音，而那一端本来就无事可做。
    */
   openSessionPanel(sessionId: string): Promise<void>
+  /**
+   * 订阅「宿主的面板里正开着哪些会话」（#147）。订阅后先交付一次**当前值**（宿主侧
+   * 读一条快照：侧栏页可能比面板晚起来，只靠推送会漏掉这一刻的事实），此后宿主那边
+   * 每次面板↔会话映射变化再交付一次。返回退订函数。
+   *
+   * **为什么需要这一条**：官方「跑完还没被打开」那颗绿点的武装条件是**这一页的
+   * selected 不是它**（`dsh-api-session-controller` 的 `syncCompletedNotifications`）。
+   * 官方 web 只有一页、selected 就是屏幕上那一条，判据成立；我们的 shell 有两个
+   * webview（侧栏页 + 对话面板页各一份官方 client），宿主把面板切到某条会话不会回写给
+   * 侧栏页，于是那条会话跑完时侧栏照旧给它亮一颗「跑完还没被打开」的绿点，而用户正在
+   * 看它（#147 报的现场）。侧栏树把这份事实算进渲染判据即可，不必（也不能）去动官方
+   * client 的 selected——理由见 `workspaceTree/tree.ts` 的消费点。
+   *
+   * **官方 web 侧永不推送**（订阅返回的退订函数是空操作，也不发任何调用）：那一端没有
+   * 「宿主面板」这件事实（同一份理由见本文件头的能力表），集合恒为空 = 不抑制任何提醒，
+   * 行为与今天完全一致。答不出来时（能力桥缺席 / 快照读失败）同样按空集处理——空集
+   * 的处置就是「照官方规则渲染」，与这一条之前的行为一致，是个安全的降级方向。
+   */
+  onPanelSessions(listener: (sessionIds: readonly string[]) => void): () => void
   /**
    * 这套宿主有没有「独立的设置页」（#99 侧栏顶栏齿轮）：**同步判定**，消费方按它
    * 决定齿轮渲不渲染——VS Code 侧设置是我们自己的编辑器页（能力在），官方 web 侧
@@ -266,6 +287,16 @@ async function bridgeCall(name: string, args: Record<string, unknown>): Promise<
     const message = err instanceof Error ? err.message : String(err)
     throw fail((code ?? 'failed') as HostCapabilityErrorCode, message)
   }
+}
+
+/**
+ * 读回执里的会话 id 表（#147 的快照读）。形状不认识就当空表——空集 = 不抑制任何提醒，
+ * 与能力缺席同一个降级方向。
+ */
+function panelSessionsOf(data: Record<string, unknown>): readonly string[] {
+  const ids = data.sessionIds
+  if (!Array.isArray(ids)) return []
+  return ids.filter((id): id is string => typeof id === 'string' && id !== '')
 }
 
 /** 浏览器原生下载（官方 web 侧 `downloadGatewayFile` 的实现）。 */
@@ -387,6 +418,34 @@ export function hostCapabilities(ctx?: CapabilityContext): HostCapabilities {
     async openSessionPanel(sessionId) {
       if (!viaBridge()) return
       await bridgeCall('session.openPanel', { sessionId })
+    },
+    // #147：宿主面板里开着哪些会话。两条路合在一个订阅里交付：①先挂 window 上的
+    // 广播监听（面板↔会话映射每次变化宿主都会推一条），②再读一次快照（页面起来之前
+    // 就开着的面板，只靠推送会漏）。读回来的那一刻若已经收到过推送，就以推送为准——
+    // 快照是更早的事实，别把它盖回新值上。
+    onPanelSessions(listener) {
+      if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return () => {}
+      let pushed = false
+      const handler = (event: MessageEvent): void => {
+        const ids = parsePanelSessionsMessage(event.data)
+        if (ids === undefined) return
+        pushed = true
+        listener(ids)
+      }
+      window.addEventListener('message', handler)
+      if (viaBridge()) {
+        void bridgeCall('session.panelSessions', {}).then(
+          (data) => {
+            if (!pushed) listener(panelSessionsOf(data))
+          },
+          (reason: unknown) => {
+            // 快照读不到就按空集（= 不抑制任何提醒，照官方规则渲染），日志留痕。
+            if (!pushed) listener([])
+            console.warn('[dsh-one] panel sessions unavailable:', reason)
+          },
+        )
+      }
+      return () => window.removeEventListener('message', handler)
     },
     get settingsPage() {
       return viaBridge()

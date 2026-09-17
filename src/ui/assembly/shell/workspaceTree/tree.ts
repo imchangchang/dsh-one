@@ -1,7 +1,7 @@
 /** 树主组件（官方 WorkspaceBrowser 的同构复刻）：组合上面各件 + 状态与订阅。 */
-import { createElement as h, useEffect, useRef, useState } from 'react'
+import { createElement as h, useEffect, useMemo, useRef, useState } from 'react'
 import { writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
-import { currentWorkspaceFirst, deriveFlat, deriveGroups, deriveRecycleGroups, groupSessionNodes, indexSubagentDescendants, owningGroupKey, sessionNode, UNGROUPED_KEY, visibleRecycleIds, workspaceActivityCounts, type ActivityCounts, type GroupNode, type SessionNode } from '../../../../pure/workspaceTreeView.ts'
+import { currentWorkspaceFirst, deriveFlat, deriveGroups, deriveRecycleGroups, groupSessionNodes, indexSubagentDescendants, owningGroupKey, sessionNode, UNGROUPED_KEY, visibleRecycleIds, withoutPanelOpenCompleted, workspaceActivityCounts, type ActivityCounts, type GroupNode, type SessionNode } from '../../../../pure/workspaceTreeView.ts'
 import { formatFileMention } from '../../../../pure/fileReference.ts'
 import { formatSessionMention } from '../../../../pure/sessionMention.ts'
 import {
@@ -61,6 +61,7 @@ import type { TagColor } from '../../../../pure/sessionTags.ts'
 import type { GroupFile } from '../../../../pure/dshStateFile.ts'
 import { FlashHost, flashTip } from './flash.ts'
 import { onSessionOwnedElsewhere } from './sessionOwnedNotice.ts'
+import { usePanelOpenSessions } from './panelSessionsStore.ts'
 import { displayTitle } from './format.ts'
 import { TAG_MENU_PREFIX, newGroupId, newTagGroupId } from './groups.ts'
 import { useHoverCardRoom } from './hoverCard.ts'
@@ -132,7 +133,20 @@ export function WorkspaceTree(props: TreeProps): unknown {
   } = props
   const tr = t
   const now = Date.now()
-  const list = useSessions((state) => state)
+  const sessionsState = useSessions((state) => state)
+  /**
+   * #147：宿主的面板里正开着哪些会话（宿主推来的事实，官方 web 侧恒为空集）。
+   *
+   * 它只并进**渲染判据**（`withoutPanelOpenCompleted` 把这份集合里那些会话的
+   * `completed` 按 false 渲染），不动官方 client 的 selected——为什么不走官方
+   * selected、以及这条判据有意留下的边界，逐条写在 `pure/workspaceTreeView.ts` 的
+   * `withoutPanelOpenCompleted` 上面。
+   *
+   * 集合为空时 `withoutPanelOpenCompleted` 原样返回同一份 list：官方 web 侧（收不到这条
+   * 事实）的行为与这条通道不存在时逐字相同，也不多一次重算。
+   */
+  const openInPanel = usePanelOpenSessions()
+  const list = useMemo(() => withoutPanelOpenCompleted(sessionsState, openInPanel), [sessionsState, openInPanel])
   const workspaces = useWorkspaces((state) => state.items)
   const workspacePhase = useWorkspaces((state) => state.phase)
   const archivedSessionIds = useWorkspaces((state) => state.archivedSessionIds)

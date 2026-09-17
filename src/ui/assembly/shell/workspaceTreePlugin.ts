@@ -6,7 +6,8 @@
  * 标记（`dshOneTree_*` 类名与 `data-*`），不碰 `acquireVsCodeApi`、不 postMessage；
  * 数据全取官方 hooks、动作全走官方服务、样式全用官方 token。与宿主有关的动作
  * （#72 的「在新标签页打开」、#109 的工作区行宿主动作、#121 的「这个会话开在宿主
- * 面板里吗 / 把面板亮到它」）一律走**宿主能力口**这个抽象口
+ * 面板里吗 / 把面板亮到它」、#147 的「宿主面板里开着哪些会话」订阅）一律走**宿主
+ * 能力口**这个抽象口
  * （`./hostCapabilities.ts`，插件不直接碰宿主 API），并按能力口如实上报的
  * `editorTabs` / `workspaceOpen` / `isSessionInPanel` 决定入口出不出现或走哪条路
  * ——官方 web 侧没有那些宿主概念，那些入口就不显示、当前会话行一律按打开处理，
@@ -184,6 +185,7 @@ import type { SessionListLike } from '../../../pure/workspaceTreeView.ts'
 import { hostCapabilities, type CapabilityContext } from './hostCapabilities.ts'
 import { EN, LOCALE_NS, ZH } from './workspaceTree/locale.ts'
 import { configureRecycleBin } from './workspaceTree/recycleBinStore.ts'
+import { setPanelOpenSessions } from './workspaceTree/panelSessionsStore.ts'
 import { RecycleEntry } from './workspaceTree/recycleEntry.ts'
 import { reportSessionOwnedElsewhere } from './workspaceTree/sessionOwnedNotice.ts'
 import { WorkspaceTree } from './workspaceTree/tree.ts'
@@ -532,6 +534,14 @@ export function apply(ctx: TreeContext): void {
 
   ctx.effect(() => {
     const disposeLocale = ctx.locale.register(LOCALE_NS, { zh: ZH, en: EN })
+    // #147：宿主面板里开着哪些会话——订阅一次（快照 + 变化推送都从这条订阅进来），
+    // 写进页内 store（`workspaceTree/panelSessionsStore.ts`）供树主组件渲染时消费。
+    //
+    // 为什么订阅挂在这里而不是 `buildInjected` 里：那个函数每次渲染都会被调，订阅会被
+    // 反复建/拆；这份事实源只该订阅一次、跟着插件 fiber 一起收。**官方 web 侧这条订阅
+    // 永不推送**（能力口的如实形态），集合恒为空 = 不抑制任何提醒，与这条通道不存在时
+    // 逐字相同。
+    const disposePanelSessions = caps.onPanelSessions((sessionIds) => setPanelOpenSessions(sessionIds))
     // 对既有槽位名（官方 ui-sidebar 的 children 表声明）必须走 slots.inject：
     // 直接 register 会在「未声明」时抛错。single 槽影子：priority −1 < 官方
     // WorkspaceBrowser 的默认 0 → 本件渲染。
@@ -562,6 +572,7 @@ export function apply(ctx: TreeContext): void {
       ),
     )
     return () => {
+      disposePanelSessions()
       disposeFooterEntry()
       disposeInject()
       disposeLocale()

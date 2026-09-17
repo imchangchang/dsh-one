@@ -9,6 +9,7 @@ declare module 'react' {
   export type ReactNode = unknown
   export function createElement(type: unknown, props?: unknown, ...children: unknown[]): unknown
   export function useEffect(effect: () => void | (() => void), deps?: readonly unknown[]): void
+  export function useMemo<T>(factory: () => T, deps?: readonly unknown[]): T
   export function useLayoutEffect(effect: () => (() => void) | void, deps?: readonly unknown[]): void
   export function useRef<T>(initial: T): { current: T }
   export function useState<T>(initial: T): [T, (next: T | ((prev: T) => T)) => void]
