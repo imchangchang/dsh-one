@@ -16,6 +16,7 @@ import { assignSessionTab, hasSessionTab, releaseSessionTab, sessionTabOf } from
 import { listSessions } from '../server/dshRpc.ts'
 import { workspaceRootsOfSessionRows } from '../pure/workspaceRoots.ts'
 import {
+  bootstrapUrlOf,
   extractBootWire,
   extractFrontendAssets,
   filterWire,
@@ -549,7 +550,7 @@ function mountChatPanel(params: {
     cspNonce: crypto.randomBytes(16).toString('base64'),
     assets: assembly.assets,
     bootWire: assembly.wire,
-    bootstrapUrl: assembly.wire.batches[0].url,
+    bootstrapUrl: bootstrapUrlOf(assembly.wire),
     theme: currentTheme(),
     banner,
     bootSessionId: sessionId,
@@ -892,10 +893,13 @@ export async function preheatAssembly(context: vscode.ExtensionContext, manager:
   try {
     if (manager.getStatus().state !== 'running') return
     const mirror = await acquireSharedMirror(context, manager, logger)
-    // 每树预取一次 combo：请求里带一个保留段官方 id（触发该树过滤整包的
-    // 拉取与伺服缓存）+ 该树外框插件 id（缓存路由键）。rev 任意值即可（缓存键）。
+    // 每树预取一次 combo，URL 里只带该树的**外框插件 id**：它既是缓存路由键
+    // （mirror 按它选这份过滤整包），也是让 mirror 真的去拉官方整包的理由——
+    // serveCombo 无论请求里有没有官方 id 都会先取一次该树的过滤整包（#178 A10：
+    // 原先另塞一个官方 id 当「触发段」，那是硬编码一个我们并不拥有的 id，
+    // 它被上游改名就会让这条请求 404、预热静默失效）。rev 任意值即可（缓存键）。
     for (const tree of ASSEMBLY_TREES) {
-      await fetch(`${mirror.origin}/plugins-local/??@deepseek-ai/dsh-client-ui-theme/client.js,${tree.framePluginId}/client.js&rev=preheat`)
+      await fetch(`${mirror.origin}/plugins-local/??${tree.framePluginId}/client.js&rev=preheat`)
     }
     releaseSharedMirror(mirror)
     logger.info('assembly preheat: shared mirror + tree combos warmed')
@@ -1086,7 +1090,7 @@ class AssembledSidebarProvider implements vscode.WebviewViewProvider, vscode.Dis
           cspNonce: crypto.randomBytes(16).toString('base64'),
           assets: assembly.assets,
           bootWire: assembly.wire,
-          bootstrapUrl: assembly.wire.batches[0].url,
+          bootstrapUrl: bootstrapUrlOf(assembly.wire),
           theme: currentTheme(),
           banner: versionBanner(dshVersion(decision.url) ?? status.version),
         })
@@ -1212,7 +1216,7 @@ export function registerAssembledSettings(
       cspNonce: crypto.randomBytes(16).toString('base64'),
       assets: assembly.assets,
       bootWire: assembly.wire,
-      bootstrapUrl: assembly.wire.batches[0].url,
+      bootstrapUrl: bootstrapUrlOf(assembly.wire),
       theme: currentTheme(),
       banner: versionBanner(dshVersion(status.url) ?? status.version),
     })

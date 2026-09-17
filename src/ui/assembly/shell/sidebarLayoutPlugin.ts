@@ -11,8 +11,7 @@
  *   （240~560+px 都可能），frame 不做固定 280/56 轨——侧栏列 100% 流体，
  *   ResizeObserver 量出容器实际宽度传给官方 SidebarRoot（官方壳按
  *   renderSlot 的 width 参数定列宽），恒展开；收起钮在此形态下隐藏（折叠
- *   归 VS Code chrome 管），frame CSS 按 aria-label 覆盖（官方便携类名是
- *   哈希的，aria-label 文案随官方词典稳定）。
+ *   归 VS Code chrome 管）——它在官方 logoRow 里，随 logoRow 一起隐藏。
  * - 设置入口 = **顶栏最右的齿轮**（#99 起由 workspace tree 插件渲染，经宿主能力口
  *   `openSettings` 触发——见 hostCapabilities.ts 的能力表与 settingsGearPlugin 的
  *   说明）；官方底部那一行（`sidebar.settings`，官方 SettingsRoot）由
@@ -20,18 +19,16 @@
  *   （@dsh-one/vscode-settings-ui-layout）。
  * - 头部抛光（#70 VS Code 验收「很生硬」返修）：品牌位影子（brand.mark/name
  *   渲染空件 priority -1）+ logoRow 整行隐藏——VS Code 原生视图头已自报
- *   家门，官方 DeepSeek 品牌块重复且占 60px；折叠钮 aria-label 隐藏与
- *   logoRow 隐藏双保险；头部密度只微调（root 顶 padding 6→4px），官方
- *   其余默认不动。品牌块想换 DSH One 鲸鱼 logo 时，把两个
- *   空件换成渲染件即可（槽位贡献点不变）。
+ *   家门，官方 DeepSeek 品牌块重复且占 60px；头部密度只微调（root 顶
+ *   padding 6→4px），官方其余默认不动。品牌块想换 DSH One 鲸鱼 logo 时，把
+ *   两个空件换成渲染件即可（槽位贡献点不变）。
  * - 边缘贴齐（#70 验收「左右空条」返修）：官方根水平内边距 12px×2 是
  *   唯一布局级空条（左条 56–70px 实为树层级缩进：顶层行 28px、子代理行
- *   56–68px，是信息不是浪费）——root 选择器必须经插槽 wrapper（display:
- *   contents 的 div）下一级（> 直连选择器上一轮未命中即此因），把
- *   --dsh-sidebar-inline-padding 置 0：内容从左缘铺到右缘，滚动条贴右缘
- *   （Chrome 覆盖式滚动条，正常形态）。折叠钮/收起轨不是槽位贡献（钮是
- *   SidebarRoot 内部按钮、轨是 collapsed 态渲染，我们恒传 collapsed:false
- *   轨从不出现），CSS 隐藏即布局摘除，无列空间残留。
+ *   56–68px，是信息不是浪费）——把官方根上的 --dsh-sidebar-inline-padding
+ *   置 0：内容从左缘铺到右缘，滚动条贴右缘（Chrome 覆盖式滚动条，正常形态）。
+ *   官方根按自有属性 `data-dshone-official-root` 取（#178 C7+C9，见下方标记段）。
+ *   折叠钮/收起轨不是槽位贡献（钮在 logoRow 内、轨是 collapsed 态渲染，我们恒传
+ *   collapsed:false 轨从不出现），CSS 隐藏即布局摘除，无列空间残留。
  * - 去掉官方「新会话」胶囊（#85 追加项，用户验收拍板）：官方把 New Session
  *   画在品牌行下面、工作区树上面，是**官方侧栏壳自己的按钮、不是槽位贡献**，
  *   我们只能按机制层 4 用 CSS 摘（官方无槽位/服务/seam 的举证写在 CSS 那条
@@ -243,11 +240,23 @@ export const DENSITY_CSS =
 // ---------------------------------------------------------------------------
 // 样式：侧栏列 100% 流体（右边线保留，与官方 sidebarCol 视觉一致）；收起钮/
 // 收起轨隐藏——VS Code WebviewView 形态无「内页收起」概念，折叠由 VS Code
-// chrome 负责。aria-label 选择器覆盖官方便携类（哈希类名不可依赖）。
+// chrome 负责。
+//
+// 收起钮**不单独写规则**：它是官方 logoRow 里的一枚按钮（logoRow 内容 = 品牌块 +
+// 这枚折叠钮，见 0.1.6-alpha.1 的 dsh-client-ui-sidebar `lib/client.js` 的
+// SidebarRoot JSX），logoRow 一隐藏它就跟着没了。（#178 C8 删掉的原先那两条
+// `button[aria-label="Collapse sidebar"]` / `button[aria-label="收起侧栏"]` 规则
+// **从写下起就没生效过**：官方词典里那枚按钮的中文 aria-label 原文是「收起侧边栏」，
+// 我们写的是「收起侧栏」，一个字符之差就对不上；英文那条则被 logoRow 规则先覆盖了。）
+//
+// 官方根元素按**自有属性**取，不按层次（#178 C7+C9）：`side` 下那个类名后缀为
+// `root` 的元素由 syncOfficialRootMark() 打上 `data-dshone-official-root`，按官方
+// 根走的规则与几何快照都按这个属性选。此前写的是
+// `.dshOneSidebarShell_side>div>[class*="root"]`——「插槽容器正好一层」是框架的
+// 实现细节、不是官方契约，容器层数或 display 一变，规则就静默不命中。
 // ---------------------------------------------------------------------------
 
-// logoRow 隐藏用 [class*="logoRow"]（css-module 名后缀稳定、哈希前缀随版本变）；
-// 折叠钮 aria-label 规则保留作双保险（zh/en 双词典，CSS 转义写中文）。
+// logoRow 隐藏用 [class*="logoRow"]（css-module 名后缀稳定、哈希前缀随版本变）。
 //
 // 官方「新会话」胶囊的摘除（#85 追加项）为什么走机制层 4（CSS），逐层举证：
 // - **层 1（官方槽位机制）没有这个槽**：读官方 `@deepseek-ai/dsh-client-ui-sidebar`
@@ -267,7 +276,7 @@ export const DENSITY_CSS =
 //   名字，上游改名时这条规则会静默失效（届时官方胶囊会重新出现），随官方版本
 //   核对；规则只摘呈现，不碰官方组件与它注入的 startSession。
 const CSS =
-  '.dshOneSidebarShell_frame,.dshOneSidebarShell_side,.dshOneSidebarShell_side>div{padding-left:0!important;padding-right:0!important;margin-left:0!important;margin-right:0!important}.dshOneSidebarShell_frame{background:var(--dsw-alias-bg-base);height:100%;display:flex;overflow:hidden;position:relative}.dshOneSidebarShell_side{flex:1;min-width:0;background:var(--dsw-specific-sidebar-fill);border-right:.5px solid var(--dsw-alias-border-l3);overflow:hidden}.dshOneSidebarShell_side [class*="logoRow"]{display:none}.dshOneSidebarShell_side>div>[class*="root"]>[class*="newSession"]{display:none}.dshOneSidebarShell_side button[aria-label="Collapse sidebar"],.dshOneSidebarShell_side button[aria-label="\\6536\\8d77\\4fa7\\680f"]{display:none}.dshOneSidebarShell_side>div>[class*="root"]{--dsh-sidebar-inline-padding:0px;padding-top:4px;max-width:none!important;margin-left:0!important;margin-right:0!important}.dshOneSidebarShell_overlay{z-index:20;pointer-events:none;position:absolute;inset:0}' +
+  '.dshOneSidebarShell_frame,.dshOneSidebarShell_side{padding-left:0!important;padding-right:0!important;margin-left:0!important;margin-right:0!important}.dshOneSidebarShell_frame{background:var(--dsw-alias-bg-base);height:100%;display:flex;overflow:hidden;position:relative}.dshOneSidebarShell_side{flex:1;min-width:0;background:var(--dsw-specific-sidebar-fill);border-right:.5px solid var(--dsw-alias-border-l3);overflow:hidden}.dshOneSidebarShell_side [class*="logoRow"]{display:none}.dshOneSidebarShell_side [data-dshone-official-root]>[class*="newSession"]{display:none}.dshOneSidebarShell_side [data-dshone-official-root]{--dsh-sidebar-inline-padding:0px;padding-top:4px;max-width:none!important;margin-left:0!important;margin-right:0!important}.dshOneSidebarShell_overlay{z-index:20;pointer-events:none;position:absolute;inset:0}' +
   DENSITY_CSS
 const CSS_TAG_ID = '@dsh-one/vscode-sidebar-ui-layout/SidebarFrame.css'
 if (typeof document !== 'undefined' && document.querySelector(`style[data-plugin-css="${CSS_TAG_ID}"]`) === null) {
@@ -279,21 +288,80 @@ if (typeof document !== 'undefined' && document.querySelector(`style[data-plugin
 }
 
 // ---------------------------------------------------------------------------
+// 官方根元素标记（#178 C7+C9）：找到官方侧栏根元素、打上自有属性
+// `data-dshone-official-root`，CSS 与几何快照都按它取。
+//
+// 为什么不按层次取：官方根元素在 DOM 里的位置是「插槽容器下第几层」，那是渲染器
+// 的实现细节（实测当前形态 = `side` > `[data-slot="sidebar"]`（display:contents）>
+// `<hash>_root`），官方换个包装方式规则就静默不命中。
+//
+// 什么时候打：官方侧栏件是槽位条目，挂载晚于 frame 首帧，所以首拍多半还没有根
+// 元素；此外它可能被整体重挂（重挂后属性跟着旧元素走）。因此挂一个观察器：每次
+// DOM 变动先看已标记的元素还在不在（O(1)），不在才去按类名后缀找一遍。
+// ---------------------------------------------------------------------------
+
+const OFFICIAL_ROOT_ATTR = 'data-dshone-official-root'
+const OFFICIAL_ROOT_SELECTOR = `[${OFFICIAL_ROOT_ATTR}]`
+
+/**
+ * 官方侧栏根元素：`side` 子树里类名带 `root` 后缀的那个（css-module 名
+ * `<hash>_root`，见 0.1.6-alpha.1 的 dsh-client-ui-sidebar `lib/client.js` 的
+ * SidebarRoot）。取文档序第一个命中的——它就在插槽容器里。
+ */
+function findOfficialRoot(side: Element): HTMLElement | null {
+  // 用 getAttribute('class') 而不是 el.className：子树里有 SVG，SVG 的 className
+  // 是对象不是字符串。
+  for (const el of Array.from(side.querySelectorAll<HTMLElement>('*'))) {
+    const cls = el.getAttribute('class')
+    if (cls === null) continue
+    if (cls.split(/\s+/).some((token) => token === 'root' || token.endsWith('_root'))) return el
+  }
+  return null
+}
+
+/** 打标记（幂等）：已标记就原样返回，没找到根元素返回 null。 */
+function syncOfficialRootMark(): HTMLElement | null {
+  const side = document.querySelector('.dshOneSidebarShell_side')
+  if (side === null) return null
+  const marked = side.querySelector<HTMLElement>(OFFICIAL_ROOT_SELECTOR)
+  if (marked !== null) return marked
+  const root = findOfficialRoot(side)
+  if (root === null) return null
+  root.setAttribute(OFFICIAL_ROOT_ATTR, '')
+  return root
+}
+
+function watchOfficialRoot(): () => void {
+  let marked: HTMLElement | null = syncOfficialRootMark()
+  const sync = (): void => {
+    if (marked !== null && marked.isConnected) return
+    marked = syncOfficialRootMark()
+  }
+  const observer = new MutationObserver(sync)
+  observer.observe(document.body, { childList: true, subtree: true })
+  return () => observer.disconnect()
+}
+
+// ---------------------------------------------------------------------------
 // 骨架链几何快照（#70 自诊断构建）：实验室与真实 webview 出现「同文档不同
 // 结果」（用户侧左侧 ~15-20px 空条 + 细竖线，实验室任何宽度 padL/R=0 贴缘）——
 // 停止猜测，把 body→frame→side→wrapper→官方根 每层的 left/right/padding/
 // margin/border 打出来：浏览器直接 console.log，webview 经诊断探针
 // __DSH_ONE_PROBE__ 转给宿主输出面板（[assembly] 前缀频道）。只打一次，
 // 首拍等不到骨架（官方根挂载晚）就再试两拍。
+//
+// 每层给一个取值函数（#178 C7+C9）：官方根与它的父元素（插槽容器）都按标记属性取，
+// 不再拼 `.dshOneSidebarShell_side>div>[class*="root"]` 这种层次选择器。
 // ---------------------------------------------------------------------------
 
-const GEOMETRY_LAYERS = [
-  { label: 'body', selector: 'body' },
-  { label: 'frame', selector: '.dshOneSidebarShell_frame' },
-  { label: 'side', selector: '.dshOneSidebarShell_side' },
-  { label: 'wrapper', selector: '.dshOneSidebarShell_side>div' },
-  { label: 'official-root', selector: '.dshOneSidebarShell_side>div>[class*="root"]' },
-] as const
+const GEOMETRY_LAYERS: ReadonlyArray<{ label: string; resolve(): Element | null }> = [
+  { label: 'body', resolve: () => document.body },
+  { label: 'frame', resolve: () => document.querySelector('.dshOneSidebarShell_frame') },
+  { label: 'side', resolve: () => document.querySelector('.dshOneSidebarShell_side') },
+  // wrapper = 官方根元素的父元素（插槽容器，实测是 display:contents 的 div）。
+  { label: 'wrapper', resolve: () => document.querySelector(OFFICIAL_ROOT_SELECTOR)?.parentElement ?? null },
+  { label: 'official-root', resolve: () => document.querySelector(OFFICIAL_ROOT_SELECTOR) },
+]
 
 function reportGeometry(): void {
   const emit = (line: string): void => {
@@ -304,15 +372,15 @@ function reportGeometry(): void {
   const vw = document.documentElement.clientWidth
   emit(`[assembly] geometry viewport width=${vw}`)
   for (const layer of GEOMETRY_LAYERS) {
-    const el = document.querySelector(layer.selector)
+    const el = layer.resolve()
     if (el === null) {
-      emit(`[assembly] geometry ${layer.label} MISSING (selector ${layer.selector})`)
+      emit(`[assembly] geometry ${layer.label} MISSING`)
       continue
     }
     const r = el.getBoundingClientRect()
     const cs = getComputedStyle(el)
     emit(
-      `[assembly] geometry ${layer.selector} l=${Math.round(r.left)} r=${Math.round(r.right)} w=${Math.round(r.width)}` +
+      `[assembly] geometry ${layer.label} l=${Math.round(r.left)} r=${Math.round(r.right)} w=${Math.round(r.width)}` +
         ` padL=${cs.paddingLeft} padR=${cs.paddingRight} mL=${cs.marginLeft} mR=${cs.marginRight}` +
         ` bL=${cs.borderLeftWidth} bR=${cs.borderRightWidth} disp=${cs.display}`,
     )
@@ -323,7 +391,8 @@ function scheduleGeometrySnapshot(): void {
   let tries = 0
   const attempt = (): void => {
     tries += 1
-    if (document.querySelector('.dshOneSidebarShell_side>div>[class*="root"]') !== null || tries >= 3) {
+    // 观察器负责打标记，这里再补一次当兜底（比如观察器那条路被别的东西挡住）。
+    if (syncOfficialRootMark() !== null || tries >= 3) {
       reportGeometry()
       return
     }
@@ -369,6 +438,8 @@ export const inject = ['slots', 'theme']
 
 export function apply(ctx: ShellContext): void {
   scheduleGeometrySnapshot()
+  // 官方根元素的标记（#178 C7+C9）：CSS 那三条规则与几何快照都按它取。
+  ctx.effect(() => watchOfficialRoot(), 'dsh-one sidebar shell: mark official root on its own attribute')
   const layout = new LayoutController()
   ctx.effect(() => {
     const disposeService = ctx.reflect.provide('layout', layout)
