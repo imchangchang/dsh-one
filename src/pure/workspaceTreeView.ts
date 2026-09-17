@@ -458,6 +458,51 @@ export function showsStatusDot(statuses: readonly SessionStatus[], completed: bo
   return statuses[0]?.state !== 'done' || completed
 }
 
+/**
+ * 「跑完还没被打开」那颗绿点的判据里再算进**宿主的面板里正开着哪些会话**（#147）。
+ *
+ * 官方这条提醒的武装条件是「这一页的 selected 不是它」（`dsh-api-session-controller`
+ * 的 `syncCompletedNotifications`；`select()` 撤提醒）。官方 web 只有一页，selected
+ * 就是屏幕上那一条，所以判据成立。我们的 shell 有两个 webview（侧栏页 + 对话面板页
+ * 各一份官方 client），宿主把面板切到某条会话**不会**回写给侧栏页——于是那条会话跑完
+ * 时侧栏页照官方规则把它武装成完成提醒，**给一条用户正开着的会话亮绿点**（#147 报的
+ * 现场）。宿主侧知道真相（`pure/sessionPanelRouting.ts` 的 `panelOpenSessionIds`），
+ * 这条通道把它送给页面（见同文件的 `PANEL_SESSIONS_MESSAGE`），这里把它并进判据：
+ * 集合里的会话，`completed` 一律按 false 渲染。
+ *
+ * **为什么不是「让侧栏页的 selected 跟着宿主走」**（那是最贴近官方的形态，做不到）：
+ * ① 官方没有任何「撤掉某一条完成提醒」的口——唯一的删除点是 `select(id)`，而
+ * `select` 是单值的，同时开着的多个面板（单例 + 多开标签页）表达不了；② 侧栏页的选择
+ * 会被两处消费：选择桥（`sessionBridgePlugin` → `dshOne.sessionSelected` → 宿主
+ * `openSessionChat`）与官方持久化键（`dsh.sessions.current`，与对话面板页同源共享），
+ * 让宿主去改侧栏页的 selected 等于让「宿主开着的面板」反过来驱动「打开哪条会话」，
+ * 是个回环。所以这里只把它算进**渲染判据**。
+ *
+ * 边界（有意留下、写在这里免得被当成漏网）：这条判据回答的是「**此刻**这条会话是不是
+ * 正开在宿主面板里」。绿点武装（running→idle 那一下）时面板开着就压住了；此后再把面板
+ * 关掉，绿点会重新出现（官方那边提醒还在，因为侧栏页的 selected 从头到尾没变过）。
+ * 要连这一条也按官方的「武装那一刻」语义收口，等于在页面侧再养一份完成提醒的状态机，
+ * 本步不做——现场（用户正开着它 / 刚开着它）已经修掉，见 issue #147 的结论。
+ *
+ * 集合为空（官方 web 侧没有这条消息，或宿主一条都没开）时**原样返回同一份 list**
+ * （引用不变）：官方 web 侧的行为与这条通道不存在时逐字相同，也没有多余的重算。
+ */
+export function withoutPanelOpenCompleted(
+  list: SessionListLike,
+  panelOpen: ReadonlySet<string>,
+): SessionListLike {
+  if (panelOpen.size === 0) return list
+  let changed = false
+  const byId: Record<string, SessionSummaryLike> = { ...list.byId }
+  for (const [id, summary] of Object.entries(list.byId)) {
+    if (summary.completed === true && panelOpen.has(id)) {
+      byId[id] = { ...summary, completed: false }
+      changed = true
+    }
+  }
+  return changed ? { ...list, byId } : list
+}
+
 // ---------------------------------------------------------------------------
 // #81 功能 2：工作区行尾的「运行中 / 等待交互 / 未读」计数（#153 补回第三项）
 //
