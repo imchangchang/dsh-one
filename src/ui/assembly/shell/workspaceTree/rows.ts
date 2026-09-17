@@ -740,18 +740,33 @@ export function ProjectRow({
  */
 let rowDragActive = false
 
-/** 给树层拼好的拖拽属性外面包一层（记录拖拽窗口；原处理函数照常调用）。 */
-function withDragGuard(dragProps: Record<string, unknown> | undefined): Record<string, unknown> {
+/**
+ * 给树层拼好的拖拽属性外面包一层（记录拖拽窗口；原处理函数照常调用）。
+ *
+ * #155：这里同时是「源行半透明」的开关——拖起来把这一行标成 `dshOneTree_dragging`
+ * （旧侧栏 `.session-row.dragging{opacity:.45}`）。**官方侧栏没有这一手**：官方那一版
+ * 拖动时源行在 DOM 上一点不变，只有落点那条插入线（`Rows.module.css` 的
+ * `dropBefore`/`dropAfter` 两个伪元素，源行不带任何拖拽类名），拖起来的视觉是浏览器
+ * 自己那份半透明拖影。我们的装配树用的是同一套原生拖拽、也就有同一份拖影，但旧侧栏
+ * 在列表里还**额外**把源行压淡（它是自绘拖拽，没有浏览器拖影），用户认的是那个形态，
+ * 所以照旧侧栏补上；判定入口就在这一层（`dragstart` / `dragend` 各一次）。
+ */
+function withDragGuard(
+  dragProps: Record<string, unknown> | undefined,
+  onDragging: (dragging: boolean) => void,
+): Record<string, unknown> {
   if (dragProps === undefined) return {}
   const wrapped: Record<string, unknown> = { ...dragProps }
   const start = wrapped.onDragStart
   const end = wrapped.onDragEnd
   wrapped.onDragStart = (event: unknown): void => {
     rowDragActive = true
+    onDragging(true)
     if (typeof start === 'function') (start as (e: unknown) => void)(event)
   }
   wrapped.onDragEnd = (event: unknown): void => {
     rowDragActive = false
+    onDragging(false)
     if (typeof end === 'function') (end as (e: unknown) => void)(event)
   }
   return wrapped
@@ -915,6 +930,8 @@ export function SessionRow({
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
   const title = displayTitle(node, tr)
   const isCurrent = node.id === currentId
+  /** #155：这一行正被拖着（源行半透明，`dragstart` 开、`dragend` 关）。 */
+  const [rowDragging, setRowDragging] = useState(false)
   // ---- #115 行内改名：输入框、跨重绘的焦点/选区恢复、事件语义 ----
   const renameInput = useRef<HTMLInputElement | null>(null)
   /**
@@ -1166,7 +1183,7 @@ export function SessionRow({
     'div',
     {
       className:
-        `dshOneTree_sessionRow${(selectMode ? selected : isCurrent) ? ' dshOneTree_selected' : ''}${menuOpen ? ' dshOneTree_menuOpen' : ''}`,
+        `dshOneTree_sessionRow${(selectMode ? selected : isCurrent) ? ' dshOneTree_selected' : ''}${menuOpen ? ' dshOneTree_menuOpen' : ''}${rowDragging ? ' dshOneTree_dragging' : ''}`,
       role: 'treeitem',
       'aria-selected': selectMode ? selected : isCurrent,
       'data-dshone-tree-row': 'session',
@@ -1188,7 +1205,8 @@ export function SessionRow({
       // #107：把这一行拖进/拖出标签组（拖拽属性由树层拼，见 dragProps 的说明）。
       // 选择态不给拖：那时候整行只有「勾选」一个动作；编辑态也不给拖（拖走正在改名的
       // 行只会把编辑态连同输入框一起晃没）。
-      ...(selectMode || renamingNow ? {} : withDragGuard(dragProps)),
+      // #155：拖起来的这一行同时标成 `dshOneTree_dragging`（源行半透明，理由见 withDragGuard）。
+      ...(selectMode || renamingNow ? {} : withDragGuard(dragProps, setRowDragging)),
       // #115/#121 情境化点击：**非当前会话** = 打开（原样）；**当前会话** = 报到树层
       // （由它问过宿主再定就地改名还是按打开处理，见 onCurrentRowClick 的说明）。
       // 行内互斥件（行尾状态点/图钉/定时标记/时间/⋯ 那一层）点上去不算「点行」，

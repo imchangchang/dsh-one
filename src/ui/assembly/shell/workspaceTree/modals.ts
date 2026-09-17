@@ -9,6 +9,9 @@
  *
  * #139：「管理分组…」多了一层——点分组名进它的**成员清单**（全部工作区 + 勾选），
  * 详见 {@link ManageGroupsModal}。
+ *
+ * #155：「管理分组…」第一级的分组行可以拖着换顺序（抓手 + 落下重排），拖拽载荷与落点
+ * 判定沿用 `tagGroups.ts` 的 pill 拖拽那一套，详见 {@link ManageGroupsModal}。
  */
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import {
@@ -24,12 +27,21 @@ import type { SessionBlock } from '../../../../pure/workspaceTreeView.ts'
 import type { WorkspaceGroupDef } from '../../../../pure/treeGroups.ts'
 import { TAG_COLORS, type TagColor } from '../../../../pure/sessionTags.ts'
 import { displayTitle } from './format.ts'
+import { GROUP_DRAG_MIME } from './groups.ts'
 import { SelectMark } from './selection.ts'
-import { TAG_COLOR_CSS, TAG_COLOR_LABEL } from './tagGroups.ts'
+import { TAG_COLOR_CSS, TAG_COLOR_LABEL, carries, leavingContainer, type DragLike } from './tagGroups.ts'
 import type { Translate } from './types.ts'
 
 /** 弹窗容器的自有类名（挂在官方 Modal 的 dialog 元素上，几何见 styles.ts 那一节）。 */
 const MODAL_CLASS = 'dshOneTree_modal'
+
+/**
+ * 分组行抓手上的 6 个点（2 列 × 3 行，9×14 的坐标格）——逐字取自旧侧栏管理视图那枚把手
+ * （`sessionsWebview.ts` 的 `dragHandleSvg()`：`cx` 2/7、`cy` 1.5/7/12.5、`r` 1.4）。
+ * 官方 primitives 的图标表里没有「把手」这一类（79 枚 `Icon*` 逐个看过，见
+ * `collapseAllGlyph.ts` 的同类举证），所以与那枚一样自绘，形状按旧侧栏原样搬。
+ */
+const HANDLE_DOTS = [1.5, 7, 12.5].flatMap((cy) => [2, 7].map((cx) => ({ cx, cy })))
 
 /** 头行：标题 + 关闭钮。官方 Modal 在 `headless` 下不再渲染这两件，由这里按紧凑档拼。
  *  `leading` 是标题左边的可选件（成员清单的「返回分组列表」落在这一格）。 */
@@ -581,11 +593,23 @@ export function DeleteWorkspaceModal({
  * 组好传进来）、每行一枚勾选件（复用会话多选态的 {@link SelectMark}），点一下即时
  * 入组 / 出组；顶部一行是搜索框 + 「全选 / 清空」，头行最左是返回分组列表的入口。
  *
+ * ## #155：第一级的分组行可以拖着换顺序
+ *
+ * 旧侧栏的管理视图里，每条分组行前面有一枚抓手（`.wsg-row-handle`，6 点自绘把手），
+ * 抓住它上下拖就能改分组的先后（`sessionsWebview.ts:1107-1168`）。装配树这里照旧补上
+ * ——抓手的位置、尺寸、`cursor:grab` / `:active{cursor:grabbing}` 与拖动中被拖那一行的
+ * 半透明（`.wsg-row.dragging{opacity:.55}`）都沿用旧侧栏。
+ *
+ * 载荷与落点判定**沿用同页的另一条拖拽**（`tagGroups.ts` 的 pill 拖拽）：自己一个自定义
+ * MIME（`GROUP_DRAG_MIME`，名字与理由见 `groups.ts`），落点按指针在目标行中轴的哪一半
+ * 定前/后，落点标记也是一条 2px 的实线。**拖动的是抓手、落下认的是整行**——行里还有
+ * 三个按钮（分组名、✎、🗑），把整行设成 `draggable` 会让它们既是点击目标又是拖拽源。
+ *
  * 三处刻意的取舍（与 issue #139 的「明确的取舍」一致）：
  * - **不做 Telegram 的「排除的聊天」那一段**：那一段是为「按类别自动纳入」服务的，
  *   而我们这里是手工逐一勾选、且归属多对多——勾选本身就覆盖了排除的语义。
- * - **不做拖拽**：拖拽那条路径已经有了（pill 拖拽换组序、会话行拖进组块），本层只加
- *   管理界面里的勾选路径。
+ * - **第二级（成员清单）仍不做拖拽**（#139 定的）：那一层是勾选语义，拖拽那条路径
+ *   已经有会话行拖进组块这一条（第一级的分组换序由 #155 补上）。
  * - **「全选 / 清空」的作用域 = 当前过滤结果**（不是全部工作区）：搜索框在场时，用户
  *   眼前就是那几个工作区，批量动作只收拾看得见的那些才与「所见即所得」一致；要看全
  *   部就先清空搜索框（那时过滤结果 = 全部）。这条口径写在按钮的渲染位置这里，验证
@@ -605,6 +629,7 @@ export function ManageGroupsModal({
   onCreate,
   onRename,
   onDelete,
+  onReorder,
   onToggleMember,
   onSetMembers,
   onClose,
@@ -622,6 +647,8 @@ export function ManageGroupsModal({
   onCreate: (name: string) => 'empty' | 'duplicate' | null
   onRename: (groupId: string, name: string) => void
   onDelete: (groupId: string, name: string) => void
+  /** #155：拖组行换顺序——交出**拖完之后的完整 id 顺序**（只在这一条路上算一次）。 */
+  onReorder: (groupIds: readonly string[]) => void
   /** 勾选 / 取消勾选一个工作区的归属（走树层同一个纯函数与同一个落盘口；**组在前**）。 */
   onToggleMember: (groupId: string, workspaceId: string) => void
   /** 批量勾选 / 取消（「全选 / 清空」，作用域 = 调用方给的这一批）。 */
@@ -633,6 +660,15 @@ export function ManageGroupsModal({
   /** 正在看哪一组的成员清单（null = 分组列表）。 */
   const [memberGroupId, setMemberGroupId] = useState<string | null>(null)
   const [memberQuery, setMemberQuery] = useState('')
+  /**
+   * #155 拖拽换序的两个态：正在拖哪一组、当前落在哪一行的哪一半（null = 没有落点）。
+   *
+   * 与 pill 拖拽同款（`tagGroups.ts` 的 `pillDrop`）——都只在拖拽期间活着，`dragend`
+   * 与 `drop` 各自收掉。顺序本身不住在这里：落下那一下按这份落点算出完整顺序交出去，
+   * 界面跟着树层的状态重排（不做 DOM 手动搬移，与写回只有一条路同源）。
+   */
+  const [dragGroupId, setDragGroupId] = useState<string | null>(null)
+  const [dropAt, setDropAt] = useState<{ id: string; before: boolean } | null>(null)
   const lastOpen = useRef(false)
   useEffect(() => {
     if (open && !lastOpen.current) {
@@ -640,6 +676,8 @@ export function ManageGroupsModal({
       setError(null)
       setMemberGroupId(null)
       setMemberQuery('')
+      setDragGroupId(null)
+      setDropAt(null)
     }
     lastOpen.current = open
   }, [open])
@@ -670,6 +708,78 @@ export function ManageGroupsModal({
       },
       action === 'rename' ? h(IconEditOutline16, {}) : h(IconTrashOutline16, {}),
     )
+  /** 指针在目标行中轴的哪一半（上 = 插到它前面）。与 pill 拖拽同一条判定，不另立一套。 */
+  const dropBefore = (event: DragLike): boolean => {
+    const rect = event.currentTarget.getBoundingClientRect()
+    return event.clientY < rect.top + rect.height / 2
+  }
+  /**
+   * 落下：把「拖的是谁、落在谁的上/下半」翻成一次完整顺序，交给树层那一个落盘口。
+   *
+   * 先摘下源、再在目标（**摘除后的**位置）前/后插入——与 pill 拖拽的算式一字不差
+   *（`tagGroups.ts` 的 onDrop）。落到自己身上直接返回：顺序没变，不该产生一次写入。
+   */
+  const dropOnGroup = (sourceId: string, targetId: string, before: boolean): void => {
+    const ids = groups.map((group) => group.id)
+    const from = ids.indexOf(sourceId)
+    const to = ids.indexOf(targetId)
+    if (from === -1 || to === -1) return
+    ids.splice(from, 1)
+    ids.splice(ids.indexOf(targetId) + (before ? 0 : 1), 0, sourceId)
+    onReorder(ids)
+  }
+  /** 抓手（旧侧栏 `.wsg-row-handle` 那枚 6 点把手）：拖拽的源只有它。 */
+  const dragHandle = (groupId: string): unknown =>
+    h(
+      'span',
+      {
+        className: 'dshOneTree_manageHandle',
+        draggable: true,
+        title: tr('group.drag'),
+        'aria-label': tr('group.drag'),
+        'data-dshone-tree-action': 'group-drag',
+        'data-dshone-group-target': groupId,
+        onDragStart: (event: DragLike) => {
+          if (event.dataTransfer === null) return
+          event.dataTransfer.setData(GROUP_DRAG_MIME, groupId)
+          event.dataTransfer.effectAllowed = 'move'
+          setDragGroupId(groupId)
+        },
+        onDragEnd: () => {
+          setDragGroupId(null)
+          setDropAt(null)
+        },
+      },
+      h(
+        'svg',
+        { width: 9, height: 14, viewBox: '0 0 9 14', fill: 'currentColor', 'aria-hidden': true },
+        HANDLE_DOTS.map((dot) => h('circle', { key: `${String(dot.cx)}-${String(dot.cy)}`, cx: dot.cx, cy: dot.cy, r: 1.4 })),
+      ),
+    )
+  /** 一条分组行的落点判定（拖动的是抓手，认落点的是整行——行里还有三个按钮）。 */
+  const groupDropZone = (groupId: string): Record<string, unknown> => ({
+    onDragOver: (event: DragLike) => {
+      if (!carries(event, GROUP_DRAG_MIME)) return
+      event.preventDefault()
+      if (event.dataTransfer !== null) event.dataTransfer.dropEffect = 'move'
+      setDropAt({ id: groupId, before: dropBefore(event) })
+    },
+    onDragLeave: (event: DragLike) => {
+      if (!carries(event, GROUP_DRAG_MIME)) return
+      if (!leavingContainer(event)) return
+      setDropAt(null)
+    },
+    onDrop: (event: DragLike) => {
+      if (!carries(event, GROUP_DRAG_MIME)) return
+      event.preventDefault()
+      const before = dropBefore(event)
+      const sourceId = event.dataTransfer?.getData(GROUP_DRAG_MIME) ?? ''
+      setDropAt(null)
+      setDragGroupId(null)
+      if (sourceId === '' || sourceId === groupId) return
+      dropOnGroup(sourceId, groupId, before)
+    },
+  })
   if (memberGroup !== null) {
     const memberIds = new Set(groupMembers(memberGroup.id))
     const query = memberQuery.trim().toLowerCase()
@@ -800,7 +910,22 @@ export function ManageGroupsModal({
           : groups.map((group) =>
               h(
                 'div',
-                { className: 'dshOneTree_manageRow', key: group.id, 'data-dshone-manage-group': group.id },
+                {
+                  className:
+                    `dshOneTree_manageRow` +
+                    // 拖动中的源行半透明（旧侧栏 `.wsg-row.dragging{opacity:.55}`）。
+                    `${dragGroupId === group.id ? ' dshOneTree_manageRowDragging' : ''}`,
+                  key: group.id,
+                  'data-dshone-manage-group': group.id,
+                  // 落点标记：指针停在行的上半 / 下半，标记值即插到它前 / 后（与 pill 拖拽
+                  // 的 `data-dshone-tag-drop` 同一形态，样式见 styles.ts）。
+                  'data-dshone-group-drop':
+                    dropAt !== null && dropAt.id === group.id ? (dropAt.before ? 'before' : 'after') : '',
+                  ...groupDropZone(group.id),
+                },
+                // #155：抓手是这一行**唯一的**拖拽源（行里还有三个按钮，整行可拖会让它们
+                // 既是点击目标又是拖拽源）。
+                dragHandle(group.id),
                 // 名字本身就是进成员清单的入口（Telegram 的文件夹行也是点一下进去）；
                 // 行尾 ✎/🗑 仍是「关掉本框、开那一套对话框」，各点各的。
                 h(

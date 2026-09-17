@@ -31,6 +31,8 @@ export const ZH: Record<string, string> = {
   'group.name.empty': '\u5206\u7ec4\u540d\u79f0\u4e0d\u80fd\u4e3a\u7a7a',
   'group.name.duplicate': '\u5df2\u5b58\u5728\u540c\u540d\u5206\u7ec4',
   'group.membership': '\u6240\u5c5e\u5206\u7ec4',
+  // #155 管理框里组行抓手的提示（取值逐字取自旧侧栏同一条：「拖动排序」）。
+  'group.drag': '\u62D6\u52A8\u6392\u5E8F',
   // #139 成员清单（管理分组对话框的第二层）。
   'group.members.open': '\u7F16\u8F91\u201C{name}\u201D\u7684\u6210\u5458',
   'group.members.back': '\u8FD4\u56DE\u5206\u7EC4\u5217\u8868',
@@ -241,6 +243,8 @@ export const EN: Record<string, string> = {
   'group.name.empty': 'Group name cannot be empty',
   'group.name.duplicate': 'A group with this name already exists',
   'group.membership': 'Groups',
+  // #155 drag handle of a group row in the manage dialog (same string as the old sidebar).
+  'group.drag': 'Drag to reorder',
   // #139 member list (second level of the manage-groups dialog).
   'group.members.open': 'Edit members of \u201c{name}\u201d',
   'group.members.back': 'Back to the group list',
