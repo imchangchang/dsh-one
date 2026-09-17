@@ -1395,7 +1395,7 @@ export function SessionRow({
 }
 
 /**
- * 搜索命中的高亮（#152）：把 text 里**第一处**命中词（大小写不敏感）包成
+ * 搜索命中的高亮（#152、#166）：把 text 里**每一处**命中词（大小写不敏感）各包成一个
  * `<mark class="dshOneTree_searchMark">`，其余部分原样返回（标题 / 工作区名 / 片段三处共用）。
  *
  * ## 为什么照旧侧栏这一版，而不是「跟官方一致」
@@ -1404,23 +1404,42 @@ export function SessionRow({
  * `SearchResultItem` 把 `title` / `workspace` / `snippet` 三个字符串**原样**当文本子节点渲染，
  * 官方 `Rows.module.css` 里也没有任何高亮类或 `<mark>` 规则（0.1.6-alpha.1 实测，整个 combo
  * 里没有一处 `<mark`）。官方没有可对齐的形态，就按**旧侧栏的处置**补：`sessionsWebview.ts`
- * 的 `highlightText`（`indexOf` 定位、**只标第一处**、大小写不敏感）——`<mark>` 正是这个标签的
- * 语义（「因另一处上下文而相关」），读屏软件也认得，所以照旧沿用它。
+ * 的 `highlightText`（`indexOf` 定位、大小写不敏感，那一份仍是只标第一处）——`<mark>` 正是这个
+ * 标签的语义（「因另一处上下文而相关」），读屏软件也认得，所以标记本身沿用它。
  *
- * 只标第一处是旧侧栏的既有行为：一段文字里同一个词出现多次时，只有第一处变色。这条与
- * 「大小写不敏感」一起由 F-49 钉住。
+ * ## 标几处（#166 起每一处都标）
+ *
+ * #152 先照旧侧栏那样**只标第一处**；#166 用户拍板改成**每一处都标**——同一段文字里那个词
+ * 出现几次就标几处，文字仍是原文那一段（只加标记、不改文字），顺序按出现顺序。两处边界口径
+ * 一起定死：
+ * - **相邻出现两处都标**：前一处匹配到的这一段结束后，紧接着的那一处照常算（不存在「跳过相邻
+ *   的那一处」）；
+ * - **重叠不重复计**：从上一处命中的**末尾**继续往后找（不是从它后面一个字符），所以像 `aba`
+ *   之于 `ababa` 那种「同一段文字里能起两处头、但两处互相压着」的查法只算第一处。
+ *
+ * 这三条（每一处都标、相邻都标、重叠只算一次）与「大小写不敏感」一起由 F-49 用受控夹具钉住。
  */
 function highlightMatches(text: string, query: string): unknown[] {
   const needle = query.trim().toLowerCase()
-  const index = needle === '' ? -1 : text.toLowerCase().indexOf(needle)
-  if (index < 0) return [text]
-  const head = text.slice(0, index)
-  const tail = text.slice(index + needle.length)
-  return [
-    ...(head === '' ? [] : [head]),
-    h('mark', { key: 'hit', className: 'dshOneTree_searchMark' }, text.slice(index, index + needle.length)),
-    ...(tail === '' ? [] : [tail]),
-  ]
+  if (needle === '') return [text]
+  const haystack = text.toLowerCase()
+  // 整体转小写会改变长度的字符（例如 `İ` → `i̇`）会让小写串里的位置与原文对不上，
+  // 那就宁可不标，也不标错位置。
+  if (haystack.length !== text.length) return [text]
+  const parts: unknown[] = []
+  let cursor = 0
+  for (;;) {
+    const index = haystack.indexOf(needle, cursor)
+    if (index < 0) break
+    if (index > cursor) parts.push(text.slice(cursor, index))
+    parts.push(
+      h('mark', { key: `hit-${String(index)}`, className: 'dshOneTree_searchMark' }, text.slice(index, index + needle.length)),
+    )
+    cursor = index + needle.length
+  }
+  if (parts.length === 0) return [text]
+  if (cursor < text.length) parts.push(text.slice(cursor))
+  return parts
 }
 
 /** 搜索结果行（官方 `SearchResultItem`）：标题 + 工作区 + 内容片段（#152 起三处都标高亮）。 */
