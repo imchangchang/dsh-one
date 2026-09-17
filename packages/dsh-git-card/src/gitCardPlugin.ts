@@ -59,6 +59,28 @@
  *      注册表里 sessionIds 含当前会话那一行的 path。两处都取不到（空白会话/数据
  *      未就绪）就不传 cwd，交宿主回落到 VS Code 工作区（不报错）。
  *   `workspaces` 是**可选**服务，故不进 inject（缺了会让整插件 park），按需取。
+ *
+ * ## 有意依赖：两路来源都必须留着（#182 实测定案，别再「收成一路」）
+ *
+ * #96 审计的 D7 给过一条收敛方向：只留 `workspaces.list` 的 `path` 一路、去掉
+ * `byId[current].cwd`。**#182 实测证明收不得**——工作区那一行只覆盖「挂在该工作区
+ * 名下」的会话，另有两类会话在那份 `sessionIds` 里根本不存在：
+ *   - **子代理会话**（`parentId` 有值）：可以经官方会话头目录打开（官方
+ *     `dsh-client-ui-subagent` 的读法就是「browse every subagent conversation beneath a
+ *     parent session, open any descendant」），而它们绝大多数不在任何工作区的
+ *     `sessionIds` 里（本机 2026-09-18 实测：584 条子会话只有 25 条在册）；
+ *   - **未分组会话**（官方 `session/create` 用 `cwd` 而非 `workspaceId` 建的，或我们自己
+ *     侧栏「未分组」桶的 ＋ 建的 `sessions.create({})`）：按官方工作区注册表的归属规则，
+ *     这类会话不属于任何工作区。
+ * 这两类会话收成一路后拿不到 cwd，宿主就回落到 VS Code 工作区目录——**实测**（同一台
+ * 临时 `DSH_HOME` 网关 + 真 git）：未分组会话的提交在「会话自己那个目录」里查得到（改前
+ * `查到=true`），收成一路后查询根变成 VS Code 打开的另一个仓库（`查到=false`）。
+ * 所以这里保留两路，并把这条依赖登记在案：`SessionSummary.cwd` 取的是官方客户端服务的
+ * **公开字段**（`@deepseek-ai/dsh-api-session-controller/client` 的 `SessionListState` /
+ * `SessionSummary`，契约模块自述「the outward sessions-service face — what `ctx.sessions`
+ * exposes to feature packages」），只是仍属 #96 的**三档**（官方字段名）。
+ * 常驻护栏 = 实验室 **F-60**（`test/assembly-lab/gitCardCwdSuites.ts`）：未分组会话的
+ * `git.show` 必须仍带会话自己的 cwd——谁把来源收成一路，这一条当场红。
  */
 import { createElement as h, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
@@ -544,6 +566,9 @@ export function apply(ctx: GitCardContext): void {
    * 当前会话所属的 dsh 工作区路径（机制层 2 官方服务）：
    * ① sessions list 当前行的 cwd；②兜底 workspaces 注册表里含该会话那一行的
    * path；都取不到返回 undefined（调用方不传 cwd，交宿主回落）。
+   *
+   * 两条来源**都必须留**：工作区那一行的 `sessionIds` 不含子代理会话与未分组会话
+   * （实测读数和理由见文件头「有意依赖」那一段，护栏是实验室 F-60）。
    */
   const sessionWorkspacePath = (): string | undefined => {
     const list = ctx.get('sessions').list.getSnapshot()
