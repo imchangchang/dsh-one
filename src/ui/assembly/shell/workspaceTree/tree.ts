@@ -80,6 +80,7 @@ import { RecycleDrawer } from './recycleDrawer.ts'
 import { setRecycleDrawerOpen, useRecycleDrawerOpen } from './recycleDrawerStore.ts'
 import { recycleEntrySignal } from './recycleEntry.ts'
 import { ProjectRow, SearchResultRow, SessionRow } from './rows.ts'
+import { useScrollbarLane } from './scrollbarLane.ts'
 import { EMPTY_SEARCH, SEARCH_DEBOUNCE_MS, sanitizeQuery, type SearchState } from './search.ts'
 import { SelectionBar, selectionEntrySignal } from './selection.ts'
 import './styles.ts'
@@ -205,6 +206,9 @@ export function WorkspaceTree(props: TreeProps): unknown {
   const [tagNewSession, setTagNewSession] = useState<{ groupKey: string; tagId: string } | null>(null)
   const rootRef = useRef<HTMLDivElement | null>(null)
   const hoverCard = useHoverCardRoom(rootRef)
+  // #168：列表给滚动条留的那一格**按当页实测**写回变量（浮层滚动条下是 0，实占时是滚动条
+  // 自身的宽），顶栏那一行的右内缩与列表自己的右内边距都读它——见 scrollbarLane.ts 的文件头。
+  useScrollbarLane(rootRef)
 
   // 本地回收站（#103 的两层语义第一层）：状态住 recycleBinStore（同一 bundle 内共享，
   // 入口行与这里看到的是同一份）。`recycledIds` = 还认得出来的那些；主树过滤、抽屉内容、

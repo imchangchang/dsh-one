@@ -1727,7 +1727,7 @@ function onSessionOwnedElsewhere(listener) {
 }
 
 // src/ui/assembly/shell/workspaceTree/tree.ts
-var import_react13 = require("react");
+var import_react14 = require("react");
 var import_dsh_client_ui_primitives10 = require("@deepseek-ai/dsh-client-ui-primitives");
 
 // src/pure/tokenScan.ts
@@ -4451,6 +4451,34 @@ function RecycleRow({
   );
 }
 
+// src/ui/assembly/shell/workspaceTree/scrollbarLane.ts
+var import_react11 = require("react");
+var LANE_VARIABLE = "--dsh-session-list-scrollbar-width";
+var LIST_SELECTOR = ".dshOneTree_list";
+function measureLane(root) {
+  const list = root.querySelector(LIST_SELECTOR);
+  if (!(list instanceof HTMLElement)) return;
+  const lane = list.offsetWidth - list.clientWidth;
+  const written = `${lane}px`;
+  if (root.style.getPropertyValue(LANE_VARIABLE) === written) return;
+  root.style.setProperty(LANE_VARIABLE, written);
+}
+function useScrollbarLane(rootRef) {
+  (0, import_react11.useLayoutEffect)(() => {
+    const root = rootRef.current;
+    if (root !== null) measureLane(root);
+  });
+  (0, import_react11.useEffect)(() => {
+    const root = rootRef.current;
+    if (root === null) return;
+    const list = root.querySelector(LIST_SELECTOR);
+    if (!(list instanceof HTMLElement) || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => measureLane(root));
+    observer.observe(list, { box: "content-box" });
+    return () => observer.disconnect();
+  }, []);
+}
+
 // src/ui/assembly/shell/workspaceTree/search.ts
 var SEARCH_DEBOUNCE_MS = 250;
 var SEARCH_QUERY_MAX = 500;
@@ -4467,6 +4495,12 @@ var CSS = (
   // 容器外，让侧栏外层（官方 hHd-Xa_regionArea）的 scrollWidth 比 clientWidth 大 4px
   // ——平时看不见，但官方在「单列表」视图里对选中行 scrollIntoView 时会被横滚 4px，
   // 整棵树跟着左移 4px（#85 回归断言实测到的既有缺陷）。列表自己的滚动在 .dshOneTree_list。
+  //
+  // 这里声明的两个右偏移量，性质不同：`--dsh-session-list-scrollbar-offset` 是我们自己
+  // 让列表往左退的一格（常量），`--dsh-session-list-scrollbar-width` 是**滚动条占的那一格**
+  // ——它由宿主的滚动条形态决定（Windows 实占、macOS 浮层不占），所以下面那个 8px 只是
+  // 「还没量过」时的声明值，页面挂载后由 scrollbarLane.ts 把当页实测值写回同一根变量
+  // （#168）。消费方只有顶栏那一行与列表两条规则，它们读到的都是写回后的真值。
   '.dshOneTree_root{--dsh-session-list-edge-inset:var(--dsh-sidebar-inline-padding);--dsh-session-list-scrollbar-width:8px;--dsh-session-list-scrollbar-offset:2px;box-sizing:border-box;min-height:0;padding-right:var(--dsh-session-list-edge-inset);overflow:hidden;flex-direction:column;flex:1;display:flex;position:relative}.dshOneTree_iconButton{cursor:pointer;width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-icon-button-size,28px);color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_iconButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_sectionHeader{box-sizing:border-box;height:var(--dsh-one-density-section-header-height,36px);color:var(--dsw-alias-label-tertiary);border-radius:12px;flex:none;justify-content:flex-end;align-items:center;gap:var(--dsh-one-density-section-gap,4px);margin-bottom:var(--dsh-one-density-section-header-gap,4px);padding-left:var(--dsh-one-density-section-padding-inline,4px);padding-right:calc(4px + var(--dsh-session-list-scrollbar-offset) + var(--dsh-session-list-scrollbar-width) + var(--dsh-one-density-row-padding-inline,8px));display:flex;overflow:hidden;margin-top:2px;margin-right:-4px}.dshOneTree_searchSlot{box-sizing:border-box;min-width:0;max-width:var(--dsh-one-density-icon-button-size,28px);transition:max-width .18s var(--ds-ease-in-out),padding-left .18s var(--ds-ease-in-out);flex:1 0 auto;align-items:center;margin-left:auto;padding-left:0;display:flex}.dshOneTree_searchSlotExpanded{max-width:100%;padding-left:calc(var(--dsh-one-density-row-padding-inline,8px) - var(--dsh-one-density-section-padding-inline,4px) + 2px)}.dshOneTree_headerActions{opacity:1;visibility:visible;max-width:100%;flex:none;align-items:center;gap:var(--dsh-one-density-section-gap,4px);transition:max-width .18s var(--ds-ease-in-out),opacity .12s var(--ds-ease-in-out),transform .18s var(--ds-ease-in-out),visibility 0s linear;display:flex;overflow:hidden}.dshOneTree_headerActionsHidden{opacity:0;pointer-events:none;visibility:hidden;max-width:0;transform:translate(4px);transition-delay:0s,0s,0s,.18s}.dshOneTree_search{box-sizing:border-box;cursor:text;width:100%;height:var(--dsh-one-density-search-height,28px);color:var(--dsw-alias-label-secondary);transition:width .18s var(--ds-ease-in-out),padding .18s var(--ds-ease-in-out),border-color .18s var(--ds-ease-in-out),background-color .18s var(--ds-ease-in-out);background:0 0;border:none;border-radius:50%;flex:none;align-items:center;gap:0;margin:0;padding:0;display:flex;overflow:hidden}.dshOneTree_searchExpanded{border:.5px solid var(--dsw-alias-border-l4);width:calc(100% + 4px);height:var(--dsh-one-density-search-expanded-height,30px);color:var(--dsw-alias-label-caption);background:0 0;border-radius:10px;margin-inline:-2px;padding:0 4px 0 0}.dshOneTree_searchButton{cursor:pointer;width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-icon-button-size,28px);color:inherit;background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_searchExpanded .dshOneTree_searchButton{width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-search-expanded-height,30px)}.dshOneTree_searchButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_searchExpanded .dshOneTree_searchButton:hover{background:0 0}.dshOneTree_searchInput{opacity:0;pointer-events:none;width:0;min-width:0;color:var(--dsw-alias-label-primary);transition:opacity .12s var(--ds-ease-in-out);background:0 0;border:none;outline:none;flex:1;font-size:13px;line-height:18px}.dshOneTree_searchExpanded .dshOneTree_searchInput{opacity:1;pointer-events:auto;margin-left:-2px}.dshOneTree_searchInput::placeholder{color:var(--dsw-alias-label-tertiary)}.dshOneTree_clearButton{cursor:pointer;width:24px;height:24px;color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_clearButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_listArea{min-height:0;margin-left:-4px;margin-right:calc(-1 * var(--dsh-session-list-edge-inset));flex-direction:column;flex:1;padding-left:4px;display:flex;overflow:visible}.dshOneTree_list{min-height:0;margin-left:-4px;margin-right:var(--dsh-session-list-scrollbar-offset);padding-left:4px;padding-right:calc(var(--dsh-session-list-edge-inset) - var(--dsh-session-list-scrollbar-width) - var(--dsh-session-list-scrollbar-offset));scrollbar-gutter:stable;flex:1;padding-bottom:var(--dsh-one-density-list-padding-bottom,16px);overflow-y:auto}.dshOneTree_groupSection>*+*{margin-top:var(--dsh-one-density-row-gap,2px)}.dshOneTree_groupSection{position:relative}.dshOneTree_groupSection+.dshOneTree_groupSection{margin-top:var(--dsh-one-density-group-gap,4px)}.dshOneTree_searchStatus,.dshOneTree_searchWarning{color:var(--dsw-alias-label-tertiary);padding:10px 12px;font-size:12px;line-height:18px}.dshOneTree_searchWarning{color:var(--dsw-alias-label-secondary)}.dshOneTree_empty{color:var(--dsw-alias-label-tertiary);padding:16px 12px;font-size:13px}.dshOneTree_emptyLine+.dshOneTree_emptyLine{margin-top:2px}.dshOneTree_emptyAction{cursor:pointer;height:26px;color:var(--dsw-alias-label-secondary);background:0 0;border:.5px solid var(--dsw-alias-border-l3);border-radius:5px;flex:none;align-items:center;margin-top:8px;padding:0 10px;font-family:inherit;font-size:12px;display:inline-flex}.dshOneTree_emptyAction:hover{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l4);background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_sessionOverflowButton{cursor:pointer;text-align:left;width:100%;height:var(--dsh-one-density-overflow-row-height,28px);color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:var(--dsh-one-density-row-radius,8px);padding:0 12px 0 28px;font-size:var(--dsh-one-density-meta-font-size,12px)}.dshOneTree_sessionOverflowButton:hover{color:var(--dsw-alias-label-secondary);background:0 0}.dshOneTree_projectRow,.dshOneTree_sessionRow{cursor:pointer;user-select:none;color:var(--dsw-alias-label-primary);border-radius:var(--dsh-one-density-row-radius,8px);align-items:center;gap:6px;padding:0 var(--dsh-one-density-row-padding-inline,8px);display:flex}.dshOneTree_projectRow:hover,.dshOneTree_sessionRow:hover,.dshOneTree_sessionRow.dshOneTree_selected,.dshOneTree_projectRow.dshOneTree_menuOpen,.dshOneTree_sessionRow.dshOneTree_menuOpen{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_projectRow{box-sizing:border-box;align-items:center;height:var(--dsh-one-density-row-height,34px)}.dshOneTree_projectRow .dshOneTree_rowActions{height:20px}.dshOneTree_sessionRow{height:var(--dsh-one-density-session-row-height,32px);gap:0}.dshOneTree_dragging{opacity:.45}.dshOneTree_sessionRow .dshOneTree_title{flex:1;margin:0 6px 0 4px}.dshOneTree_inlineRenameInput{box-sizing:border-box;flex:1;min-width:0;height:var(--dsh-one-density-title-line-height,20px);margin:0 6px 0 4px;padding:0 4px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover);border:.5px solid var(--dsw-alias-border-l4);border-radius:4px;outline:none;font-size:var(--dsh-one-density-title-font-size,14px);line-height:var(--dsh-one-density-title-line-height,20px);user-select:text}.dshOneTree_slot{width:16px;height:20px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;display:inline-flex}.dshOneTree_visuallyHidden{clip:rect(0 0 0 0);white-space:nowrap;width:1px;height:1px;position:absolute;overflow:hidden}.dshOneTree_folderActive{color:var(--dsw-alias-state-business-primary)}.dshOneTree_projectRow .dshOneTree_chevron{display:none}.dshOneTree_projectRow:hover .dshOneTree_chevron{display:inline-flex}.dshOneTree_projectRow:hover .dshOneTree_folder{display:none}.dshOneTree_arrow{transition:transform .15s var(--ds-ease-in-out)}.dshOneTree_arrowOpen{transform:rotate(90deg)}.dshOneTree_projectText{flex-direction:column;flex:1;gap:2px;min-width:0;display:flex}.dshOneTree_title{text-overflow:ellipsis;white-space:nowrap;min-width:0;font-size:var(--dsh-one-density-title-font-size,14px);line-height:var(--dsh-one-density-title-line-height,20px);overflow:hidden}.dshOneTree_projectRow .dshOneTree_title{display:flex;align-items:center}.dshOneTree_projectRow .dshOneTree_titleText{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.dshOneTree_time{color:var(--dsw-alias-label-tertiary);flex:none;font-size:var(--dsh-one-density-meta-font-size,12px);line-height:var(--dsh-one-density-meta-line-height,20px)}.dshOneTree_scheduleIndicator{width:16px;height:20px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;margin-right:6px;display:inline-flex}.dshOneTree_searchScheduleIndicator{margin-left:4px;margin-right:0}.dshOneTree_dot{flex:none}.dshOneTree_rowActions{flex:none;align-items:center;gap:12px;display:none}.dshOneTree_projectRow:hover .dshOneTree_rowActions,.dshOneTree_sessionRow:hover .dshOneTree_rowActions,.dshOneTree_projectRow.dshOneTree_menuOpen .dshOneTree_rowActions,.dshOneTree_sessionRow.dshOneTree_menuOpen .dshOneTree_rowActions{display:inline-flex}.dshOneTree_sessionRow:hover .dshOneTree_time,.dshOneTree_sessionRow.dshOneTree_menuOpen .dshOneTree_time{display:none}.dshOneTree_rowIconButton{cursor:pointer;width:16px;height:16px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_rowIconButton:hover{color:var(--dsw-alias-label-primary)}.dshOneTree_chevron{color:var(--dsw-alias-label-caption)}.dshOneTree_searchRow{box-sizing:border-box;cursor:pointer;text-align:left;width:100%;min-height:var(--dsh-one-density-search-row-min-height,48px);color:var(--dsw-alias-label-primary);background:0 0;border:none;border-radius:var(--dsh-one-density-row-radius,8px);flex-direction:column;align-items:stretch;padding:4px var(--dsh-one-density-row-padding-inline,8px);display:flex}.dshOneTree_searchRow:hover,.dshOneTree_searchRow.dshOneTree_selected{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_searchRowHeading{align-items:center;min-width:0;display:flex}.dshOneTree_searchRowTitle{text-overflow:ellipsis;white-space:nowrap;flex:0 auto;min-width:0;margin-left:4px;font-size:var(--dsh-one-density-title-font-size,14px);line-height:var(--dsh-one-density-title-line-height,20px);overflow:hidden}.dshOneTree_searchRowMeta{align-items:center;gap:6px;min-width:0;margin-left:20px;display:flex}.dshOneTree_searchRowWorkspace,.dshOneTree_searchRowSnippet{text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:17px;overflow:hidden}.dshOneTree_searchRowWorkspace{max-width:40%;color:var(--dsw-alias-label-tertiary);flex:none}.dshOneTree_searchRowSnippet{min-width:0;color:var(--dsw-alias-label-secondary);flex:1}.dshOneTree_searchMark{font-weight:600;color:var(--dsw-alias-state-business-primary);background:none}.dshOneTree_hoverContent{flex-direction:column;gap:8px;display:flex}.dshOneTree_hoverTitle{color:#fff;overflow-wrap:break-word;font-size:14px;line-height:20px}.dshOneTree_hoverPath{color:#cfd3d6;word-break:break-all;font-size:12px;line-height:16px}.dshOneTree_hoverTime{color:#cfd3d6;font-size:12px;line-height:16px}.dshOneTree_hoverStatus{color:#adb2b8;align-items:center;gap:8px;font-size:12px;line-height:20px;display:flex}.dshOneTree_modal{box-sizing:border-box;gap:6px;padding:12px;border-radius:12px}.dshOneTree_modalHead{flex:none;align-items:center;gap:2px;height:26px;display:flex}.dshOneTree_modalTitle{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;font-size:14px;line-height:20px;font-weight:500;overflow:hidden}.dshOneTree_modalClose{cursor:pointer;width:26px;height:26px;color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:5px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_modalClose:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_modalDesc{color:var(--dsw-alias-label-primary);font-size:12px;line-height:18px}.dshOneTree_modalActions{flex:none;justify-content:flex-end;align-items:center;gap:6px;display:flex}.dshOneTree_renameInput{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l4);width:100%;height:26px;color:var(--dsw-alias-label-primary);background:0 0;border-radius:5px;outline:none;padding:0 7px;font-size:12px;font-weight:400;line-height:18px}.dshOneTree_renameInput::placeholder{color:var(--dsw-alias-label-tertiary)}.dshOneTree_renameError{color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:18px}.dshOneTree_deleteStatus{color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}.dshOneTree_deleteAction:not(:disabled){color:var(--dsw-alias-state-error-primary)}.dshOneTree_filterBar{align-items:center;box-sizing:border-box;min-width:0;max-width:100%;opacity:1;visibility:visible;gap:var(--dsh-one-density-section-gap,4px);margin:0 0 0 calc(-1 * var(--dsh-one-density-section-padding-inline,4px));padding-left:var(--dsh-one-density-row-padding-inline,8px);transition:max-width .18s var(--ds-ease-in-out),opacity .12s var(--ds-ease-in-out),transform .18s var(--ds-ease-in-out),visibility 0s linear;display:flex;overflow:hidden}.dshOneTree_filterBarHidden{opacity:0;pointer-events:none;visibility:hidden;box-sizing:border-box;max-width:0;margin-left:calc(-1 * var(--dsh-one-density-section-gap,4px));padding-left:0;transform:translate(-4px);transition-delay:0s,0s,0s,.18s}.dshOneTree_pillSlot{min-width:0;flex:1 1 auto}.dshOneTree_pill{cursor:pointer;height:var(--dsh-one-density-pill-height,28px);color:var(--dsw-alias-label-secondary);background:0 0;border:.5px solid var(--dsw-alias-border-l3);border-radius:999px;flex:1 1 auto;min-width:0;align-items:center;gap:var(--dsh-one-density-section-gap,4px);max-width:100%;padding:0 var(--dsh-one-density-pill-padding-end,4px) 0 var(--dsh-one-density-pill-padding-start,8px);font-size:var(--dsh-one-density-pill-font-size,13px);display:inline-flex;overflow:hidden}.dshOneTree_pill:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_pillActive{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l4);background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_pillTag{flex:none;align-items:center;color:var(--dsw-alias-label-tertiary);display:inline-flex}.dshOneTree_pillLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.dshOneTree_pillCount{color:var(--dsw-alias-label-tertiary);flex:none}.dshOneTree_pillChevron{color:var(--dsw-alias-label-tertiary);flex:none;align-items:center;display:inline-flex}.dshOneTree_menuRow{align-items:center;gap:6px;min-width:0;width:100%;display:flex}.dshOneTree_menuRowLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;overflow:hidden}.dshOneTree_menuRowCount{color:var(--dsw-alias-label-tertiary);flex:none}[role="menuitem"]:has(.dshOneTree_submenuItem){padding-left:7px}.dshOneTree_footerRow{box-sizing:border-box;flex:none;width:100%;align-items:center;gap:2px;padding-right:8px;display:flex}.dshOneTree_footerRowEmpty{color:var(--dsw-alias-label-tertiary)}.dshOneTree_footerMain{cursor:pointer;min-width:0;line-height:var(--dsh-one-density-title-line-height,20px);color:inherit;background:0 0;border:0;border-radius:0;flex:1;align-items:center;gap:6px;padding:7px 4px 7px var(--dsh-one-density-row-padding-inline,8px);font-family:inherit;font-size:var(--dsh-one-density-title-font-size,14px);display:inline-flex;overflow:hidden}.dshOneTree_footerMain:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_footerIcon{flex:none;align-items:center;display:inline-flex}.dshOneTree_footerLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;text-align:left;overflow:hidden}.dshOneTree_footerCount{color:var(--dsw-alias-label-tertiary);background:color-mix(in srgb,var(--dsw-alias-label-tertiary) 20%,transparent);border-radius:8px;flex:none;font-size:10px;line-height:16px;padding:0 5px}.dshOneTree_footerRowEmpty .dshOneTree_footerCount{background:0 0;padding:0}.dshOneTree_footerIconButton,.dshOneTree_drawerIconButton{cursor:pointer;width:26px;height:26px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_footerIconButton:disabled,.dshOneTree_drawerIconButton:disabled{cursor:default;opacity:.45}.dshOneTree_footerIconButton:not(:disabled):hover,.dshOneTree_drawerIconButton:not(:disabled):hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_manageList{max-height:240px;overflow-y:auto}.dshOneTree_manageRow{align-items:center;gap:6px;height:26px;display:flex}.dshOneTree_manageHandle{cursor:grab;width:16px;height:24px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;display:inline-flex}.dshOneTree_manageHandle:active{cursor:grabbing}.dshOneTree_manageRowDragging{opacity:.55}.dshOneTree_manageRow[data-dshone-group-drop="before"]{box-shadow:0 -2px 0 0 var(--dsw-alias-state-business-primary)}.dshOneTree_manageRow[data-dshone-group-drop="after"]{box-shadow:0 2px 0 0 var(--dsw-alias-state-business-primary)}.dshOneTree_manageName{cursor:pointer;text-align:left;color:inherit;background:0 0;border:none;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;padding:0;font-family:inherit;font-size:12px;line-height:18px;overflow:hidden}.dshOneTree_manageName:hover{color:var(--dsw-alias-label-secondary)}.dshOneTree_manageCount{color:var(--dsw-alias-label-tertiary);flex:none;font-size:12px;line-height:18px}.dshOneTree_manageEmpty{color:var(--dsw-alias-label-tertiary);padding:4px 0;font-size:12px;line-height:18px}.dshOneTree_manageCreate{align-items:center;gap:6px;display:flex}.dshOneTree_manageCreate .dshOneTree_renameInput{flex:1;min-width:0}.dshOneTree_manageCreate button{white-space:nowrap;flex:none}.dshOneTree_modalBack{cursor:pointer;width:26px;height:26px;color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:5px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_modalBack:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_memberTools{flex-wrap:wrap;align-items:center;gap:6px;display:flex}.dshOneTree_memberTools .dshOneTree_renameInput{flex:1;min-width:0}.dshOneTree_memberTools button{white-space:nowrap;flex:none}.dshOneTree_memberCount{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.dshOneTree_memberList{max-height:240px;overflow-y:auto}.dshOneTree_memberRow{cursor:pointer;text-align:left;width:100%;height:26px;color:var(--dsw-alias-label-primary);background:0 0;border:none;border-radius:5px;align-items:center;gap:6px;padding:0;font-family:inherit;font-size:12px;line-height:18px;display:flex}.dshOneTree_memberRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_memberName{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;overflow:hidden}.dshOneTree_memberEmpty{color:var(--dsw-alias-label-tertiary);padding:4px 0;font-size:12px;line-height:18px}.dshOneTree_rowEnd{pointer-events:none;flex:none;margin-left:auto;align-items:center;gap:6px;display:inline-flex}.dshOneTree_projectRow:hover .dshOneTree_rowEnd,.dshOneTree_projectRow.dshOneTree_menuOpen .dshOneTree_rowEnd{display:none}.dshOneTree_workspaceBadge{flex:none;height:16px;color:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-interactive-bg-hover);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 18%,transparent);border:.5px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 40%,transparent);border-radius:10px;align-items:center;padding:0 4px;font-size:11px;line-height:16px;display:inline-flex}.dshOneTree_menuAnchor{display:none}.dshOneTree_activity{flex:none;margin-left:6px;align-items:center;gap:6px;display:inline-flex}.dshOneTree_activityItem{color:var(--dsw-alias-label-tertiary);font-size:var(--dsh-one-density-meta-font-size,12px);line-height:var(--dsh-one-density-meta-line-height,20px);align-items:center;gap:4px;display:inline-flex}.dshOneTree_check{cursor:pointer;width:16px;height:20px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;display:inline-flex}.dshOneTree_checkBox{box-sizing:border-box;width:14px;height:14px;border:.5px solid var(--dsw-alias-border-l4);border-radius:4px;justify-content:center;align-items:center;display:inline-flex}.dshOneTree_checkOn{background:var(--dsw-alias-state-business-primary);border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-inverse,#fff)}.dshOneTree_checkOff{opacity:.35;cursor:default}.dshOneTree_checkDash{width:8px;height:2px;background:currentColor;border-radius:1px}.dshOneTree_groupCheck{flex:none;cursor:pointer}.dshOneTree_checkIndent{width:22px;flex:none}.dshOneTree_pin{flex:none;width:14px;height:14px;margin-right:4px;color:var(--dsw-alias-label-tertiary);align-items:center;display:inline-flex}.dshOneTree_unread{font-weight:600}.dshOneTree_selectionBarWrap{flex:none;background:var(--dsw-alias-interactive-bg-hover);border-top:.5px solid var(--dsw-alias-border-l3);border-bottom:.5px solid var(--dsw-alias-border-l3);margin:0 0 var(--dsh-one-density-group-gap,4px);padding:var(--dsh-one-density-section-gap,4px) 0}.dshOneTree_selectionBar{box-sizing:border-box;flex-wrap:wrap;align-items:center;gap:var(--dsh-one-density-section-gap,4px);padding:0 var(--dsh-one-density-row-padding-inline,8px);display:flex}.dshOneTree_selectionCount{color:var(--dsw-alias-label-secondary);flex:none;white-space:nowrap;font-size:var(--dsh-one-density-meta-font-size,12px);line-height:var(--dsh-one-density-meta-line-height,20px)}.dshOneTree_selectionActions{flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:var(--dsh-one-density-section-gap,4px);margin-left:auto;display:flex}.dshOneTree_selectionActions button{flex:none;white-space:nowrap}.dshOneTree_selectionError{color:var(--dsw-alias-state-error-primary);font-size:var(--dsh-one-density-meta-font-size,12px);padding:0 var(--dsh-one-density-row-padding-inline,8px) var(--dsh-one-density-section-gap,4px)}.dshOneTree_drawer{z-index:10;box-sizing:border-box;background:var(--dsw-alias-bg-base);border-top:.5px solid var(--dsw-alias-border-l3);position:absolute;left:0;right:0;bottom:0;transform:translateY(100%);transition:transform var(--ds-transition-duration) var(--ds-ease-in-out);flex-direction:column;display:flex;overflow:hidden}.dshOneTree_drawerOpen{transform:none}.dshOneTree_drawerLeaving{pointer-events:none}@media (prefers-reduced-motion:reduce){.dshOneTree_drawer{transition:none}}.dshOneTree_drawerHandle{cursor:grab;height:12px;flex:none;justify-content:center;align-items:center;display:flex;touch-action:none}.dshOneTree_drawerHandle:active{cursor:grabbing}.dshOneTree_drawerGrip{width:32px;height:3px;background:var(--dsw-alias-border-l3);border-radius:2px}.dshOneTree_drawerHandle:hover .dshOneTree_drawerGrip{background:var(--dsw-alias-label-tertiary)}.dshOneTree_drawerHeader{height:var(--dsh-one-density-section-header-height,36px);flex:none;align-items:center;gap:var(--dsh-one-density-section-gap,4px);padding:0 var(--dsh-one-density-section-padding-inline,4px) 0 var(--dsh-one-density-row-padding-inline,8px);display:flex}.dshOneTree_drawerHeading{flex:1;min-width:0;align-items:center;gap:4px;display:inline-flex}.dshOneTree_drawerTitle{color:var(--dsw-alias-label-secondary);flex:0 1 auto;min-width:0;font-size:var(--dsh-one-density-title-font-size,14px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dshOneTree_drawerCount{color:var(--dsw-alias-label-tertiary);flex:none;font-size:var(--dsh-one-density-meta-font-size,12px)}.dshOneTree_drawerList{min-height:0;padding:0 var(--dsh-one-density-section-padding-inline,4px) var(--dsh-one-density-list-padding-bottom,16px) 0;flex:1;overflow-y:auto}.dshOneTree_drawerGroup+.dshOneTree_drawerGroup{margin-top:var(--dsh-one-density-group-gap,4px)}.dshOneTree_drawerGroupLabel{box-sizing:border-box;cursor:pointer;width:100%;color:var(--dsw-alias-label-primary);background:0 0;border:none;border-radius:var(--dsh-one-density-row-radius,8px);height:var(--dsh-one-density-row-height,34px);align-items:center;gap:6px;padding:0 var(--dsh-one-density-row-padding-inline,8px);font-family:inherit;font-size:var(--dsh-one-density-title-font-size,14px);line-height:var(--dsh-one-density-title-line-height,20px);display:flex}.dshOneTree_drawerGroupLabel:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_drawerGroupArrow{width:16px;height:20px;color:var(--dsw-alias-label-caption);flex:none;justify-content:center;align-items:center;display:inline-flex}.dshOneTree_drawerGroupLabelText{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;text-align:left;overflow:hidden}.dshOneTree_drawerGroupCount{color:var(--dsw-alias-label-tertiary);flex:none;font-size:var(--dsh-one-density-meta-font-size,12px);line-height:var(--dsh-one-density-meta-line-height,20px)}.dshOneTree_drawerRow{cursor:pointer;height:var(--dsh-one-density-session-row-height,32px);color:var(--dsw-alias-label-primary);border-radius:var(--dsh-one-density-row-radius,8px);align-items:center;gap:6px;padding:0 var(--dsh-one-density-row-padding-inline,8px);display:flex}.dshOneTree_drawerRow:hover,.dshOneTree_drawerRow.dshOneTree_menuOpen{background:var(--dsw-alias-interactive-bg-hover)}.dshOneTree_drawerRow .dshOneTree_title{flex:1;margin:0}.dshOneTree_drawerActions{flex:none;align-items:center;gap:12px;display:inline-flex}.dshOneTree_drawerRow:hover .dshOneTree_time,.dshOneTree_drawerRow.dshOneTree_menuOpen .dshOneTree_time{display:none}.dshOneTree_drawerAction{cursor:pointer;width:16px;height:16px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_drawerAction:hover:not(:disabled){color:var(--dsw-alias-label-primary)}.dshOneTree_drawerAction:disabled{cursor:default;opacity:.45}.dshOneTree_drawerActionDanger:not(:disabled){color:var(--dsw-alias-state-error-primary)}.dshOneTree_drawerStatus{color:var(--dsw-alias-label-tertiary);padding:10px 8px;font-size:var(--dsh-one-density-meta-font-size,12px)}.dshOneTree_modalBlocks{max-height:240px;overflow-y:auto}.dshOneTree_modalBlock+.dshOneTree_modalBlock{margin-top:6px}.dshOneTree_modalBlockLabel{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.dshOneTree_modalRow{box-sizing:border-box;color:var(--dsw-alias-label-primary);text-overflow:ellipsis;white-space:nowrap;height:26px;font-size:12px;line-height:18px;padding:4px 0 4px 16px;overflow:hidden}.dshOneTree_flash{z-index:20;max-width:90%;background:var(--dsw-alias-bg-elevated,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-primary);border:.5px solid var(--dsw-alias-border-l3);border-radius:8px;padding:6px 10px;font-size:var(--dsh-one-density-meta-font-size,12px);position:absolute;bottom:8px;left:50%;transform:translateX(-50%)}.dshOneTree_footerIconDanger:not(:disabled),.dshOneTree_drawerIconDanger:not(:disabled){color:var(--dsw-alias-state-error-primary)}.dshOneTree_tagBlock{position:relative;border-radius:6px}.dshOneTree_tagHead{align-items:center;height:22px;padding-left:16px;padding-right:var(--dsh-one-density-row-padding-inline,8px);display:flex}.dshOneTree_tagPill{cursor:grab;color:var(--dshone-tag-color);background:color-mix(in srgb,var(--dshone-tag-color) 22%,transparent);border:1px solid color-mix(in srgb,var(--dshone-tag-color) 45%,transparent);border-radius:4px;align-items:center;gap:4px;height:16px;padding:0 7px;font-size:10px;font-weight:600;line-height:1;white-space:nowrap;display:inline-flex}.dshOneTree_tagPill:active{cursor:grabbing}.dshOneTree_tagDot{width:6px;height:6px;background:var(--dshone-tag-color);border-radius:2px;flex:none}.dshOneTree_tagName{text-overflow:ellipsis;white-space:nowrap;max-width:120px;overflow:hidden}.dshOneTree_tagPill[data-dshone-tag-drop="before"]{box-shadow:0 -2px 0 0 var(--dshone-tag-color)}.dshOneTree_tagPill[data-dshone-tag-drop="after"]{box-shadow:0 2px 0 0 var(--dshone-tag-color)}.dshOneTree_tagToggle{cursor:pointer;width:16px;height:16px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;margin-left:2px;padding:0;display:inline-flex}.dshOneTree_tagToggle:hover{color:var(--dsw-alias-label-primary)}.dshOneTree_tagArrow{transition:transform .15s ease}.dshOneTree_tagArrowOpen{transform:rotate(90deg)}.dshOneTree_tagBlock:hover .dshOneTree_rowActions,.dshOneTree_tagBlock.dshOneTree_menuOpen .dshOneTree_rowActions{display:inline-flex}.dshOneTree_tagCounts{align-items:center;gap:6px;margin-left:auto;padding-right:2px;display:inline-flex}.dshOneTree_tagCount{color:var(--dsw-alias-label-tertiary);align-items:center;gap:4px;font-size:var(--dsh-one-density-meta-font-size,12px);display:inline-flex}.dshOneTree_tagLine{pointer-events:none;position:absolute;left:16px;top:19px;bottom:2px;width:2px;border-radius:1px;background:var(--dshone-tag-color)}.dshOneTree_tagCollapsed .dshOneTree_tagLine{display:none}.dshOneTree_tagRows>*+*{margin-top:var(--dsh-one-density-row-gap,2px)}.dshOneTree_tagRows .dshOneTree_sessionRow{padding-left:24px}.dshOneTree_tagDropActive{background:color-mix(in srgb,var(--dshone-tag-color) 14%,transparent)}.dshOneTree_tagSwatch{width:10px;height:10px;border-radius:3px;flex:none;display:block}.dshOneTree_tagColorPick{gap:6px;display:flex}.dshOneTree_tagColorPickItem{cursor:pointer;width:20px;height:20px;color:var(--dsw-alias-label-inverse,#fff);border:.5px solid var(--dsw-alias-border-l4);border-radius:5px;justify-content:center;align-items:center;padding:0;display:inline-flex}.dshOneTree_tagColorPickOn{box-shadow:0 0 0 2px var(--dsw-alias-label-secondary)}'
 );
 var CSS_TAG_ID = "@dsh-one/dsh-workspace-tree/Tree.css";
@@ -4479,7 +4513,7 @@ if (typeof document !== "undefined" && document.querySelector(`style[data-plugin
 }
 
 // src/ui/assembly/shell/workspaceTree/toolbar.ts
-var import_react12 = require("react");
+var import_react13 = require("react");
 var import_dsh_client_ui_primitives9 = require("@deepseek-ai/dsh-client-ui-primitives");
 
 // src/ui/assembly/shell/workspaceTree/collapseAllGlyph.ts
@@ -4494,14 +4528,14 @@ var COLLAPSE_ALL_GLYPH_SCALE = 1.25;
 var COLLAPSE_ALL_GLYPH_TRANSFORM = `translate(8 8) scale(${String(COLLAPSE_ALL_GLYPH_SCALE)}) translate(-8 -8)`;
 
 // src/ui/assembly/shell/workspaceTree/groupFilterBar.ts
-var import_react11 = require("react");
+var import_react12 = require("react");
 var import_dsh_client_ui_primitives8 = require("@deepseek-ai/dsh-client-ui-primitives");
 function menuRow(name, count) {
-  return (0, import_react11.createElement)(
+  return (0, import_react12.createElement)(
     "span",
     { className: "dshOneTree_menuRow" },
-    (0, import_react11.createElement)("span", { className: "dshOneTree_menuRowLabel" }, name),
-    (0, import_react11.createElement)("span", { className: "dshOneTree_menuRowCount" }, String(count))
+    (0, import_react12.createElement)("span", { className: "dshOneTree_menuRowLabel" }, name),
+    (0, import_react12.createElement)("span", { className: "dshOneTree_menuRowCount" }, String(count))
   );
 }
 function GroupFilterBar({
@@ -4515,11 +4549,11 @@ function GroupFilterBar({
   onManage,
   hidden = false
 }) {
-  const [open2, setOpen] = (0, import_react11.useState)(false);
+  const [open2, setOpen] = (0, import_react12.useState)(false);
   const active = activeGroupId === null ? null : groups.find((group) => group.id === activeGroupId) ?? null;
   const count = active === null ? totalCount : groupCounts.get(active.id) ?? 0;
   const label = active === null ? tr("group.allWorkspaces") : active.name;
-  return (0, import_react11.createElement)(
+  return (0, import_react12.createElement)(
     "div",
     {
       className: `dshOneTree_filterBar${hidden ? " dshOneTree_filterBarHidden" : ""}`,
@@ -4528,13 +4562,13 @@ function GroupFilterBar({
       role: "group",
       "aria-label": tr("group.filter.aria")
     },
-    (0, import_react11.createElement)(import_dsh_client_ui_primitives8.Menu, {
+    (0, import_react12.createElement)(import_dsh_client_ui_primitives8.Menu, {
       open: open2,
       onClose: () => setOpen(false),
       items: [
         {
           id: "all",
-          label: (0, import_react11.createElement)(
+          label: (0, import_react12.createElement)(
             "span",
             { "data-dshone-tree-pill-item": "all" },
             menuRow(tr("group.allWorkspaces"), totalCount)
@@ -4542,7 +4576,7 @@ function GroupFilterBar({
         },
         ...groups.map((group) => ({
           id: group.id,
-          label: (0, import_react11.createElement)(
+          label: (0, import_react12.createElement)(
             "span",
             { "data-dshone-tree-pill-item": group.id },
             menuRow(group.name, groupCounts.get(group.id) ?? 0)
@@ -4551,13 +4585,13 @@ function GroupFilterBar({
         { type: "separator", id: "group-menu-separator" },
         {
           id: "new",
-          label: (0, import_react11.createElement)("span", { "data-dshone-tree-action": "group-new" }, tr("group.new")),
-          icon: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconPlusOutline16, { size: 14 })
+          label: (0, import_react12.createElement)("span", { "data-dshone-tree-action": "group-new" }, tr("group.new")),
+          icon: (0, import_react12.createElement)(import_dsh_client_ui_primitives8.IconPlusOutline16, { size: 14 })
         },
         {
           id: "manage",
-          label: (0, import_react11.createElement)("span", { "data-dshone-tree-action": "group-manage" }, tr("group.manage")),
-          icon: (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconSettingsOutline16, { size: 14 })
+          label: (0, import_react12.createElement)("span", { "data-dshone-tree-action": "group-manage" }, tr("group.manage")),
+          icon: (0, import_react12.createElement)(import_dsh_client_ui_primitives8.IconSettingsOutline16, { size: 14 })
         }
       ],
       selectedIds: [activeGroupId ?? "all"],
@@ -4580,7 +4614,7 @@ function GroupFilterBar({
       className: "dshOneTree_pillSlot",
       portal: true,
       closeOnPointerLeave: true,
-      anchor: (0, import_react11.createElement)(
+      anchor: (0, import_react12.createElement)(
         "button",
         {
           type: "button",
@@ -4593,10 +4627,10 @@ function GroupFilterBar({
           "data-dshone-tree-group-count": count,
           onClick: () => setOpen((value) => !value)
         },
-        (0, import_react11.createElement)("span", { className: "dshOneTree_pillTag" }, (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconFolderOpenOutline16, { size: 12 })),
-        (0, import_react11.createElement)("span", { className: "dshOneTree_pillLabel" }, label),
-        (0, import_react11.createElement)("span", { className: "dshOneTree_pillCount" }, String(count)),
-        (0, import_react11.createElement)("span", { className: "dshOneTree_pillChevron" }, (0, import_react11.createElement)(import_dsh_client_ui_primitives8.IconChevronDownOutline14, {}))
+        (0, import_react12.createElement)("span", { className: "dshOneTree_pillTag" }, (0, import_react12.createElement)(import_dsh_client_ui_primitives8.IconFolderOpenOutline16, { size: 12 })),
+        (0, import_react12.createElement)("span", { className: "dshOneTree_pillLabel" }, label),
+        (0, import_react12.createElement)("span", { className: "dshOneTree_pillCount" }, String(count)),
+        (0, import_react12.createElement)("span", { className: "dshOneTree_pillChevron" }, (0, import_react12.createElement)(import_dsh_client_ui_primitives8.IconChevronDownOutline14, {}))
       )
     })
   );
@@ -4604,7 +4638,7 @@ function GroupFilterBar({
 
 // src/ui/assembly/shell/workspaceTree/toolbar.ts
 function CollapseAllIcon({ glyph }) {
-  return (0, import_react12.createElement)(
+  return (0, import_react13.createElement)(
     "svg",
     {
       viewBox: "0 0 16 16",
@@ -4616,7 +4650,7 @@ function CollapseAllIcon({ glyph }) {
       "data-dshone-tree-icon-value": glyph
     },
     ...COLLAPSE_ALL_GLYPHS[glyph].map(
-      (d, index) => (0, import_react12.createElement)("path", {
+      (d, index) => (0, import_react13.createElement)("path", {
         key: String(index),
         d,
         fill: "currentColor",
@@ -4629,15 +4663,15 @@ function CollapseAllIcon({ glyph }) {
 }
 function TopBar(props) {
   const { tr, query, allCollapsed, selectMode } = props;
-  const [addOpen, setAddOpen] = (0, import_react12.useState)(false);
-  const [searchExpanded, setSearchExpanded] = (0, import_react12.useState)(false);
-  const searchRoot = (0, import_react12.useRef)(null);
-  const searchInput = (0, import_react12.useRef)(null);
+  const [addOpen, setAddOpen] = (0, import_react13.useState)(false);
+  const [searchExpanded, setSearchExpanded] = (0, import_react13.useState)(false);
+  const searchRoot = (0, import_react13.useRef)(null);
+  const searchInput = (0, import_react13.useRef)(null);
   const trimmedQuery = query.trim();
-  (0, import_react12.useEffect)(() => {
+  (0, import_react13.useEffect)(() => {
     if (searchExpanded) searchInput.current?.focus();
   }, [searchExpanded]);
-  (0, import_react12.useEffect)(() => {
+  (0, import_react13.useEffect)(() => {
     if (!searchExpanded) return;
     const onClick = (event) => {
       const target = event.target;
@@ -4661,36 +4695,36 @@ function TopBar(props) {
   const addItems = [
     {
       id: "pick-folder",
-      label: (0, import_react12.createElement)("span", { "data-dshone-tree-item": "workspace-pick" }, tr("workspace.pickFolder")),
+      label: (0, import_react13.createElement)("span", { "data-dshone-tree-item": "workspace-pick" }, tr("workspace.pickFolder")),
       // 图标位 14×14：紧凑档的项内图标盒就是 14×14（官方 `._itemIcon_1nxmc_144`），
       // 官方 16 档图标塞进去会溢出一圈，所以按官方给的显式尺寸参数打 14（官方自己也这么用）。
-      icon: (0, import_react12.createElement)(import_dsh_client_ui_primitives9.IconFolderOpenOutline16, { size: 14 })
+      icon: (0, import_react13.createElement)(import_dsh_client_ui_primitives9.IconFolderOpenOutline16, { size: 14 })
     },
     ...props.onCreateWorkspaceFolder === void 0 ? [] : [
       {
         id: "create-folder",
-        label: (0, import_react12.createElement)("span", { "data-dshone-tree-item": "workspace-create" }, tr("workspace.create")),
-        icon: (0, import_react12.createElement)(import_dsh_client_ui_primitives9.IconPlusOutline16, { size: 14 })
+        label: (0, import_react13.createElement)("span", { "data-dshone-tree-item": "workspace-create" }, tr("workspace.create")),
+        icon: (0, import_react13.createElement)(import_dsh_client_ui_primitives9.IconPlusOutline16, { size: 14 })
       }
     ]
   ];
-  return (0, import_react12.createElement)(
+  return (0, import_react13.createElement)(
     "div",
     { className: "dshOneTree_sectionHeader", "data-dshone-tree": "top-bar" },
     // 行首：分组过滤胶囊（#135 起并入这一行）。搜索展开时它让位（零宽收起，见文件头
     // 让位那一节）——组件照常挂载，`data-dshone-tree-visible` 让验证套件读得到这一刻。
-    (0, import_react12.createElement)(GroupFilterBar, { ...props.filter, tr, hidden: searchExpanded }),
+    (0, import_react13.createElement)(GroupFilterBar, { ...props.filter, tr, hidden: searchExpanded }),
     // 官方搜索栏（#132：两态都在，默认折叠）——search / searchSlot 两层各带一个
     // Expanded 变体，与官方侧栏的 DOM 同构；折叠态就是那枚 28px 的圆放大镜。
     // `data-dshone-tree-state` 是自有标记，让验证套件能直接读「现在是哪一态」，不必
     // 解析类名（与折叠全部那枚的 `data-dshone-tree-icon-value` 同一做法）。
-    (0, import_react12.createElement)(
+    (0, import_react13.createElement)(
       "div",
       {
         className: `dshOneTree_searchSlot${searchExpanded ? " dshOneTree_searchSlotExpanded" : ""}`,
         ref: searchRoot
       },
-      (0, import_react12.createElement)(
+      (0, import_react13.createElement)(
         "div",
         {
           className: `dshOneTree_search${searchExpanded ? " dshOneTree_searchExpanded" : ""}`,
@@ -4698,14 +4732,14 @@ function TopBar(props) {
           "data-dshone-tree-state": searchExpanded ? "expanded" : "collapsed",
           onClick: expandSearch
         },
-        (0, import_react12.createElement)(import_dsh_client_ui_primitives9.Tooltip, {
+        (0, import_react13.createElement)(import_dsh_client_ui_primitives9.Tooltip, {
           label: tr("search"),
           side: "bottom",
           delayMs: 500,
           // 官方：展开后不再出这一枚提示（`disabled: searchExpanded`）——这时按钮只是
           // 展开态图标位，提示没有意义。
           disabled: searchExpanded,
-          children: (0, import_react12.createElement)(
+          children: (0, import_react13.createElement)(
             "button",
             {
               type: "button",
@@ -4716,10 +4750,10 @@ function TopBar(props) {
               onClick: expandSearch
             },
             // 官方两态的图标尺寸不同：折叠 14、展开 11（`size: searchExpanded ? 11 : 14`）。
-            (0, import_react12.createElement)(import_dsh_client_ui_primitives9.IconSearchOutline16, { size: searchExpanded ? 11 : 14 })
+            (0, import_react13.createElement)(import_dsh_client_ui_primitives9.IconSearchOutline16, { size: searchExpanded ? 11 : 14 })
           )
         }),
-        searchExpanded ? (0, import_react12.createElement)("input", {
+        searchExpanded ? (0, import_react13.createElement)("input", {
           ref: searchInput,
           className: "dshOneTree_searchInput",
           "data-dshone-tree": "search-input",
@@ -4734,7 +4768,7 @@ function TopBar(props) {
           }
         }) : null,
         // 清除钮只在展开态渲染（官方也是 `searchExpanded && …`）。
-        searchExpanded ? (0, import_react12.createElement)(
+        searchExpanded ? (0, import_react13.createElement)(
           "button",
           {
             type: "button",
@@ -4746,11 +4780,11 @@ function TopBar(props) {
               collapseSearch();
             }
           },
-          (0, import_react12.createElement)(import_dsh_client_ui_primitives9.IconCloseFill14, {})
+          (0, import_react13.createElement)(import_dsh_client_ui_primitives9.IconCloseFill14, {})
         ) : null
       )
     ),
-    (0, import_react12.createElement)(
+    (0, import_react13.createElement)(
       "div",
       {
         // 搜索展开时让位（#135）：官方 `headerActionsHidden` 的同名同事——收成零宽、
@@ -4762,11 +4796,11 @@ function TopBar(props) {
       // 折叠 / 展开全部（#99；图标 #118 起换成方框加减号）：图标与提示随当前态翻转，
       // 语义同旧侧栏——「还有展开着的」显示方框横杠（点了折叠全部），「全折叠了」
       // 显示方框十字（点了展开全部）。
-      (0, import_react12.createElement)(import_dsh_client_ui_primitives9.Tooltip, {
+      (0, import_react13.createElement)(import_dsh_client_ui_primitives9.Tooltip, {
         label: allCollapsed ? tr("toolbar.expandAll") : tr("toolbar.collapseAll"),
         side: "bottom",
         delayMs: 500,
-        children: (0, import_react12.createElement)(
+        children: (0, import_react13.createElement)(
           "button",
           {
             type: "button",
@@ -4776,11 +4810,11 @@ function TopBar(props) {
             "data-dshone-tree-collapsed": allCollapsed,
             onClick: props.onToggleCollapseAll
           },
-          (0, import_react12.createElement)(CollapseAllIcon, { glyph: allCollapsed ? "plus" : "minus" })
+          (0, import_react13.createElement)(CollapseAllIcon, { glyph: allCollapsed ? "plus" : "minus" })
         )
       }),
       // 添加工作区（＋）：两项菜单（选已有文件夹 / 创建新工作区目录）。
-      (0, import_react12.createElement)(import_dsh_client_ui_primitives9.Menu, {
+      (0, import_react13.createElement)(import_dsh_client_ui_primitives9.Menu, {
         open: addOpen,
         onClose: () => setAddOpen(false),
         items: addItems,
@@ -4794,11 +4828,11 @@ function TopBar(props) {
         compact: true,
         portal: true,
         closeOnPointerLeave: true,
-        anchor: (0, import_react12.createElement)(import_dsh_client_ui_primitives9.Tooltip, {
+        anchor: (0, import_react13.createElement)(import_dsh_client_ui_primitives9.Tooltip, {
           label: tr("workspace.add"),
           side: "bottom",
           delayMs: 500,
-          children: (0, import_react12.createElement)(
+          children: (0, import_react13.createElement)(
             "button",
             {
               type: "button",
@@ -4807,16 +4841,16 @@ function TopBar(props) {
               "data-dshone-tree-action": "add-workspace",
               onClick: () => setAddOpen((open2) => !open2)
             },
-            (0, import_react12.createElement)(import_dsh_client_ui_primitives9.IconProjectAddOutline16, { size: 16 })
+            (0, import_react13.createElement)(import_dsh_client_ui_primitives9.IconProjectAddOutline16, { size: 16 })
           )
         })
       }),
       // 设置齿轮（#99）：宿主有独立设置页时才有这一枚（官方 web 侧设置归官方底部行）。
-      props.onOpenSettings === void 0 ? null : (0, import_react12.createElement)(import_dsh_client_ui_primitives9.Tooltip, {
+      props.onOpenSettings === void 0 ? null : (0, import_react13.createElement)(import_dsh_client_ui_primitives9.Tooltip, {
         label: tr("toolbar.settings"),
         side: "bottom",
         delayMs: 500,
-        children: (0, import_react12.createElement)(
+        children: (0, import_react13.createElement)(
           "button",
           {
             type: "button",
@@ -4825,15 +4859,15 @@ function TopBar(props) {
             "data-dshone-tree-action": "settings",
             onClick: props.onOpenSettings
           },
-          (0, import_react12.createElement)(import_dsh_client_ui_primitives9.IconSettingsOutline16, { size: 16 })
+          (0, import_react13.createElement)(import_dsh_client_ui_primitives9.IconSettingsOutline16, { size: 16 })
         )
       }),
       // #81 已有的多选入口（#131 起它前面那枚「视图选项」退役，这一枚位置不变）。
-      (0, import_react12.createElement)(import_dsh_client_ui_primitives9.Tooltip, {
+      (0, import_react13.createElement)(import_dsh_client_ui_primitives9.Tooltip, {
         label: selectMode ? tr("select.exit") : tr("select.enter"),
         side: "bottom",
         delayMs: 500,
-        children: (0, import_react12.createElement)(
+        children: (0, import_react13.createElement)(
           "button",
           {
             type: "button",
@@ -4843,7 +4877,7 @@ function TopBar(props) {
             "data-dshone-tree-action": "select-mode",
             onClick: props.onToggleSelectMode
           },
-          (0, import_react12.createElement)(import_dsh_client_ui_primitives9.IconChecklistOutline14, { size: 16 })
+          (0, import_react13.createElement)(import_dsh_client_ui_primitives9.IconChecklistOutline14, { size: 16 })
         )
       })
     )
@@ -4890,47 +4924,48 @@ function WorkspaceTree(props) {
   const workspacePhase = useWorkspaces((state) => state.phase);
   const archivedSessionIds = useWorkspaces((state) => state.archivedSessionIds);
   const pending = useSessionPendingInteraction((state) => state);
-  const [prefs, setPrefs] = (0, import_react13.useState)(readTreeViewPrefs(pageStorage()));
+  const [prefs, setPrefs] = (0, import_react14.useState)(readTreeViewPrefs(pageStorage()));
   const activeGroupId = prefs.activeGroupId;
   const groupExpansion = expandedGroupKeys(prefs);
-  const [searchText, setSearchText] = (0, import_react13.useState)("");
-  const [content, setContent] = (0, import_react13.useState)(EMPTY_SEARCH);
-  const [renameTarget, setRenameTarget] = (0, import_react13.useState)(null);
-  const [sessionRenameTarget, setSessionRenameTarget] = (0, import_react13.useState)(null);
-  const [sessionEdit, setSessionEdit] = (0, import_react13.useState)(null);
-  const editSelection = (0, import_react13.useRef)({ start: 0, end: 0 });
-  const [deleteTarget, setDeleteTarget] = (0, import_react13.useState)(null);
-  const [groupsFile, setGroupsFile] = (0, import_react13.useState)(emptyTreeGroups());
-  const [groupDialog, setGroupDialog] = (0, import_react13.useState)(null);
-  const [groupError, setGroupError] = (0, import_react13.useState)(null);
-  const [marks, setMarks] = (0, import_react13.useState)(emptySessionMarks());
-  const [manageGroupsOpen, setManageGroupsOpen] = (0, import_react13.useState)(false);
-  const [selectMode, setSelectMode] = (0, import_react13.useState)(false);
-  const [selection, setSelection] = (0, import_react13.useState)([]);
-  const [busy, setBusy] = (0, import_react13.useState)(false);
-  const [selectionError, setSelectionError] = (0, import_react13.useState)(null);
+  const [searchText, setSearchText] = (0, import_react14.useState)("");
+  const [content, setContent] = (0, import_react14.useState)(EMPTY_SEARCH);
+  const [renameTarget, setRenameTarget] = (0, import_react14.useState)(null);
+  const [sessionRenameTarget, setSessionRenameTarget] = (0, import_react14.useState)(null);
+  const [sessionEdit, setSessionEdit] = (0, import_react14.useState)(null);
+  const editSelection = (0, import_react14.useRef)({ start: 0, end: 0 });
+  const [deleteTarget, setDeleteTarget] = (0, import_react14.useState)(null);
+  const [groupsFile, setGroupsFile] = (0, import_react14.useState)(emptyTreeGroups());
+  const [groupDialog, setGroupDialog] = (0, import_react14.useState)(null);
+  const [groupError, setGroupError] = (0, import_react14.useState)(null);
+  const [marks, setMarks] = (0, import_react14.useState)(emptySessionMarks());
+  const [manageGroupsOpen, setManageGroupsOpen] = (0, import_react14.useState)(false);
+  const [selectMode, setSelectMode] = (0, import_react14.useState)(false);
+  const [selection, setSelection] = (0, import_react14.useState)([]);
+  const [busy, setBusy] = (0, import_react14.useState)(false);
+  const [selectionError, setSelectionError] = (0, import_react14.useState)(null);
   const drawerOpen = useRecycleDrawerOpen();
-  const [recycleError, setRecycleError] = (0, import_react13.useState)(null);
-  const [archiveRequest, setArchiveRequest] = (0, import_react13.useState)(null);
-  const [archiveBusy, setArchiveBusy] = (0, import_react13.useState)(false);
-  const [archiveError, setArchiveError] = (0, import_react13.useState)(null);
-  const [tagFile, setTagFile] = (0, import_react13.useState)(emptyTagGroups());
-  const [currentFolders, setCurrentFolders] = (0, import_react13.useState)([]);
-  const [tagCreate, setTagCreate] = (0, import_react13.useState)(null);
-  const [tagRename, setTagRename] = (0, import_react13.useState)(null);
-  const [tagDelete, setTagDelete] = (0, import_react13.useState)(null);
-  const [tagNewSession, setTagNewSession] = (0, import_react13.useState)(null);
-  const rootRef = (0, import_react13.useRef)(null);
+  const [recycleError, setRecycleError] = (0, import_react14.useState)(null);
+  const [archiveRequest, setArchiveRequest] = (0, import_react14.useState)(null);
+  const [archiveBusy, setArchiveBusy] = (0, import_react14.useState)(false);
+  const [archiveError, setArchiveError] = (0, import_react14.useState)(null);
+  const [tagFile, setTagFile] = (0, import_react14.useState)(emptyTagGroups());
+  const [currentFolders, setCurrentFolders] = (0, import_react14.useState)([]);
+  const [tagCreate, setTagCreate] = (0, import_react14.useState)(null);
+  const [tagRename, setTagRename] = (0, import_react14.useState)(null);
+  const [tagDelete, setTagDelete] = (0, import_react14.useState)(null);
+  const [tagNewSession, setTagNewSession] = (0, import_react14.useState)(null);
+  const rootRef = (0, import_react14.useRef)(null);
   const hoverCard = useHoverCardRoom(rootRef);
+  useScrollbarLane(rootRef);
   const bin = useRecycleBin();
   const archived = new Set(archivedSessionIds);
   const recycledIds = visibleRecycleIds(bin.ids, list, archivedSessionIds);
   const recycled = new Set(recycledIds);
-  (0, import_react13.useEffect)(() => {
+  (0, import_react14.useEffect)(() => {
     writeTreeViewPrefs(pageStorage(), prefs);
   }, [prefs]);
-  const groupsLoaded = (0, import_react13.useRef)(false);
-  (0, import_react13.useEffect)(() => {
+  const groupsLoaded = (0, import_react14.useRef)(false);
+  (0, import_react14.useEffect)(() => {
     if (groupsLoaded.current) return;
     groupsLoaded.current = true;
     let cancelled = false;
@@ -4951,8 +4986,8 @@ function WorkspaceTree(props) {
     setGroupsFile(next);
     saveGroups(next);
   };
-  const marksLoaded = (0, import_react13.useRef)(false);
-  (0, import_react13.useEffect)(() => {
+  const marksLoaded = (0, import_react14.useRef)(false);
+  (0, import_react14.useEffect)(() => {
     if (marksLoaded.current) return;
     marksLoaded.current = true;
     let cancelled = false;
@@ -4968,8 +5003,8 @@ function WorkspaceTree(props) {
       cancelled = true;
     };
   }, [loadMarks]);
-  const tagsLoaded = (0, import_react13.useRef)(false);
-  (0, import_react13.useEffect)(() => {
+  const tagsLoaded = (0, import_react14.useRef)(false);
+  (0, import_react14.useEffect)(() => {
     if (tagsLoaded.current) return;
     tagsLoaded.current = true;
     let cancelled = false;
@@ -4985,8 +5020,8 @@ function WorkspaceTree(props) {
       cancelled = true;
     };
   }, [loadTagGroups]);
-  const foldersLoaded = (0, import_react13.useRef)(false);
-  (0, import_react13.useEffect)(() => {
+  const foldersLoaded = (0, import_react14.useRef)(false);
+  (0, import_react14.useEffect)(() => {
     if (foldersLoaded.current) return;
     foldersLoaded.current = true;
     let cancelled = false;
@@ -5072,23 +5107,23 @@ function WorkspaceTree(props) {
       });
     });
   };
-  (0, import_react13.useEffect)(() => {
+  (0, import_react14.useEffect)(() => {
     if (sessionEdit === null || list.ids.length === 0) return;
     if (!list.ids.includes(sessionEdit.id)) setSessionEdit(null);
   }, [sessionEdit, list.ids]);
-  (0, import_react13.useEffect)(() => {
+  (0, import_react14.useEffect)(() => {
     if (list.current === void 0 || workspacePhase !== "ready") return;
     const key = owningGroupKey(workspaces, list.current);
     setPrefs((prev) => autoExpandGroup(prev, key));
   }, [list.current, workspaces, workspacePhase]);
-  (0, import_react13.useEffect)(() => {
+  (0, import_react14.useEffect)(() => {
     const known = new Set(list.ids.filter((id) => !archived.has(id)));
     const baselineReady = workspacePhase === "ready" && list.ids.length > 0;
     if (!baselineReady) return;
     void pruneRecycleBin(known, true);
   }, [bin.ids, list.ids, workspacePhase, archivedSessionIds]);
   const trimmedQuery = searchText.trim();
-  (0, import_react13.useEffect)(() => {
+  (0, import_react14.useEffect)(() => {
     if (trimmedQuery === "") {
       setContent(EMPTY_SEARCH);
       return;
@@ -5109,7 +5144,7 @@ function WorkspaceTree(props) {
       controller.abort();
     };
   }, [trimmedQuery, searchSessions]);
-  (0, import_react13.useEffect)(() => {
+  (0, import_react14.useEffect)(() => {
     if (tagNewSession === null) return;
     const current = list.current;
     if (current === void 0) return;
@@ -5117,7 +5152,7 @@ function WorkspaceTree(props) {
     applyTagBucket(tagNewSession.groupKey, setSessionTagGroup(tagBucket(tagNewSession.groupKey), current, tagNewSession.tagId));
     setTagNewSession(null);
   }, [tagNewSession, list.current, workspaces, tagFile]);
-  (0, import_react13.useEffect)(() => {
+  (0, import_react14.useEffect)(() => {
     const baselineReady = workspacePhase === "ready" && list.ids.length > 0;
     if (!baselineReady) return;
     const alive = new Set(list.ids.filter((id) => !archived.has(id)));
@@ -5217,8 +5252,8 @@ function WorkspaceTree(props) {
     setSelection([]);
     setSelectionError(null);
   };
-  (0, import_react13.useEffect)(() => selectionEntrySignal.subscribe(() => enterSelection()), []);
-  (0, import_react13.useEffect)(() => onSessionOwnedElsewhere(() => flashTip(tr("session.ownedElsewhere"), 6e3)), [tr]);
+  (0, import_react14.useEffect)(() => selectionEntrySignal.subscribe(() => enterSelection()), []);
+  (0, import_react14.useEffect)(() => onSessionOwnedElsewhere(() => flashTip(tr("session.ownedElsewhere"), 6e3)), [tr]);
   const errorText = (reason) => reason instanceof Error ? reason.message : String(reason);
   const reportFailure = (key, reason) => {
     flashTip(tr(key, { message: errorText(reason) }));
@@ -5472,13 +5507,13 @@ function WorkspaceTree(props) {
     const groupKey = groupKeyOfSession(sessionId);
     const bucket = tagBucket(groupKey);
     const current = bucket.sessionTags[sessionId];
-    const label = (suffix, text) => (0, import_react13.createElement)("span", { "data-dshone-tree-item": `${TAG_MENU_PREFIX}${suffix}` }, text);
+    const label = (suffix, text) => (0, import_react14.createElement)("span", { "data-dshone-tree-item": `${TAG_MENU_PREFIX}${suffix}` }, text);
     return {
       items: [
         ...bucket.tags.map((tag) => ({
           id: `${TAG_MENU_PREFIX}${tag.id}`,
           label: label(tag.id, tag.name),
-          icon: (0, import_react13.createElement)(TagColorSwatch, { color: tag.color })
+          icon: (0, import_react14.createElement)(TagColorSwatch, { color: tag.color })
         })),
         { id: `${TAG_MENU_PREFIX}__none`, label: label("__none", tr("tag.none")) },
         { id: `${TAG_MENU_PREFIX}__new`, label: label("__new", tr("tag.new")) }
@@ -5502,7 +5537,7 @@ function WorkspaceTree(props) {
     setTagCreate(null);
     flashTip(tr("tag.created", { name: name.trim() }));
   };
-  (0, import_react13.useEffect)(() => {
+  (0, import_react14.useEffect)(() => {
     return recycleEntrySignal.subscribe((request) => {
       if (request === "open") {
         setRecycleDrawerOpen(true);
@@ -5553,17 +5588,17 @@ function WorkspaceTree(props) {
     return [...local, ...extra].slice(0, searchResultLimit);
   })();
   const snippetOf = (sessionId) => content.items.find((item) => item.id === sessionId)?.snippet;
-  const emptyNotice = (kind, lines, action) => (0, import_react13.createElement)(
+  const emptyNotice = (kind, lines, action) => (0, import_react14.createElement)(
     "div",
     { className: "dshOneTree_empty", "data-dshone-tree": "empty", "data-dshone-tree-empty": kind },
-    ...lines.map((line, index) => (0, import_react13.createElement)("div", { className: "dshOneTree_emptyLine", key: `line-${String(index)}` }, line)),
+    ...lines.map((line, index) => (0, import_react14.createElement)("div", { className: "dshOneTree_emptyLine", key: `line-${String(index)}` }, line)),
     ...action === void 0 ? [] : [action]
   );
   const noWorkspacesNotice = emptyNotice("no-workspaces", [tr("empty.noWorkspaces")]);
   const groupMembersNotice = emptyNotice(
     "group-members",
     [tr("empty.groupMembers"), tr("empty.groupMembers.hint")],
-    (0, import_react13.createElement)(
+    (0, import_react14.createElement)(
       "button",
       {
         type: "button",
@@ -5616,11 +5651,11 @@ function WorkspaceTree(props) {
       onOpenInNewTab: openRowInNewTab === void 0 ? void 0 : () => openRowInNewTab(row.id)
     };
   };
-  const treeBody = trimmedQuery !== "" ? searchRows.length > 0 ? (0, import_react13.createElement)(
+  const treeBody = trimmedQuery !== "" ? searchRows.length > 0 ? (0, import_react14.createElement)(
     "div",
     { className: "dshOneTree_searchTree", role: "tree", "aria-label": tr("search.results.aria"), "data-dshone-tree": "search" },
     searchRows.map(
-      (row) => (0, import_react13.createElement)(SearchResultRow, {
+      (row) => (0, import_react14.createElement)(SearchResultRow, {
         key: row.id,
         node: row,
         workspaceLabel: workspaceLabelOf(row.id),
@@ -5638,11 +5673,11 @@ function WorkspaceTree(props) {
         onToggleSelect: () => toggleSelected(row.id)
       })
     )
-  ) : content.pending ? (0, import_react13.createElement)("div", { className: "dshOneTree_searchStatus" }, tr("search.pending")) : (0, import_react13.createElement)(
+  ) : content.pending ? (0, import_react14.createElement)("div", { className: "dshOneTree_searchStatus" }, tr("search.pending")) : (0, import_react14.createElement)(
     "div",
     { className: "dshOneTree_searchStatus" },
     content.failed ? tr("search.unavailable") : tr("search.noMatches")
-  ) : (0, import_react13.createElement)(
+  ) : (0, import_react14.createElement)(
     "div",
     { role: "tree", "data-dshone-tree": "groups" },
     orderedGroups.map((group) => {
@@ -5652,7 +5687,7 @@ function WorkspaceTree(props) {
         (node) => pinnedIds.has(node.id)
       );
       const check = groupCheck(group.key, group.sessions);
-      return (0, import_react13.createElement)(
+      return (0, import_react14.createElement)(
         "div",
         {
           className: "dshOneTree_groupSection",
@@ -5661,7 +5696,7 @@ function WorkspaceTree(props) {
           // #107：拖到组外（工作区行 / 未归组的空处）= 移出标签组。
           ...ungroupDropZone((sessionId) => moveOutOfTag(group.key, sessionId))
         },
-        (0, import_react13.createElement)(ProjectRow, {
+        (0, import_react14.createElement)(ProjectRow, {
           group,
           tr,
           expanded: groupExpansion.includes(group.key),
@@ -5694,7 +5729,7 @@ function WorkspaceTree(props) {
           }
         }),
         ...split.blocks.map(
-          (block) => (0, import_react13.createElement)(TagGroupBlock, {
+          (block) => (0, import_react14.createElement)(TagGroupBlock, {
             key: `tag:${block.def.id}`,
             groupKey: group.key,
             def: block.def,
@@ -5716,10 +5751,10 @@ function WorkspaceTree(props) {
             onDropSession: (sessionId) => assignTagGroup(group.key, sessionId, block.def.id),
             onDropTag: (sourceId, before) => reorderTag(group.key, sourceId, block.def.id, before),
             tr,
-            children: block.sessions.map((row) => (0, import_react13.createElement)(SessionRow, { key: row.id, ...groupedRowProps(row) }))
+            children: block.sessions.map((row) => (0, import_react14.createElement)(SessionRow, { key: row.id, ...groupedRowProps(row) }))
           })
         ),
-        ...split.ungrouped.map((row) => (0, import_react13.createElement)(SessionRow, { key: row.id, ...groupedRowProps(row) }))
+        ...split.ungrouped.map((row) => (0, import_react14.createElement)(SessionRow, { key: row.id, ...groupedRowProps(row) }))
       );
     })
   );
@@ -5728,7 +5763,7 @@ function WorkspaceTree(props) {
     if (trimmedQuery !== "") {
       return content.hasMore ? [
         treeBody,
-        (0, import_react13.createElement)(
+        (0, import_react14.createElement)(
           "div",
           { className: "dshOneTree_searchStatus", key: "search-more", role: "status", "data-dshone-tree": "search-more" },
           tr("search.hasMore", { n: searchResultLimit })
@@ -5739,7 +5774,7 @@ function WorkspaceTree(props) {
     if (workspaces.length > 0) return groups.length === 0 ? [emptyNotice("none", [tr("empty.none")])] : [treeBody];
     return groups.length === 0 ? [noWorkspacesNotice] : [noWorkspacesNotice, treeBody];
   })();
-  return (0, import_react13.createElement)(
+  return (0, import_react14.createElement)(
     "div",
     { className: "dshOneTree_root", ref: rootRef, "data-shell": "dsh-one-tree", "data-dshone-tree": "root" },
     // 顶部工具栏（#99 B 段；#135 起**一行五件**）：行首是分组过滤胶囊（原来自己在列表区
@@ -5752,7 +5787,7 @@ function WorkspaceTree(props) {
     // #108 起它**选择态下不收起**：那一刻操作条要在它下方接着出现（#98 的布局规范），
     // 收起它一切换状态就跳一下，且「先按分组过滤、再整组勾选」正是常用路径；#135 之后
     // 它在搜索态下也不再从 DOM 里摘掉，而是由顶栏按搜索展开与否给它让位（零宽收起）。
-    (0, import_react13.createElement)(TopBar, {
+    (0, import_react14.createElement)(TopBar, {
       tr,
       query: searchText,
       onQueryChange: (value) => setSearchText(sanitizeQuery(value)),
@@ -5777,12 +5812,12 @@ function WorkspaceTree(props) {
         onManage: () => setManageGroupsOpen(true)
       }
     }),
-    (0, import_react13.createElement)(
+    (0, import_react14.createElement)(
       "div",
       { className: "dshOneTree_listArea" },
       // #81 功能 4 的选择态动作条，动作按 #103 的两层语义接线：移入回收站（本地可逆，
       // 立即执行 + 飘提示 + 结束选择态）与批量归档（不可逆，先过确认弹窗）。
-      selectMode ? (0, import_react13.createElement)(SelectionBar, {
+      selectMode ? (0, import_react14.createElement)(SelectionBar, {
         count: selection.length,
         busy,
         error: selectionError,
@@ -5791,7 +5826,7 @@ function WorkspaceTree(props) {
         onArchive: requestArchiveSelection,
         onExit: exitSelection
       }) : null,
-      (0, import_react13.createElement)(
+      (0, import_react14.createElement)(
         "div",
         { className: "dshOneTree_list" },
         ...listChildren
@@ -5799,7 +5834,7 @@ function WorkspaceTree(props) {
     ),
     // 回收站抽屉（#103）：本地可逆那一层。块头折叠态是纯视图态，随视图偏好一起落
     // 客户端存储（`recycleCollapsed`）。
-    (0, import_react13.createElement)(RecycleDrawer, {
+    (0, import_react14.createElement)(RecycleDrawer, {
       open: drawerOpen,
       groups: recycleGroups,
       collapsed: prefs.recycleCollapsed,
@@ -5825,7 +5860,7 @@ function WorkspaceTree(props) {
       onEmpty: requestEmptyBin,
       onRestoreAll: () => restoreFromRecycle(recycledIds)
     }),
-    (0, import_react13.createElement)(RenameModal, {
+    (0, import_react14.createElement)(RenameModal, {
       open: renameTarget !== null,
       titleKey: "rename.workspace.title",
       fieldKey: "field.workspaceName",
@@ -5837,7 +5872,7 @@ function WorkspaceTree(props) {
         await renameWorkspace(renameTarget.workspaceId, value);
       }
     }),
-    (0, import_react13.createElement)(RenameModal, {
+    (0, import_react14.createElement)(RenameModal, {
       open: sessionRenameTarget !== null,
       titleKey: "rename.session.title",
       fieldKey: "field.sessionName",
@@ -5849,7 +5884,7 @@ function WorkspaceTree(props) {
         await renameSession(sessionRenameTarget.id, value);
       }
     }),
-    (0, import_react13.createElement)(GroupModal, {
+    (0, import_react14.createElement)(GroupModal, {
       dialog: groupDialog,
       groups: groupDefs,
       tr,
@@ -5882,7 +5917,7 @@ function WorkspaceTree(props) {
     // 「管理分组…」对话框（#99 B 段）：行内 ✎/🗑 关掉本框、开上面那套对话框去做
     //（校核复用），建新组则内联走同一份 `applyGroupCreate`。#139 起多一层：点分组名
     // 进它的成员清单（全部工作区 + 勾选），勾选与批量都回到上面那一条唯一的写路径。
-    (0, import_react13.createElement)(ManageGroupsModal, {
+    (0, import_react14.createElement)(ManageGroupsModal, {
       open: manageGroupsOpen,
       groups: groupDefs,
       counts: groupCounts,
@@ -5907,7 +5942,7 @@ function WorkspaceTree(props) {
       },
       onClose: () => setManageGroupsOpen(false)
     }),
-    (0, import_react13.createElement)(DeleteWorkspaceModal, {
+    (0, import_react14.createElement)(DeleteWorkspaceModal, {
       target: deleteTarget,
       tr,
       onClose: () => setDeleteTarget(null),
@@ -5915,7 +5950,7 @@ function WorkspaceTree(props) {
     }),
     // 归档确认弹窗（#103，可复用件）：会话行菜单「归档会话」、回收站行菜单「永久归档」、
     // 入口行「清空」、选择态「批量归档」四个入口共用它——归档 = 删除，一律先确认。
-    (0, import_react13.createElement)(ArchiveSessionsModal, {
+    (0, import_react14.createElement)(ArchiveSessionsModal, {
       target: archiveRequest,
       tr,
       busy: archiveBusy,
@@ -5929,7 +5964,7 @@ function WorkspaceTree(props) {
     }),
     // #107 标签组：重命名（复用工作区/会话重命名那一枚通用对话框）、删除确认、
     // 新建（名字 + 颜色）。三个都只开在有明确目标时。
-    (0, import_react13.createElement)(RenameModal, {
+    (0, import_react14.createElement)(RenameModal, {
       open: tagRename !== null,
       titleKey: "tag.rename.title",
       fieldKey: "tag.name.label",
@@ -5944,7 +5979,7 @@ function WorkspaceTree(props) {
         applyTagBucket(target.groupKey, updateTagGroup(bucket, target.id, { name: value }));
       }
     }),
-    (0, import_react13.createElement)(TagGroupDeleteModal, {
+    (0, import_react14.createElement)(TagGroupDeleteModal, {
       target: tagDelete === null ? null : { id: tagDelete.id, name: tagDelete.name },
       tr,
       onClose: () => setTagDelete(null),
@@ -5955,7 +5990,7 @@ function WorkspaceTree(props) {
         setTagDelete(null);
       }
     }),
-    (0, import_react13.createElement)(TagGroupCreateModal, {
+    (0, import_react14.createElement)(TagGroupCreateModal, {
       open: tagCreate !== null,
       tr,
       defaultColor: nextTagColor(tagCreate === null ? emptyTagBucket() : tagBucket(tagCreate.groupKey)),
@@ -5967,7 +6002,7 @@ function WorkspaceTree(props) {
       }
     }),
     // 飘提示宿主（移入/还原/归档的回执）。
-    (0, import_react13.createElement)(FlashHost, {})
+    (0, import_react14.createElement)(FlashHost, {})
   );
 }
 
