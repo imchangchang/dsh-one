@@ -433,10 +433,15 @@ type Measure =
    * 动的是里面的字），量盒子会读成 0。用 Range 取内容盒才是「字真的往里挪了多少」。
    */
   | { kind: 'indent' }
+  /**
+   * 第一个匹配元素**文字**左缘 − `minus` 匹配元素**盒子**右缘（#143：子项文字与父项图标槽
+   * 右缘那一条关系——图标槽里没有文字，量它的右缘只能取盒子）。
+   */
+  | { kind: 'textFromBoxRight' }
 
 interface SideSpec {
   selector: string
-  /** `indent` 用的基准元素（同页里另一个选择器）。 */
+  /** `indent` / `textFromBoxRight` 用的基准元素（同页里另一个选择器）。 */
   minus?: string
 }
 
@@ -512,7 +517,13 @@ const metrics: readonly Metric[] = [
   { id: 'menu-icon-slot', state: 'menu-l1', label: '菜单项图标位', legacy: { selector: '.popover .menu-item .menu-item-icon' }, current: { selector: '[role="menu"] button[role="menuitem"] [class*="_itemIcon"]' }, measure: { kind: 'box' } },
 
   // ---- 菜单二级 ----
-  { id: 'submenu-indent', state: 'menu-l2', label: '二级项相对一级项**图标列**的缩进', legacy: { selector: '.popover .tag-submenu .menu-item .menu-item-icon', minus: '.popover .menu-item .menu-item-icon' }, current: { selector: '[role="menu"] [data-dshone-tree-item^="tag:"]', minus: '[role="menu"] [class*="_itemIcon"]' }, measure: { kind: 'indent' }, note: '基准取一级项的图标列（不是一级项的文字列）：这一项量的是「二级项的内容列相对一级项图标列挪了多少」——旧侧栏给二级项加 24px 的 padding-left（相对一级项的 10px 右移 16px），现装配侧不额外缩进、子项直接排在父项的图标列上（读到的 20px 是父项图标 14px + 父项行内间隙 6px，不是缩进）' },
+  { id: 'submenu-indent', state: 'menu-l2', label: '二级项相对一级项**图标列**的缩进', legacy: { selector: '.popover .tag-submenu .menu-item .menu-item-icon', minus: '.popover .menu-item .menu-item-icon' }, current: { selector: '[role="menu"] [data-dshone-tree-item^="tag:"]', minus: '[role="menu"] [class*="_itemIcon"]' }, measure: { kind: 'indent' }, note: '基准取**整个菜单第一项**的图标列（不是父项自己的图标列）：这一项量的是「二级项的内容列相对一级项图标列挪了多少」——旧侧栏给二级项 24px 的 padding-left（相对一级项的 10px 右移 16px），现装配侧 #126 起给子项整行加一个缩进（父项图标槽 + 项内间隙）、#143 收到与父项文字同列，见下面两条关系量' },
+  // #143：二级项与父项的两条关系量（用户报的「缩进太深」看的是第一条）。父项两侧各用自己的
+  // 办法定位：旧侧栏取「紧挨着 `.tag-submenu` 容器的那一项」、现装配侧取它自己的项标记；
+  // 子项文字两侧都取**标签那一个 span**（旧侧栏是那个没有类名的 span、现装配侧是
+  // `.dshOneTree_submenuItem`）——用 Range 取内容盒才是字真的落在哪儿。
+  { id: 'submenu-text-vs-parent-text', state: 'menu-l2', label: '子项文字左缘 − 父项文字左缘', legacy: { selector: '.popover .tag-submenu .menu-item > span:not([class])', minus: '.popover .menu-item:has(+ .tag-submenu) > span:not([class])' }, current: { selector: '[role="menu"] .dshOneTree_submenuItem', minus: '[role="menu"] [data-dshone-tree-item="moveToGroup"]' }, measure: { kind: 'indent' }, note: '#143 要的那条关系量：正数 = 子项比父项深，负数 = 比父项浅，0 = 与父项同列' },
+  { id: 'submenu-text-vs-parent-icon-right', state: 'menu-l2', label: '子项文字左缘 − 父项图标槽右缘', legacy: { selector: '.popover .tag-submenu .menu-item > span:not([class])', minus: '.popover .menu-item:has(+ .tag-submenu) .menu-item-icon' }, current: { selector: '[role="menu"] .dshOneTree_submenuItem', minus: '[role="menu"] button[role="menuitem"]:has([data-dshone-tree-item="moveToGroup"]) [class*="_itemIcon"]' }, measure: { kind: 'textFromBoxRight' }, note: '#143 的另一条关系量：子项文字相对父项图标槽右缘差多少（差一份项内间隙 = 与父项文字同列）' },
 
 
   // ---- 标签组 ----
@@ -585,7 +596,8 @@ async function readMetrics(page: Page, specs: readonly { id: string; side: SideS
         out[spec.id] = { found: true, value: round(value) }
         continue
       }
-      // indent：第一个匹配元素**文字**左缘 − 基准元素**文字**左缘
+      // indent / textFromBoxRight：第一个匹配元素**文字**左缘 − 基准元素的文字左缘（indent）
+      // 或盒子右缘（textFromBoxRight）
       const base = spec.side.minus === undefined ? null : (document.querySelector(spec.side.minus) as Element | null)
       if (base === null) {
         out[spec.id] = { found: false, value: '', why: '缩进基准元素没找到' }
@@ -597,7 +609,8 @@ async function readMetrics(page: Page, specs: readonly { id: string; side: SideS
         const box = range.getBoundingClientRect()
         return box.width === 0 ? node.getBoundingClientRect().left : box.left
       }
-      out[spec.id] = { found: true, value: round(textLeft(element) - textLeft(base)) }
+      const minus = measure.kind === 'textFromBoxRight' ? base.getBoundingClientRect().right : textLeft(base)
+      out[spec.id] = { found: true, value: round(textLeft(element) - minus) }
     }
     return out
   }, specs)

@@ -4882,7 +4882,7 @@ export const SIDEBAR_MENUS_SUITE: LabSuite = {
             (mark) => mark.closest('.dshOneTree_submenuItem') !== null,
           ),
         )
-        check.ok('子项带缩进（与父项区隔，观感上是二级）', indented)
+        check.ok('子项带二级标记类（`.dshOneTree_submenuItem`，层级由父项的 ▸/▾ 与文字列呈现）', indented)
         screenshots.push(await shot(ctx, page, 'menus-session-group-submenu'))
         await page.click('[data-dshone-tree-item="tag:t-one"]')
         await page.waitForTimeout(500)
