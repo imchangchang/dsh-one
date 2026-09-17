@@ -265,6 +265,9 @@ export const RECYCLE_ENTRY_ALIGN_SUITE: LabSuite = {
       const box = await page.evaluate(() => {
         const row = document.querySelector('[data-dshone-tree="recycle-entry"]')
         if (row === null) return null
+        // 这一行挂在侧栏最底部，行族改高之后（#134）它可能落在可视区外面——先滚进视野再量，
+        // 否则算出来的裁切框高度会是负的（Playwright 会直接报 clip.height must be > 0）。
+        row.scrollIntoView({ block: 'nearest' })
         const rect = row.getBoundingClientRect()
         // 官方那个 list 槽是 display:contents、矩形是 0×0，所以往上找第一个宽非 0 的祖先
         // 当横向范围（找不到就退回行自己的矩形）。
@@ -284,7 +287,7 @@ export const RECYCLE_ENTRY_ALIGN_SUITE: LabSuite = {
           x: Math.max(0, left),
           y: Math.max(0, rect.top - 6),
           width: Math.min(window.innerWidth - Math.max(0, left), width),
-          height: Math.min(window.innerHeight - Math.max(0, rect.top - 6), rect.height + 12),
+          height: Math.max(1, Math.min(window.innerHeight - Math.max(0, rect.top - 6), rect.height + 12)),
         }
       })
       if (box === null) throw new Error('lab: recycle entry row is not rendered (screenshot clip)')
