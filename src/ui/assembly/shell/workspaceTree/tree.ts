@@ -1286,6 +1286,8 @@ export function WorkspaceTree(props: TreeProps): unknown {
                 node: row,
                 workspaceLabel: workspaceLabelOf(row.id),
                 ...(snippetOf(row.id) === undefined ? {} : { snippet: snippetOf(row.id) }),
+                // #152：命中高亮按当前查询串标（标题 / 工作区名 / 片段三处）。
+                query: trimmedQuery,
                 // #108（C8）：选择态下搜索结果行同样可勾选——`selected` 随态换义
                 //（非选择态 = 当前会话，选择态 = 已勾选），与树里的会话行同一口径。
                 selectMode,
