@@ -154,6 +154,10 @@ Who finds what: the probe runs daily in CI and catches renamed slots, hooks and 
 
 Uninstall the extension from the VS Code extensions view. dsh itself is installed by you and is not touched; the extension stops only the dsh process it spawned (an adopted instance keeps running), and dsh data (workspaces, sessions) stays in place.
 
+## Development
+
+Build from source with `npm install && npm run build`. `dist/` and `packages/*/lib/` are build outputs and are not in the repository, so build once before running anything that consumes them (`npm test` and the `verify:*` scripts run the build first themselves). The full guide — npm scripts, debugging, the verification lanes — is in [docs/development.md](docs/development.md).
+
 ---
 
 ## License

@@ -154,6 +154,10 @@ flowchart LR
 
 在 VS Code 扩展视图中卸载本扩展即可。dsh 本体由你自行安装，不受影响；扩展只会停止自己 spawn 的 dsh 进程（复用的实例继续运行），dsh 数据（workspace、会话）原样保留。
 
+## 开发
+
+从源码构建：`npm install && npm run build`。`dist/` 与 `packages/*/lib/` 都是构建产物、不入库，所以跑任何依赖产物的命令之前先构建一次（`npm test` 与 `verify:*` 系列脚本会自己先构建）。完整指南（npm scripts、调试、各条验证线）见 [docs/development.md](docs/development.md)。
+
 ---
 
 ## License
