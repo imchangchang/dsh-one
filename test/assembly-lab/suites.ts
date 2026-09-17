@@ -53,6 +53,7 @@ import { STATUS_DOT_SUITE } from './statusDotSuites.ts'
 import { RECYCLE_DRAWER_ROW_SUITE } from './recycleDrawerRowSuites.ts'
 import { SESSION_OWNED_SUITE } from './sessionOwnedSuites.ts'
 import { EXTERNAL_LINK_SUITE } from './externalLinkSuites.ts'
+import { SEARCH_HIT_HIGHLIGHT_SUITE } from './searchHitHighlightSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
@@ -6107,4 +6108,7 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // #150 外链锚点的捕获阶段兜底（F-48：F-01…F-47 与 R-06 已占，
   // 按「从未占用的继续」顺延；套件本体在 externalLinkSuites.ts，同为独立文件）。
   EXTERNAL_LINK_SUITE,
+  // #152 搜索命中高亮（F-49：F-01…F-48 与 R-06 已占，按「从未占用的继续」取当时最小的
+  // 未占用号；套件本体在 searchHitHighlightSuites.ts，同为独立文件，少一处合入热点）。
+  SEARCH_HIT_HIGHLIGHT_SUITE,
 ]
