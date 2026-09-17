@@ -40,6 +40,11 @@ export interface SessionSummaryLike {
   /** 空白会话（新建但没发过消息）。 */
   readonly blank: boolean
   readonly updatedAt: number
+  /**
+   * 这一页里各个使用者还持有这条会话的计数（官方 0.1.6-alpha.2 的行字段，
+   * `mainView` = 主对话区那一个）。见 {@link withCurrentSession}。
+   */
+  readonly retainedBy?: Readonly<Partial<Record<string, number>>>
   /** 官方宿主投影值；`schedule` 有内容时行上带定时任务标记。 */
   readonly projectionValues?: { readonly schedule?: readonly unknown[] }
 }
@@ -48,6 +53,56 @@ export interface SessionListLike {
   readonly ids: readonly string[]
   readonly byId: Readonly<Record<string, SessionSummaryLike>>
   readonly current?: string
+}
+
+/**
+ * 「当前会话」的单一事实源（#191）：官方两代字段的**唯一分叉点**。
+ *
+ * 0.1.6-alpha.1 及以前，官方在会话列表快照里直接下发 `current`
+ * （`dsh-api-session-controller` 的 `SessionListSnapshot.current`，注释写明「Selected
+ * Session id」，会话不在列表上时会被掩成 undefined）。0.1.6-alpha.2 起这个字段**没了**
+ * （同文件 types 里已删除），官方各处改成自己从行数据上推：
+ * `Object.values(list.byId).find((session) => (session.retainedBy.mainView ?? 0) > 0)?.id`
+ * ——出处 `dsh-client-ui-workspace/lib/client.js`（5 处）与 `dsh-client-ui-layout/lib/client.js`
+ * （文档标题那一处）；行上的 `retainedBy` 是「这一页里哪个使用者还持有这条会话」的计数，
+ * `mainView` 就是主对话区那一个。我们按 `ids` 的次序取第一条命中的（官方用
+ * `Object.values(byId)`，两者是同一轮循环按同一个顺序建的，第一条命中相同）。
+ *
+ * **为什么必须分叉**：`current` 恒 undefined 的后果是静默的——侧栏树按「当前会话所在
+ * 分组默认展开」定默认展开态（`autoExpandGroup`），拿不到 current 就永远不展开：页面
+ * 看着有工作区，点开全是空的（#191 实测 alpha.2 上 `.dshOneTree_sessionRow` = 0，而同
+ * 一个座位上官方浏览区照常出 5 行）。字段在的时候原样返回同一份 list（引用不变，
+ * `useMemo` 的依赖语义不动）。
+ */
+export function withCurrentSession(list: SessionListLike): SessionListLike {
+  if (list.current !== undefined) return list
+  const current = list.ids.find((id) => (list.byId[id]?.retainedBy?.mainView ?? 0) > 0)
+  return current === undefined ? list : { ...list, current }
+}
+
+/**
+ * 把「跑完还没被打开」这枚绿点从**官方状态表**补进列表行（#191）：0.1.6-alpha.2 起会话
+ * 列表行上没有 `completed` 了，官方把它挪进 `sessionStatus` 钩子的 `completionUnread`
+ * 那一格（取用与投影见 `sessionPendingSource.ts`，同一个 `PendingSource` 上给出了这份
+ * id 集合）。老代给 `null` = 那一代的行里自带 `completed`，一个字节都不动。
+ *
+ * 只在**真的不同**的行上重建对象：新代的行本来就没有这一格，`next === false` 时保持
+ * 原样（`undefined` 与 `false` 在判据 `completed === true` 下同义），少一次整表重建。
+ */
+export function withCompletedIds(list: SessionListLike, completedIds: ReadonlySet<string> | null): SessionListLike {
+  if (completedIds === null) return list
+  const byId: Record<string, SessionSummaryLike> = {}
+  let changed = false
+  for (const [id, row] of Object.entries(list.byId)) {
+    const next = completedIds.has(id)
+    if ((row.completed === true) === next) {
+      byId[id] = row
+      continue
+    }
+    changed = true
+    byId[id] = { ...row, completed: next }
+  }
+  return changed ? { ...list, byId } : list
 }
 
 export interface WorkspaceViewLike {

@@ -241,7 +241,8 @@ export const SESSION_BRIDGE_PLUGIN_ID = '@dsh-one/vscode-session-bridge'
 
 /**
  * chat 树会话启动注入插件 id（#71）：读 __DSH_ONE_BOOT__.sessionId →
- * sessions.open(id)（spike #69 题4 机制实证）+ 活跃/标题上报。
+ * uiWorkspace.openSession(id)（spike #69 题4 机制实证；0.1.6-alpha.2 前那条
+ * `sessions.open` 已被官方删掉，见 shell/sessionBootPlugin.ts）+ 活跃/标题上报。
  */
 export const SESSION_BOOT_PLUGIN_ID = '@dsh-one/vscode-session-boot'
 
@@ -305,6 +306,48 @@ export function bootstrapUrlOf(wire: BootWire): string {
   const bootstrap = wire.batches.find((b) => b.phase === 'bootstrap')
   if (bootstrap === undefined) throw new Error('assembly wire: no bootstrap batch')
   return bootstrap.url
+}
+
+/**
+ * 事件流（SSE）帧的投影：宿主经 `/plugins/events` 下发的那条流里，`type: "graph"`
+ * 的帧带的是**最新一份完整 roster**（host 侧 `dsh-client-hmr` 每次连接都会先推一帧，
+ * 之后插件增删再推）。0.1.6-alpha.2 起客户端的条目协调器会**采纳**它——把页面上的
+ * 插件条目对齐到这份 roster（`dsh-client-hmr` 的 client 半把 graph 帧交给
+ * `ctx.modules.entries.sync`，后者按 roster 建/删条目）。
+ *
+ * 问题在于这份 roster 是**未过滤**的官方清单：直接采纳会把我们 block 掉的官方插件
+ * 装回来、并把我们自己的 frame 插件条目卸掉（条目一没，root 槽的注册就被撤销，
+ * 页面报 `renderSlot('root') before any 'root' registration` 整片白——#191）。
+ * 所以事件流这一路也要过 blocklist，且必须与页面拿到的 `__DSH_BOOT__` 走**同一个
+ * 算法**（`filterWire`，调用方以 `project` 传进来），否则同一条 roster 会有两份规则。
+ *
+ * 本函数只负责「帧 → 帧」的搬运：SSE 帧由 `data:` 行 + 空行组成（官方单行 JSON），
+ * 只有 graph 帧会被 `project` 换掉，其余（注释行、`rebuilt` 帧、空行）一字不动。
+ * 0.1.6-alpha.1 上这些帧会被客户端直接忽略（那一版没有条目协调器），所以同一条投影
+ * 在 alpha.1 上是空转、在 alpha.2 上是必需——**不需要按版本分叉**。
+ *
+ * @param frame - 一帧 SSE 文本（含结尾空行）。
+ * @param project - 把一份完整 roster 投影成本页该装的那一份；抛错表示这一帧投影不了。
+ * @returns 该发给页面的一帧（与入参同形）。`project` 抛的错原样上抛给调用方处置。
+ */
+export function projectGraphFrame(frame: string, project: (graph: BootWire) => BootWire): string {
+  const dataLines = frame.split('\n').filter((line) => line.startsWith('data:'))
+  if (dataLines.length === 0) return frame
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(dataLines.map((line) => line.slice('data:'.length).trimStart()).join('\n'))
+  } catch {
+    // 不是 JSON 的 data 帧（官方形状之外）：不归我们管，原样放行。
+    return frame
+  }
+  if (typeof parsed !== 'object' || parsed === null || (parsed as { type?: unknown }).type !== 'graph') return frame
+  const graph = (parsed as { graph?: unknown }).graph
+  if (typeof graph !== 'object' || graph === null) return frame
+  const projected = JSON.stringify({ type: 'graph', graph: project(graph as BootWire) })
+  const first = frame.indexOf('data:')
+  // 投影后的帧只留一行 data：官方客户端只做 JSON.parse(event.data)，多行数据合起来
+  // 反而要多写一份 SSE 拼行规则。
+  return `${frame.slice(0, first)}data: ${projected}\n\n`
 }
 
 /** 从网关 `/` 注入 HTML 提取 __DSH_BOOT__ JSON（官方把 `<` 转义成 \u003c，JSON.parse 直接还原)。 */

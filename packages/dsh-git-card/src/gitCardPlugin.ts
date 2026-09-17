@@ -95,6 +95,7 @@ import {
 import { hostCapabilities, type CapabilityContext } from '@dsh-one/dsh-plugin-kit/hostCapabilities'
 import { mountOnConversation, positioningContext } from '@dsh-one/dsh-plugin-kit/mountPoints'
 import { pickSessionWorkspacePath } from '../../../src/pure/sessionWorkspace.ts'
+import { withCurrentSession, type SessionListLike, type SessionSummaryLike } from '../../../src/pure/workspaceTreeView.ts'
 import type { CommitInfoResult } from '../../../src/pure/chatContract.ts'
 
 /** hash 标记属性（自有契约：扫描时据此跳过已包过的节点）。 */
@@ -531,12 +532,17 @@ function GitCardLayer({ t, sessionWorkspacePath, capabilities }: LayerProps) {
   )
 }
 
-interface SessionsListRow {
-  cwd?: string
+/**
+ * 会话列表快照。形状与两代字段（`retainedBy` / `current`）的说明见
+ * `src/pure/workspaceTreeView.ts` 的 `SessionListLike` 与 `withCurrentSession`——
+ * 这里只窄到本插件真的读的那一格（`cwd`）。
+ */
+interface SessionsListRow extends SessionSummaryLike {
+  readonly cwd?: string
 }
 
 interface SessionsService {
-  list: { getSnapshot(): { current?: string; byId: Record<string, SessionsListRow | undefined> } }
+  list: { getSnapshot(): SessionListLike & { readonly byId: Readonly<Record<string, SessionsListRow>> } }
 }
 
 interface WorkspacesService {
@@ -572,7 +578,11 @@ export function apply(ctx: GitCardContext): void {
    */
   const sessionWorkspacePath = (): string | undefined => {
     const list = ctx.get('sessions').list.getSnapshot()
-    const current = list.current
+    // 当前会话先归一（#191）：官方 0.1.6-alpha.2 起会话列表快照不再下发 `current`
+    // （改成从行上的 `retainedBy.mainView` 推，见 withCurrentSession）。不归一的话这里
+    // 恒 undefined——git 卡片就永远不带 cwd，宿主回落到 VS Code 工作区目录，未分组 /
+    // 子代理会话的提交在「会话自己那个目录」里查不到（实验室 F-60 实测到的那四条）。
+    const current = withCurrentSession(list).current
     if (current === undefined) return undefined
     let workspacePath: string | undefined
     try {

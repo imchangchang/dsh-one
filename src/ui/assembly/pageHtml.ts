@@ -60,6 +60,17 @@ export interface AssemblyPageOptions {
    * 决定这个面板回到单例槽位还是多开表（见 pure/chatPanelState.ts）。
    */
   panelTab?: boolean
+  /**
+   * 这个页面的自有插件 id 列表（第一个 = 该树的 frame 插件 id，
+   * 见 `ui/assembly/wireFilter.ts` 的各 `*_FRAME_PLUGIN_ID` 与树的 `extraPluginIds`）。
+   *
+   * 用途只有一个：把官方的 roster 事件流改道到 mirror 的过滤版
+   * （`/plugins-local/events`，见 `server/assemblyMirror.ts` 的 serveGraphEvents）。
+   * 0.1.6-alpha.2 起页面会采纳宿主经那条流下发的全量 roster，不带过滤就会把页面
+   * 洗成未过滤的官方插件集（#191 的整页白）。顺序有含义：第一个必须是 frame 插件 id
+   * ——mirror 按它取该树的 block list。
+   */
+  localPluginIds: readonly string[]
 }
 
 import { assemblyProbeJs } from './probe.ts'
@@ -156,12 +167,37 @@ const QUEUE_FACADE_JS = `(() => {
  * Models 提供方目录降级「settings are unavailable in this browser」、
  * Open configuration file 缺席。声明后三树等价官方 loopback 形态（#70）。
  */
-function transportJs(mirrorOrigin: string): string {
+function transportJs(mirrorOrigin: string, localPluginIds: readonly string[]): string {
   return `(() => {
   const MIRROR = ${JSON.stringify(mirrorOrigin)}
   const WS_ORIGIN = MIRROR.replace(/^http/, "ws")
   // Diagnostic probe hook: probe.ts installs __DSH_ONE_PROBE__ in webview only; silent in browsers.
   const probe = (level, text) => { if (globalThis.__DSH_ONE_PROBE__) globalThis.__DSH_ONE_PROBE__.log(level, text) }
+  // Roster event stream (see server/assemblyMirror.ts's serveGraphEvents, issue #191): the
+  // official client opens an SSE on /plugins/events whose "graph" frames carry the host's FULL
+  // plugin roster. 0.1.6-alpha.2 makes the client adopt it, so the stream has to go through the
+  // mirror's filtered twin — otherwise the blocked official plugins come back and our own
+  // entries are dropped. The path is absolute, so it resolves against the base href (mirror).
+  const LOCAL_PLUGIN_IDS = ${JSON.stringify(localPluginIds)}
+  const EVENTS_URL = LOCAL_PLUGIN_IDS.length === 0
+    ? null
+    : "/plugins-local/events?ids=" + LOCAL_PLUGIN_IDS.map(encodeURIComponent).join(",")
+  const NativeEventSource = globalThis.EventSource
+  if (EVENTS_URL !== null && typeof NativeEventSource === "function") {
+    globalThis.EventSource = new Proxy(NativeEventSource, {
+      construct(target, args, newTarget) {
+        const first = args[0]
+        if (typeof first === "string" || first instanceof URL) {
+          try {
+            if (new URL(String(first), document.baseURI).pathname === "/plugins/events") {
+              return Reflect.construct(target, [EVENTS_URL, args[1]], newTarget)
+            }
+          } catch (ignored) {}
+        }
+        return Reflect.construct(target, args, newTarget)
+      },
+    })
+  }
   // Page origin (first-hand evidence for host-routing defects such as #87): in the VS Code
   // webview it is vscode-webview://<uuid>, not the mirror, so any official code that
   // addresses the host via location.origin ends up off-target.
@@ -378,7 +414,7 @@ export function assemblyPageHtml(options: AssemblyPageOptions): string {
   // 沙箱 srcdoc 帧的 nonce 补齐（#185）：必须早于页面任何插件脚本——React 挂载时
   // 就会写 srcdoc，晚一步补丁就漏掉那一帧。CSP 关掉时它没有意义（没有政策可匹配）。
   const srcdocNonceScript = cspOn ? `    <script nonce="${cspNonce}">${srcdocNonceJs(cspNonce)}</script>\n` : ''
-  const transportScript = transportOn ? `    <script nonce="${cspNonce}">${transportJs(mirrorOrigin)}</script>\n` : ''
+  const transportScript = transportOn ? `    <script nonce="${cspNonce}">${transportJs(mirrorOrigin, options.localPluginIds)}</script>\n` : ''
   // body 归零（#70）：VS Code 给每条 webview 注入 @layer vscode-default
   // { body { padding: 0 20px } }（pre/index.html defaultStyles）——层内规则
   // 输给任何非层样式，但页面没人设置 body padding 时它就生效（实验室普通

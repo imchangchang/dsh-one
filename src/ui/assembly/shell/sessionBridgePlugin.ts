@@ -23,14 +23,17 @@
  * 不再做任何猜测。
  */
 import { decideSelectionReport, restoreSessionIdOf } from '../../../pure/sidebarSelectionGate.ts'
+import { withCurrentSession, type SessionListLike } from '../../../pure/workspaceTreeView.ts'
 
-interface SessionsListSnapshot {
+/**
+ * 会话列表快照：形状（`ids` / `byId` / `current`）见 `pure/workspaceTreeView.ts` 的
+ * `SessionListLike`，这里只补这一页要用的 `phase`。
+ */
+interface SessionsListSnapshot extends SessionListLike {
   phase: string
-  current?: string
 }
 
 interface SessionsService {
-  open(id: string): void
   list: {
     getSnapshot(): SessionsListSnapshot
     subscribe(listener: () => void): () => void
@@ -93,7 +96,10 @@ export function apply(ctx: BridgeContext): void {
   ctx.get('sessions').list.subscribe(() => {
     const snapshot = ctx.get('sessions').list.getSnapshot()
     if (snapshot.phase !== 'ready') return
-    const current = snapshot.current
+    // 当前会话先归一（#191）：官方 0.1.6-alpha.2 起快照里不再有 `current` 字段，
+    // 官方改成从行上的 `retainedBy.mainView` 推——不分叉就会一直读到 undefined，
+    // 选择桥从此一条都不上报（宿主拿不到「面板里在看哪条会话」）。见 withCurrentSession。
+    const current = withCurrentSession(snapshot).current
     // undefined（恢复未落地/被清空）只等不登记
     if (current === undefined) return
     const decision = decideSelectionReport(state, current, { restoreId, userInteracted })

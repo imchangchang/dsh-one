@@ -348,3 +348,43 @@ test('#109：未分组桶的 ＋ 走 sessions.create({})，不再对 undefined �
     '不得再对未分组直接 return（那正是 #109 要修的「＋ 点了没反应」）',
   )
 })
+
+/**
+ * #191：官方 0.1.6-alpha.2 动过的两条**取用路径**。
+ *
+ * 上游探针查的是「名字还在不在」，这两条它一条都查不出来——名字都在，坏的是名字背后的
+ * 语义（会话列表快照不再下发 `current`；会话服务不再有 `open`）。所以这里按源码钉住
+ * 「我们走的是官方两代都在的那条口」，免得日后又被改回被删掉的那条（alpha.1 上它还在，
+ * 改回去在本机永远测不出来）。
+ */
+test('#191：打开会话走官方两代都在的入口，不再调被删掉的 sessions.open（不含注释与回落分支）', () => {
+  const callsSessionsOpen = (text: string): boolean =>
+    /(^|[^.\w])sessions\.open\(/.test(text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, ''))
+  for (const file of ['sessionBootPlugin.ts']) {
+    assert.ok(!callsSessionsOpen(read(file)), `${file} 不得再调 sessions.open（0.1.6-alpha.2 已被官方删掉）`)
+    assert.match(read(file), /uiWorkspace/, `${file} 要走官方 uiWorkspace.openSession`)
+  }
+  const plugin = fs.readFileSync(path.join(TREE_DIR, 'workspaceTreePlugin.ts'), 'utf8')
+  assert.match(plugin, /ui\.openSession\(sessionId\)/, 'workspaceTreePlugin 打开会话要走 uiWorkspace.openSession')
+  // 树插件留了一条 uiWorkspace 缺席时的回落（只有 alpha.1 才可能成立）：那条必须**明确**
+  // 是回落，不能是主路径——主路径在 openSession 的第一支。
+  const helper = /const openSession = \(sessionId: string\): void => \{([\s\S]*?)\n  \}/.exec(plugin)?.[1] ?? ''
+  assert.ok(helper.includes('ui.openSession(sessionId)'), '主路径必须是官方 entry')
+  assert.ok(
+    helper.indexOf('ui.openSession(sessionId)') < helper.indexOf('sessions.open(sessionId)'),
+    '回落（sessions.open）只能排在官方 entry 之后',
+  )
+})
+
+test('#191：当前会话按 retainedBy.mainView 推（官方 0.1.6-alpha.2 起快照里没有 current）', () => {
+  const view = fs.readFileSync(path.join(import.meta.dirname, '..', 'src', 'pure', 'workspaceTreeView.ts'), 'utf8')
+  assert.match(view, /export function withCurrentSession/, '两代字段的分叉点要留在 pure 层（单一事实源）')
+  assert.match(view, /retainedBy\?\.mainView/, '新版本那一支按官方写法从 retainedBy.mainView 推')
+  // 三个消费方都要走这个分叉点，谁自己读 current 谁就会在 alpha.2 上静默失效。
+  const bridge = read('sessionBridgePlugin.ts')
+  assert.match(bridge, /withCurrentSession\(/, '选择桥要归一当前会话，否则一条都不上报')
+  const boot = read('sessionBootPlugin.ts')
+  assert.match(boot, /withCurrentSession\(/, '对话面板启动注入要归一当前会话')
+  const tree = fs.readFileSync(path.join(TREE_DIR, 'workspaceTree', 'tree.ts'), 'utf8')
+  assert.match(tree, /withCurrentSession\(/, '侧栏树要归一当前会话（当前会话所在分组默认展开靠它）')
+})

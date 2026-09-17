@@ -118,22 +118,24 @@ flowchart LR
 
 A scheduled GitHub Action ([dsh-upstream-watch](.github/workflows/dsh-upstream-watch.yml)) checks for new [dsh releases](https://github.com/deepseek-ai/deepseek-harness/releases) daily; for each new version it runs the automated probe suite (22 checks: the wire protocol, the front-end artifacts the gateway serves — boot contract, combo endpoint, Origin fence —, the client contract surface the assembled UI depends on, and the internal identifiers inside the installed official packages) and files an `upstream-watch` issue with the results. The last two badges above show the latest upstream release and the latest probe outcome; the full test list (automated + manual items) lives in [docs/dsh-compat-checklist.md](docs/dsh-compat-checklist.md).
 
-**Tested versions.** Two dsh versions have been verified end to end:
+**Tested versions.** Three dsh versions have been verified end to end:
 
 | dsh version | Status |
 |---|---|
 | `0.1.2-rc.1` | tested — the baseline every verification lane was built against |
 | `0.1.6-alpha.1` | tested — three drifts were found and fixed here: the `details` slot was renamed to `rightbar`, new root-level hooks appeared, and the composer's `imageIds` / `addImages` were renamed to `attachmentIds` / `addAttachments` |
+| `0.1.6-alpha.2` | tested — four drifts were found and fixed here (none of them visible to the probes, which only read bytes): the client started adopting the plugin roster the gateway pushes over `/plugins/events`, which reinstated the plugins we block and removed our own (the whole page rendered blank); the session list stopped carrying `current`, which left the sidebar tree with workspaces but no sessions (and the git card without a working directory); the session service dropped `open` / `select` / `clear`, which made clicking a session do nothing; and the `completed` flag moved off the session row into the `sessionStatus` hook, which lost the “finished, not opened yet” dot |
 | any other version in `[0.1.2-rc.1, 0.2.0)` | **not tested** — see the gate note below |
 
-**Version gate.** The assembled chat expects dsh `[0.1.2-rc.1, 0.2.0)`: older builds lack the browser-session auth and loader protocol the assembly uses, newer ones are unverified. The gate never blocks — a version outside the range gets an info banner at the top of the panel. Because it is a whole-range check, a 0.1.6 release passes silently even though drift inside the range is proven (the row above).
+**Version gate.** The assembled chat expects dsh `[0.1.2-rc.1, 0.2.0)`: older builds lack the browser-session auth and loader protocol the assembly uses, newer ones are unverified. The gate never blocks — a version outside the range gets an info banner at the top of the panel. Because it is a whole-range check, a 0.1.6 release passes silently even though drift inside the range is proven (the rows above).
 
 **On every upstream release, run three checks** (prerequisites and details in the checklist):
 
 | Check | Command | Covers |
 |---|---|---|
 | upstream probe | `node scripts/dsh-upstream-watch/probe.mjs --command dsh --expect-version <version>` | wire surface + client contract surface + installed official artifacts: are the slot names, root-level hooks, field/method names and internal identifiers we depend on still there |
-| browser verification | `npm run verify:lab` | the four assembled trees boot on a real gateway with no crashed slot and no missing contract |
+| browser verification on the candidate | `npm run verify:lab-version <version>` | does the assembly build up at all **on that version**: four trees boot with no crashed slot and no missing contract. Installs the candidate into a temp dir and runs the lab against it, leaving your installed dsh untouched. This is the gate 0.1.6-alpha.2's blank page walked past — probes read bytes and cannot see it |
+| browser verification on your install | `npm run verify:lab` | the same assertions against the dsh on your `PATH`; run it after every change to the assembly |
 | host-half verification | `npm run verify:host-half` | the gateway-side plugin half against official dsh |
 
 Who finds what: the probe runs daily in CI and catches renamed slots, hooks and fields before users hit them; the browser lab is the first check for any change to the assembly; VS Code verification (`scripts/dev-ui-test.sh`) is the final authority for host-layer behavior (CSP, clipboard, native menus, webview lifecycle).
@@ -145,7 +147,7 @@ Who finds what: the probe runs daily in CI and catches renamed slots, hooks and 
 | WebSocket streams (`session/follow` snapshot, `session/control` baseline) | probe |
 | Client contract surface (slot names, root hooks, field names the assembly depends on) | probe |
 | Internal identifiers inside the installed official packages (silent-failure dependencies) | probe |
-| Assembled trees on a real gateway (boot, slots filled, no crashed entry) | browser verification |
+| Assembled trees on a real gateway (boot, slots filled, no crashed entry) | browser verification — also on the **candidate** version via `verify:lab-version` |
 | Host-half plugin against official dsh | `verify:host-half` |
 | Live-streaming rendering, approvals/questions through the assembled chat | manual (per-version issue) |
 | Session-format migration & rollback, sandbox container regression | manual (per-version issue) |

@@ -29,10 +29,18 @@
  */
 import type { PendingInteractionLike, PendingInteractions } from './workspaceTreeView.ts'
 
-/** 会话状态的一格（官方 0.1.6-alpha.2 起那条钩子的取值形状；我们只取等待态那一格）。 */
+/** 会话状态的一格（官方 0.1.6-alpha.2 起那条钩子的取值形状；我们取两格）。 */
 export interface SessionStatusLike {
   /** 该会话上优先号最高的那条等待态请求；没有等待中的请求时为 undefined。 */
   readonly pendingInteraction?: PendingInteractionLike
+  /**
+   * 「跑完还没被打开」（侧栏行那枚绿色提醒点）。**这一格是 #191 才归到这条钩子上的**：
+   * 0.1.6-alpha.1 及以前它在会话列表的行上（`byId[id].completed`，见
+   * `dsh-api-session-controller` 的 projectList），alpha.2 起行上没有了，官方把它挪进
+   * 这张状态表（官方 `dsh-client-ui-session` 维护它：会话跑起来就清掉，会话成为**主对话区
+   * 当前会话**时也清掉）。
+   */
+  readonly completionUnread?: boolean
 }
 
 /**
@@ -66,6 +74,12 @@ export interface PendingSource {
   readonly read: (props: PendingHookProps) => unknown
   /** 把快照投影成等待态表（只留等待中的会话；老代原样返回同一份）。 */
   readonly project: (snapshot: unknown) => PendingSnapshot
+  /**
+   * 「跑完还没被打开」在这一代有没有第二个来源（#191）：新代从状态表里挑出 `completionUnread`
+   * 的那些会话 id；**老代给 `undefined`**——那一代这一格在会话列表的行上、行里带着 `completed`，
+   * 不需要也不该覆盖它（覆盖成空表会把绿点全灭掉）。
+   */
+  readonly completedIds?: (snapshot: unknown) => ReadonlySet<string>
 }
 
 /**
@@ -90,6 +104,14 @@ const SOURCES: ReadonlyMap<string, PendingSource> = new Map<string, PendingSourc
       hook: 'sessionStatus',
       prop: 'useSessionStatus',
       read: (props) => props.useSessionStatus?.((state) => state),
+      /** 新版：同一张表里的另一格。 */
+      completedIds: (snapshot) => {
+        const ids = new Set<string>()
+        for (const [sessionId, status] of snapshot as SessionStatusSnapshot) {
+          if (status.completionUnread === true) ids.add(sessionId)
+        }
+        return ids
+      },
       /** 新版：从每条会话的状态里挑出有等待态的那些，表形状与视图层那份一致。 */
       project: (snapshot) => {
         const table = new Map<string, PendingInteractionLike>()

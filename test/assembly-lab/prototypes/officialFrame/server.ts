@@ -26,6 +26,7 @@ import { defaultOwnedPath, readOwnedRecord } from '../../../../src/server/ownedR
 import { extractBootWire, extractFrontendAssets, filterWire } from '../../../../src/ui/assembly/wireFilter.ts'
 import { compare as compareSemver, parse as parseSemver } from '../../../../src/pure/semver.ts'
 import type { LogSink } from '../../../../src/log.ts'
+import { localPluginIdsOf } from '../../../../src/ui/assembly/trees.ts'
 import { PROTO_ROUTES, type ProtoTreeRoute } from './trees.ts'
 
 /** 版本门区间（与 ui/assemblyView.ts 同口径）。 */
@@ -111,6 +112,7 @@ export async function startProtoServer(options: ProtoServerOptions): Promise<Pro
           ? `dsh version unknown (expects ${PREREQ_MIN} <= version < ${PREREQ_MAX})`
           : `dsh ${dshVersion} may not match this assembly (expects ${PREREQ_MIN} <= version < ${PREREQ_MAX})`,
       ...(sessionId === null || sessionId === '' ? {} : { bootSessionId: sessionId }),
+      localPluginIds: localPluginIdsOf(route.tree),
     })
   }
 

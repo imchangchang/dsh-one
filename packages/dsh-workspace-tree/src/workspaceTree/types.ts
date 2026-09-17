@@ -152,10 +152,10 @@ export interface TreeProps extends PendingHookProps {
   isSessionInPanel: (sessionId: string) => Promise<boolean>
   /**
    * #121：把对话面板亮到这个会话（宿主能力口 `openSessionPanel` 的封装）。**必须是
-   * 独立的一条**：会话已经是官方 sessions 服务的「当前」时，`sessions.open` 不会让值
+   * 独立的一条**：会话已经是官方那条打开入口的「当前」时，再打开它不会让值
    * 变化、选择桥也就不会上报，光靠官方那条路面板永远不出来。
    *
-   * 官方 web 形态（无桥）是静默空操作——那一端的「打开」就是官方 `sessions.open`，
+   * 官方 web 形态（无桥）是静默空操作——那一端的「打开」就是官方那条入口，
    * 调用方已经先走过它了。
    */
   openSessionPanel: (sessionId: string) => Promise<void>

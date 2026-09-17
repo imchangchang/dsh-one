@@ -70,3 +70,14 @@ export const SETTINGS_TREE: AssemblyTree = {
 
 /** mirror 要同时伺服的树（缓存键 = 各树 framePluginId，见 server/assemblyMirror.ts）。 */
 export const ASSEMBLY_TREES: ReadonlyArray<AssemblyTree> = [CHAT_TREE, SIDEBAR_TREE, SETTINGS_TREE]
+
+/**
+ * 一棵树的「自有插件 id」列表：第一个是 frame 插件 id，其余是该树追加的共用插件。
+ *
+ * 顺序有含义，消费方别自己拼：装配页的 `localPluginIds` 选项（`ui/assembly/pageHtml.ts`）
+ * 与镜像的事件流路由（`server/assemblyMirror.ts` 的 serveGraphEvents）都按「第一个 =
+ * 该树的 frame 插件 id」取 block list。
+ */
+export function localPluginIdsOf(tree: AssemblyTree): string[] {
+  return [tree.framePluginId, ...tree.extraPluginIds]
+}

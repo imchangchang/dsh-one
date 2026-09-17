@@ -706,8 +706,11 @@ nonce（`src/ui/assembly/pageHtml.ts` 的 `srcdocNonceJs`）：帧与本页自�
 - 清单过滤 = `src/ui/assembly/wireFilter.ts` + `src/ui/assembly/trees.ts`
   （三棵树的 block list / 自有插件 id，与生产**同一份定义**）；
 - loopback 反代 = `src/server/assemblyMirror.ts`（与扩展里同一个 mirror 实例实现）；
-- 页面其余请求（`/plugins-local/??…`、`/api/…`、`/assets/…`）原样转给 mirror，
-  实验室不自己造资产管线。
+- 页面其余请求（`/plugins-local/??…`、`/plugins-local/events`、`/api/…`、`/assets/…`）
+  原样转给 mirror，实验室不自己造资产管线。其中 `/plugins-local/events` 是官方
+  `/plugins/events` 的过滤版（页面自己改道过去）：那一串 `graph` 帧带的是宿主下发的
+  全量 roster，不过滤就会被页面采纳（0.1.6-alpha.2 起），block 掉的官方插件装回来、
+  自有插件条目被卸掉（#191）。改装配页的清单/镜像代码时，F-01 会连带验到它。
 
 所以「实验室验的就是生产装的」不是靠人工同步，而是同一份代码。
 
