@@ -14,19 +14,26 @@ npm run verify:legacy-sidebar
 一条命令，约 3 分钟。它自己完成四件事：
 
 1. `npm run build`（页面要用 `dist/sessionsWebview.js`）；
-2. 起一个**隔离的** `dsh web --host 127.0.0.1 --port 0 --no-open`（读它打出的那行 URL 取
-   launch token），**跑完立刻 SIGTERM 收掉**；不写 `~/.dsh/dsh-owned.json`；
+2. 起一台**隔离实例**（`test/assembly-lab/labGateway.ts` 那套：临时 `DSH_HOME`、随机端口、
+   `--no-open`、本次现起的假模型端点），起来之后经官方 RPC **播种**真工作区与真会话
+   （`seedLabInstance`）——用户的 `~/.dsh` 与日常实例（3080）**全程不碰**，换台机器也是
+   同一份数据可渲染（#197 之前这里直接 `spawn('dsh', ['web', …])`、环境变量全继承，等于把
+   实例开在用户的 `~/.dsh` 上，还依赖那台实例上碰巧有什么）；
 3. 起装配实验室（`test/assembly-lab/labServer.ts`，端口取随机）+ 一个只伺服旧侧栏那一页的
    小服务器（端口也随机）；
 4. Playwright 跑 9 个状态 × 3 档宽度，两侧各截一张 + 拼一张并排图，并逐项读几何。
+
+跑完、断言失败、被 Ctrl-C / SIGTERM 打断，都会关掉 chromium、收掉两个服务器、**按 PID**
+收掉那台隔离实例、删掉它的临时 `DSH_HOME`（不用 `pkill`：那会连用户自己的实例一起带走）。
+退出码：`0` 全过 / `1` 有断言失败 / `130`·`143` 被 Ctrl-C·SIGTERM 打断。
 
 环境变量：
 
 | 变量 | 作用 |
 | --- | --- |
-| `LEGACY_GATEWAY` | 复用已有网关（**必须**同时给 `LEGACY_TOKEN`）；不给就自己起 |
+| `LEGACY_GATEWAY` | 复用已有网关（**必须**同时给 `LEGACY_TOKEN`）；给了就不自起实例，也就不会收任何进程——**只读**用，别拿它当默许 |
 | `LEGACY_TOKEN` | 复用网关时的 launch token |
-| `LEGACY_GATEWAY_PORT` | 自己起网关时用的端口，缺省 `0`（由系统挑一个空闲端口） |
+| `LEGACY_GATEWAY_PORT` | 自己起实例时用的端口；不给就现取一个空闲端口（给的那个若已有人在监听，当场报错退出） |
 | `LEGACY_LAB_PORT` | 装配实验室端口，缺省 `0` |
 | `LEGACY_HEADED=1` | 开有界面的浏览器（跑完不退，人点页面用） |
 
@@ -54,8 +61,10 @@ npm run verify:legacy-sidebar
 **基础主题**：旧侧栏只认 `--vscode-*` 变量，harness 在页面加载后贴一段 `theme.ts` 里的
 VS Code 默认深色主题取值（出处见那个文件）；webview 的默认底色也照 VS Code 的行为补上。
 
-**两侧的数据来自同一次只读读取**（`session/list` + `workspace/follow` 的基线帧），再各按自己
-的原生通道喂进去——两侧「怎么读数据」本来就不同，硬塞同一棵 DOM 反而失真。
+**两侧的数据来自同一次只读读取**（**本次自己起的那台隔离实例**上的 `session/list` +
+`workspace/follow` 基线帧），再各按自己的原生通道喂进去——两侧「怎么读数据」本来就不同，
+硬塞同一棵 DOM 反而失真。两侧的工作区 / 会话 / 置顶 / 未读 / 标签组 / 回收站成员都是从这一
+份事实折出来的，所以它们渲染的是同一批（播种出来的）真会话。
 
 ## 九个状态、两侧各怎么造
 
@@ -73,8 +82,9 @@ VS Code 默认深色主题取值（出处见那个文件）；webview 的默认�
 
 **动作一律不实现**：旧侧栏发回宿主的消息只被丢掉（`legacyPage.ts` 里 `onDidReceiveMessage`
 的注释写明），不落网关、不改状态；现装配侧的动作只落在假宿主里。跑前跑后各数一次会话条数
-（`R-06` 同款守卫）——**红了多半不是本 harness 干的**：同一台机器上别的 session 在这几分钟里
-建了会话就会让它红（#116 记的读数漂移）。
+（`R-06` 同款守卫）——#197 起实例是本次运行自己起的、别人写不进来，所以这条红了就是本
+harness 真的往实例里写了东西（以前跑在用户日常实例上时，同一台机器上别的 session 建一条
+会话就会让它红，#116 记的读数漂移）。
 
 ## 已知的取舍
 

@@ -15,6 +15,13 @@
  *   `postMessage({type:'sessions', snapshot})` 灌进去（旧侧栏本来就是宿主推快照的形态）。
  * - **现装配侧栏**：复用装配实验室（`test/assembly-lab/`）——真装配页 + 真网关 + 假宿主。
  *
+ * **数据面 = 本次运行自己起的隔离实例**（#197）：临时 `DSH_HOME`（`mkdtemp` + 跑完删）
+ * + 随机端口 + `--no-open` + 现起的假模型端点，起来之后再经官方 RPC 播种真工作区与真会话
+ * （复用装配实验室那套，见 `ensureGateway`）。实例一起就登记进收尾路径，跑完 / 断言失败 /
+ * 被 Ctrl-C · SIGTERM 打断都按 PID 收掉、临时目录删掉（#177 · #190 的口径）。
+ * 用户的日常实例（3080）与 `~/.dsh` 全程不碰；那台实例上跑这个 harness 是 #197 之前的
+ * 形态——它读用户真实数据、还在用户的 `~/.dsh` 底下落启动产生的文件。
+ *
  * 两侧的数据来自**同一次**只读网关读取（`session/list` 与 `workspace/follow`），再各按
  * 自己的原生通道喂进去（旧侧栏吃 `SessionsSnapshot`；现装配侧吃假宿主的 `stateRead` 键值
  * 与官方客户端的 `localStorage` 视图态）。两侧「怎么读数据」是真的不一样，所以 harness
@@ -25,18 +32,23 @@
  * 轻量守卫见本文件末尾的「网关会话数跑前跑后一致」。
  *
  * 用法（跑法与端口见同目录 README）：
- *   npm run verify:legacy-sidebar                    # 自己起一个 dsh 实例，跑完立刻收掉
+ *   npm run verify:legacy-sidebar                    # 自己起一台隔离实例，跑完立刻收掉
  *   LEGACY_GATEWAY=http://127.0.0.1:3080 LEGACY_TOKEN=… npm run verify:legacy-sidebar
  *   LEGACY_HEADED=1 npm run verify:legacy-sidebar    # 开有界面的浏览器看现场
+ *
+ * 退出码：0 = 全过；1 = 有断言失败；130 / 143 = 被 Ctrl-C / SIGTERM 打断（先收干净再退，
+ * 与装配实验室同一口径）。
  */
 import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
-import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright'
 import { openTreePage } from '../assembly-lab/harness.ts'
+import { startLabGateway, type LabGateway } from '../assembly-lab/labGateway.ts'
 import { consoleLogger, defaultPluginsDir, LAB_TREES, startLabServer, type LabServer, type LabTreeRoute } from '../assembly-lab/labServer.ts'
-import type { Logger } from '../../src/log.ts'
+import { seedLabInstance } from '../assembly-lab/seed.ts'
+import type { LogSink, Logger } from '../../src/log.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { buildLegacyPage, startLegacyServer } from './legacyPage.ts'
 import { bundle } from './l10n.ts'
@@ -58,6 +70,132 @@ const WIDTHS = [260, 340, 500] as const
 /** 量几何与截图时用的主宽度（文档表格里那一列）。 */
 const REPORT_WIDTH = 340
 const HEIGHT = 900
+
+/* ---------------------------------------------------------------------------
+ * 收尾：跑完 / 断言失败 / 被 Ctrl-C · SIGTERM 打断，都收干净（#177 · #190 的口径）
+ * ------------------------------------------------------------------------ */
+
+/** 旧侧栏那一页的服务器（`startLegacyServer` 的返回值）。 */
+type LegacyServer = Awaited<ReturnType<typeof startLegacyServer>>
+
+/**
+ * 本次运行起过的东西（chromium、实验室服务器、旧侧栏那一页的服务器、隔离实例、开过的页面）。
+ *
+ * 放在模块级，是为了让**信号处理**也看得见它们：`chromium.launch()` 默认带
+ * `handleSIGINT` / `handleSIGTERM`，Playwright 自己装的那对信号处理收到信号就关掉浏览器、
+ * 然后 `process.exit(130)`——`main()` 的 `finally` 一句都跑不到，本次起的隔离实例与临时
+ * 目录全留在原地（#190 在两个验证脚本上实测过同一处）。现在两个开关都关掉（见 `main`），
+ * 收尾由这里的 `onSignal` 负责。
+ */
+const resources: {
+  browser?: Browser
+  lab?: LabServer
+  legacyServer?: LegacyServer
+  gateway?: GatewayHandle
+  opened: { context: BrowserContext }[]
+} = { opened: [] }
+/** 已经进了收尾流程（信号打断会直接退进程，别让 `finally` 再收一遍）。 */
+let shuttingDown = false
+/**
+ * 起隔离实例的上限（毫秒）：`startLabGateway` 拿它当就绪超时，`onSignal` 拿它当
+ * 「等它起完」的上限——同一个数，被打断在启动那一段时不会先于它自己的超时放弃。
+ */
+const BOOT_TIMEOUT_MS = 60_000
+/**
+ * 正在起隔离实例的那个 promise（起完就清空）。
+ *
+ * 为什么要留一份：临时 `DSH_HOME` 与那台 `dsh web` 在 `startLabGateway` 返回之前都握在它
+ * 手里，我们既没有 pid 也没有 `dispose`——被信号打断在那一刻时直接退，就会把实例与临时
+ * 目录留在原地。先等它起完（或它自己失败收掉），再走统一的收尾。
+ */
+let booting: Promise<LabGateway> | undefined
+
+/**
+ * 带超时的收尾：收尾本身也不许把进程卡住（#88 的现场就是「断言跑完、报告写完，
+ * 进程还挂着」），宁可放弃等待也要退出去。
+ */
+async function withTimeout(step: string, work: Promise<unknown>, ms: number): Promise<void> {
+  let timer: NodeJS.Timeout | undefined
+  try {
+    await Promise.race([
+      work.then(
+        () => undefined,
+        // 收尾失败不改写验证结论，但也不能默默吞掉——打到 stderr 让人看得见。
+        (error: unknown) => {
+          process.stderr.write(`test/legacy-sidebar: ${step} 失败：${error instanceof Error ? error.message : String(error)}\n`)
+        },
+      ),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(() => {
+          process.stderr.write(`test/legacy-sidebar: ${step} 超过 ${String(ms / 1000)} 秒没结束，不再等它。\n`)
+          resolve()
+        }, ms)
+      }),
+    ])
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
+}
+
+/** 关 chromium、收两个服务器、按 PID 收隔离实例（连同它的临时 `DSH_HOME`）。 */
+async function disposeResources(): Promise<void> {
+  const browser = resources.browser
+  resources.browser = undefined
+  if (browser !== undefined) await withTimeout('关闭 chromium', browser.close(), 15_000)
+  const opened = resources.opened
+  resources.opened = []
+  for (const entry of opened) await entry.context.close().catch(() => undefined)
+  const legacyServer = resources.legacyServer
+  resources.legacyServer = undefined
+  if (legacyServer !== undefined) await withTimeout('收掉旧侧栏那一页的服务器', legacyServer.dispose(), 10_000)
+  const lab = resources.lab
+  resources.lab = undefined
+  if (lab !== undefined) lab.dispose()
+  const gateway = resources.gateway
+  resources.gateway = undefined
+  if (gateway !== undefined) await withTimeout('收掉隔离实例', gateway.dispose(), 20_000)
+}
+
+/**
+ * 收尾只跑一次：正常跑完与信号打断可能在同一瞬间各起来一条，两边各收一半会把还在删目录的
+ * 那一半打断（#190 实测：一边在 `fs.rm`、另一边已经 `process.exit`，目录留在原地）。
+ * 后到的那条等前一条收完。
+ */
+let disposal: Promise<void> | undefined
+function disposeOnce(): Promise<void> {
+  disposal ??= disposeResources()
+  return disposal
+}
+
+/** 被 Ctrl-C / SIGTERM 打断：收干净，再用约定俗成的退出码退（130 / 143）。 */
+async function onSignal(signal: NodeJS.Signals): Promise<void> {
+  if (shuttingDown) return
+  shuttingDown = true
+  process.stderr.write(`\ntest/legacy-sidebar: 收到 ${signal}，正在回收 chromium、服务器、隔离实例与临时目录…\n`)
+  // 起实例那一段被打断：等它起完（起不来时它自己会收掉临时目录）再收，别让半截现场留下。
+  // 上限就取它自己的就绪超时 + 一点余量——它超时那一刻会自己 dispose 掉半截实例。
+  if (booting !== undefined) await withTimeout('等隔离实例起完', booting.catch(() => undefined), BOOT_TIMEOUT_MS + 15_000)
+  await disposeOnce()
+  process.exit(signal === 'SIGINT' ? 130 : 143)
+}
+
+for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, () => void onSignal(signal))
+
+/**
+ * 跑完就退，退出码就是真实结果（#88）：不再指望「事件循环恰好没有悬挂句柄」——实验室
+ * 服务器与隔离实例的订阅流都留着连接（实测：收尾都跑完了、`disposed` 也打了，进程还挂在
+ * 事件循环里不退）。先把已排队的 stdout 落盘（写一个空串，它的回调排在前面所有输出之后），
+ * 再退；万一 stdout 卡住，5 秒后照样退。
+ */
+function finish(code: number): void {
+  process.exitCode = code
+  if (shuttingDown) return
+  const safety = setTimeout(() => process.exit(code), 5_000)
+  process.stdout.write('', () => {
+    clearTimeout(safety)
+    process.exit(code)
+  })
+}
 
 /* ---------------------------------------------------------------------------
  * 断言与观测收集
@@ -82,75 +220,81 @@ function fact(line: string): void {
 }
 
 /* ---------------------------------------------------------------------------
- * 网关：自己起一个隔离实例，跑完立刻收掉
+ * 网关：自己起一台隔离实例（临时 DSH_HOME + 假模型端点 + 播种真数据），跑完按 PID 收掉
  * ------------------------------------------------------------------------ */
 
 interface GatewayHandle {
   origin: string
   token: string
+  /** dsh 版本（复用别人的实例时读不到，空串 = 页面会挂一条「版本未知」信息条）。 */
+  version: string
   dispose(): Promise<void>
 }
 
-async function ensureGateway(): Promise<GatewayHandle> {
+/**
+ * 拿一台网关：缺省**自己起一台隔离实例**（#197），`LEGACY_GATEWAY` 给了就复用调用方那台。
+ *
+ * 为什么换成隔离实例：以前这里直接 `spawn('dsh', ['web', …])`、环境变量整个继承，也就是
+ * **把实例开在用户真实的 `~/.dsh` 上**——本 harness 的工作区 / 会话 / 置顶 / 标签组 /
+ * 回收站清单全部从这台实例读，等于跑一次就动一次用户数据（而且换台机器就大面积红）。
+ * 现在照装配实验室那套：临时 `DSH_HOME`（`mkdtemp` + 跑完删）、随机端口、`--no-open`、
+ * 本次现起的假模型端点，起来之后经官方 RPC 播种真工作区与真会话。
+ *
+ * 次序是刻意的：**先起实例（不播种）→ 登记进 `resources` → 再播种**。
+ * `startLabGateway` 的 `dispose` 句柄要等它返回才有，而播种要经官方 RPC 真跑十几条会话
+ * （本机实测 1 秒上下，仍是这一段里最长的一截）；分开之后，那一截落在「实例已登记」之后，
+ * 被信号打断时走的是统一的收尾（按 PID 收进程、删临时目录），不靠兜底。
+ */
+async function ensureGateway(log: LogSink): Promise<GatewayHandle> {
   const given = process.env.LEGACY_GATEWAY ?? process.env.LAB_GATEWAY
   if (given !== undefined && given !== '') {
     const token = process.env.LEGACY_TOKEN ?? process.env.LAB_TOKEN
     if (token === undefined || token === '') {
       throw new Error('LEGACY_GATEWAY 给了但没给 LEGACY_TOKEN（复用已有实例时必须带 launch token）')
     }
-    fact(`网关：复用调用方给的实例 ${given}`)
-    return { origin: given, token, dispose: async () => undefined }
+    fact(`网关：复用调用方给的实例 ${given}（本次运行不自起实例，也就不收任何进程）`)
+    return { origin: given, token, version: cliText(['--version']), dispose: async () => undefined }
   }
 
-  const port = process.env.LEGACY_GATEWAY_PORT ?? '0'
-  const child: ChildProcess = spawn('dsh', ['web', '--host', '127.0.0.1', '--port', port, '--no-open'], {
-    stdio: ['ignore', 'pipe', 'pipe'],
+  const port = process.env.LEGACY_GATEWAY_PORT
+  booting = startLabGateway(log, {
+    ...(port === undefined || port === '' ? {} : { port: Number(port) }),
+    seed: false,
+    // 与 `onSignal` 等它起完的上限对齐（见 `BOOT_TIMEOUT_MS`）：两边同一个数，被打断在
+    // 启动那一段时「等它起完」不会先于它自己的超时放弃。
+    readyTimeoutMs: BOOT_TIMEOUT_MS,
   })
-  const url = await new Promise<string>((resolve, reject) => {
-    let buffer = ''
-    let done = false
-    const timer = setTimeout(() => {
-      if (done) return
-      done = true
-      reject(new Error(`dsh web 起不来（20s 内没打出带 token 的地址）；输出：${buffer.slice(-400)}`))
-    }, 20_000)
-    const sweep = (chunk: Buffer): void => {
-      buffer += chunk.toString()
-      const match = /http:\/\/127\.0\.0\.1:(\d+)\/\?token=([A-Za-z0-9_-]+)/.exec(buffer)
-      if (match !== null && !done) {
-        done = true
-        clearTimeout(timer)
-        resolve(match[0])
-      }
-    }
-    child.stdout?.on('data', sweep)
-    child.stderr?.on('data', sweep)
-    child.on('exit', (code) => {
-      if (done) return
-      done = true
-      clearTimeout(timer)
-      reject(new Error(`dsh web 提前退出（code=${String(code)}）：${buffer.slice(-400)}`))
-    })
-  })
-  const parsed = new URL(url)
-  const origin = `${parsed.protocol}//${parsed.host}`
-  fact(`网关：本 harness 自己起的 \`dsh web --host 127.0.0.1 --port ${port} --no-open\`（${origin}，跑完立刻收掉）`)
-  return {
-    origin,
-    token: parsed.searchParams.get('token') ?? '',
-    dispose: () =>
-      new Promise<void>((resolve) => {
-        if (child.exitCode !== null || child.signalCode !== null) {
-          resolve()
-          return
-        }
-        child.once('exit', () => resolve())
-        child.kill('SIGTERM')
-        setTimeout(() => {
-          if (child.exitCode === null) child.kill('SIGKILL')
-        }, 5_000)
-      }),
+  const isolated: LabGateway = await booting
+  booting = undefined
+  const handle: GatewayHandle = {
+    origin: isolated.gateway,
+    token: isolated.token,
+    version: isolated.version ?? '',
+    dispose: () => isolated.dispose(),
   }
+  // 先登记再播种：播种要真跑十几条会话，那一段被打断时收尾就按 PID 收掉这台进程、
+  // 删掉它的临时 `DSH_HOME`（实例起了一半被打断的那条路见 `onSignal`）。
+  resources.gateway = handle
+  fact(
+    `网关：本 harness 自起的隔离实例 ${isolated.gateway}（临时 DSH_HOME=${isolated.home}，` +
+      `pid=${String(isolated.pid)}，dsh ${isolated.version ?? '（版本读不到）'}）——不碰用户 ~/.dsh、不占 3080`,
+  )
+  if (shuttingDown) {
+    // 起的过程中被打断：`onSignal` 正在等这个 promise 收尾，这里把控制权交给它。
+    throw new Error('test/legacy-sidebar: 起隔离实例的过程中被打断')
+  }
+
+  const seed = await seedLabInstance(isolated.gateway, isolated.home, log)
+  const blank = seed.sessions.filter((session) => session.state === 'blank').length
+  const archived = seed.sessions.filter((session) => session.state === 'archived').length
+  const special = seed.sessions.filter(
+    (session) => session.state !== 'blank' && session.state !== 'idle' && session.state !== 'archived',
+  ).length
+  fact(
+    `播种：${String(seed.workspaces.length)} 棵工作区、${String(seed.sessions.length)} 条会话` +
+      `（空白不上树 ${String(blank)} 条 / 归档 ${String(archived)} 条 / 运行中·等审批·等回答 ${String(special)} 条）`,
+  )
+  return handle
 }
 
 /* ---------------------------------------------------------------------------
@@ -700,20 +844,15 @@ function verdict(legacy: Reading, current: Reading): '一致' | '不同' | '缺�
   return legacy.value === current.value ? '一致' : '不同'
 }
 
-async function main(): Promise<void> {
+async function main(): Promise<number> {
   await fsp.rm(OUT, { recursive: true, force: true })
   await fsp.mkdir(SHOTS, { recursive: true })
 
-  const dshVersion = cliText(['--version'])
-  const gateway = await ensureGateway()
   const log = consoleLogger(true)
-  let lab: LabServer | undefined
-  let legacyServer: Awaited<ReturnType<typeof startLegacyServer>> | undefined
-  let browser: Browser | undefined
-  const opened: { context: BrowserContext }[] = []
+  const gateway = await ensureGateway(log)
 
   try {
-    lab = await startLabServer({
+    resources.lab = await startLabServer({
       gateway: gateway.origin,
       token: gateway.token,
       log,
@@ -721,8 +860,9 @@ async function main(): Promise<void> {
       port: process.env.LEGACY_LAB_PORT === undefined ? 0 : Number(process.env.LEGACY_LAB_PORT),
       // 自己起的实例不在 `~/.dsh/dsh-owned.json` 里，实验室读不到版本会挂一条版本信息条
       // ——那条东西不属于侧栏本身，会把并排图的第一屏顶下去，所以把版本显式告诉它。
-      ...(dshVersion === '' ? {} : { version: dshVersion }),
+      ...(gateway.version === '' ? {} : { version: gateway.version }),
     })
+    const lab = resources.lab
     const sidebarRoute = LAB_TREES.find((candidate) => candidate.route === 'sidebar')
     if (sidebarRoute === undefined) throw new Error('lab: 没有 sidebar 这棵树')
     const route: LabTreeRoute = sidebarRoute
@@ -736,8 +876,13 @@ async function main(): Promise<void> {
     )
 
     const before = await listSessions(gateway.origin)
-    legacyServer = await startLegacyServer(buildLegacyPage(legacySnapshot({ model, collapsed: [], pinned: [], unread: [], tags: [], recycleBin: [], activeSessionId: uf.activeSessionId })))
-    browser = await chromium.launch({ headless: process.env.LEGACY_HEADED !== '1' })
+    resources.legacyServer = await startLegacyServer(buildLegacyPage(legacySnapshot({ model, collapsed: [], pinned: [], unread: [], tags: [], recycleBin: [], activeSessionId: uf.activeSessionId })))
+    const legacyServer = resources.legacyServer
+    // `handleSIGINT` / `handleSIGTERM` 交给**我们自己的**信号处理（见文件头的 `onSignal`）：
+    // Playwright 默认会自己装一对，收到信号就关掉浏览器然后 `process.exit(130)`，我们的收尾
+    // （收服务器、按 PID 收隔离实例、删临时目录）刚走到 `browser.close()` 就被它带走了。
+    resources.browser = await chromium.launch({ headless: process.env.LEGACY_HEADED !== '1', handleSIGINT: false, handleSIGTERM: false })
+    const browser = resources.browser
 
     const results: RunResult[] = []
     const skipped: { state: string; why: string }[] = []
@@ -764,7 +909,7 @@ async function main(): Promise<void> {
       })
 
       const legacy = await openLegacyPage(browser, legacyServer.origin, snapshot)
-      opened.push(legacy)
+      resources.opened.push(legacy)
       const current = await openTreePage(browser, lab, route, {
         width: WIDTHS[0],
         height: HEIGHT,
@@ -772,7 +917,7 @@ async function main(): Promise<void> {
         workspaceFolders: model.paths.slice(0, 1),
         settleMs: 1_500,
       })
-      opened.push(current)
+      resources.opened.push(current)
       // 官方客户端的展开态住 localStorage（`dsh.workspaceTree.view`，见
       // `pure/workspaceTreePrefs.ts` 的说明）：先写进去再重载，页面挂载时读到的就是它。
       // 不写 = 用它开箱的默认（只展开当前会话那一组）。
@@ -877,7 +1022,11 @@ async function main(): Promise<void> {
       // 事实——源码级对照里「工作区分组顺序」被判成一致，实际两侧排法不同（见文档结论）。
       if (state.id === 'default-native') {
         const left = await workspaceLabels(legacy.page, '.sessions-list > .workspace-group .workspace-label')
-        const right = await workspaceLabels(current.page, '[data-dshone-tree-row="workspace"] .dshOneTree_title')
+        // 现装配侧读的是**标题文字那一格**（`.dshOneTree_titleText`），不是整个标题盒：
+        // 标题盒（`.dshOneTree_title`）里按设计还并排装着活状态计数（#138）与「当前工作区」
+        // 胶囊（#109），读盒子的 textContent 会把它们拼进工作区名（实测拿到
+        // `Lab-Alpha1vscode` 这种串）——那不是名字，比出来的也就不是「同一批工作区」。
+        const right = await workspaceLabels(current.page, '[data-dshone-tree-row="workspace"] .dshOneTree_titleText')
         const overlap = left.filter((name) => right.includes(name))
         fact(`工作区顺序（旧）：${left.join(' > ')}`)
         fact(`工作区顺序（现）：${right.join(' > ')}`)
@@ -886,11 +1035,17 @@ async function main(): Promise<void> {
           right.every((name) => left.includes(name)) && left.length - right.length <= 1,
           `旧 ${String(left.length)} 棵 / 现 ${String(right.length)} 棵，两侧都有的是 ${String(overlap.length)} 棵`,
         )
-        if (JSON.stringify(overlap) !== JSON.stringify(left) || overlap.length !== right.length) {
+        // 顺序：`overlap` 是「旧侧栏那串里、现装配侧也有的那几个」，与现装配侧那串逐个比。
+        if (JSON.stringify(overlap) !== JSON.stringify(right)) {
           fact(
             '工作区**顺序**两侧不同——旧侧栏按「当前文件夹优先 + 工作区 updatedAt 降序」排' +
               '（`pure/sessionTree.ts:417-421`），现装配侧按网关给的官方顺序排（`workspaceTree/tree.ts`）。' +
               '这一条在源码级对照（#128 A1）里被判成「一致」，是渲染才看出来的。',
+          )
+        } else {
+          fact(
+            '工作区顺序：两侧在共同那几棵上**同序**（本次播种数据上「当前文件夹优先 + updatedAt 降序」' +
+              '与官方顺序碰巧一致；两条规则本身的差异见 `docs/legacy-vs-current-sidebar-render.md` 的 C-1）。',
           )
         }
       }
@@ -980,7 +1135,7 @@ async function main(): Promise<void> {
     await fsp.writeFile(path.join(OUT, 'verify.legacy-sidebar.ledger.json'), `${JSON.stringify(ledger, null, 2)}\n`, 'utf8')
 
     await browser.close()
-    browser = undefined
+    resources.browser = undefined
 
     for (const line of facts) process.stdout.write(`  · ${line}\n`)
     for (const failed of checks.filter((entry) => !entry.ok)) process.stdout.write(`  ✗ ${failed.label}${failed.detail === '' ? '' : `（${failed.detail}）`}\n`)
@@ -990,13 +1145,11 @@ async function main(): Promise<void> {
         `几何 ${String(metrics.length)} 项（一致 ${String(same.length)} / 不同 ${String(different.length)} / 缺一侧 ${String(missing.length)}）；` +
         `产物 ${path.relative(process.cwd(), OUT)}/{verify.legacy-sidebar.ledger.json, shots/*.png}\n`,
     )
-    if (passed !== checks.length) process.exitCode = 1
+    return passed === checks.length ? 0 : 1
   } finally {
-    for (const entry of opened) await entry.context.close().catch(() => undefined)
-    await browser?.close().catch(() => undefined)
-    await legacyServer?.dispose()
-    await lab?.dispose()
-    await gateway.dispose()
+    // 被信号打断时收尾归 `onSignal` 管（它会等收尾真跑完再退，退出码 130 / 143），这里不再
+    // 插一脚：两边同时收会互相抢资源，抢着退的那一边会把还在删目录的另一边打断（#190 实测）。
+    if (!shuttingDown) await disposeOnce()
   }
 }
 
@@ -1027,4 +1180,15 @@ function cliText(args: readonly string[]): string {
   }
 }
 
-await main()
+/**
+ * 顶层：被信号打断时在途操作（页面导航、`fetch`、播种的 RPC）会报错——那不是这一轮的
+ * 结论，退出码由 `onSignal` 定（130 / 143），这里咽掉它；真出别的事照旧往外抛
+ * （未捕获异常、按 1 退）。被信号打断就到此为止：`onSignal` 还在收尾，它收完会自己退。
+ */
+let code = 1
+try {
+  code = await main()
+} catch (error) {
+  if (!shuttingDown) throw error
+}
+if (!shuttingDown) finish(code)
