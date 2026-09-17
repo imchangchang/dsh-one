@@ -1154,12 +1154,7 @@ export function SessionRow({
     'div',
     {
       className:
-        `dshOneTree_sessionRow${(selectMode ? selected : isCurrent) ? ' dshOneTree_selected' : ''}${menuOpen ? ' dshOneTree_menuOpen' : ''}` +
-        // #133：这份「没有状态槽」的标记只在**非**选择态生效——选择态下状态槽一律不渲染
-        //（理由见下面 children 里那一段），而标题那 4px 左外边距这时是「框与标题之间的
-        // 间隔」，清零就会让框贴上标题。非选择态照旧（单列表里没有状态点的行，标题紧贴
-        // 行的左内边距）。
-        `${!selectMode && flat && !showStatus ? ' dshOneTree_flatRowWithoutStatus' : ''}`,
+        `dshOneTree_sessionRow${(selectMode ? selected : isCurrent) ? ' dshOneTree_selected' : ''}${menuOpen ? ' dshOneTree_menuOpen' : ''}`,
       role: 'treeitem',
       'aria-selected': selectMode ? selected : isCurrent,
       'data-dshone-tree-row': 'session',
@@ -1253,7 +1248,7 @@ export function SessionRow({
         // 再挂主区），行首不留状态槽，活状态画在行尾。
         // 状态事实没有丢：活状态照旧写在行上（`data-dshone-tree-status`，与这枚点同源
         // 的判定），组头三态、归档跳过数、回收站保护这些判定也都不看这颗点。
-        !selectMode && (!flat || showStatus)
+        !selectMode
           ? showStatus
             ? h(SessionStatusDots, { key: 'status', statuses, tr })
             : h('span', { key: 'status', className: 'dshOneTree_slot' })

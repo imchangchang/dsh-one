@@ -384,9 +384,6 @@ export const CSS =
   '.dshOneTree_projectRow .dshOneTree_rowActions{height:20px}' +
   '.dshOneTree_sessionRow{height:var(--dsh-one-density-session-row-height,32px);gap:0}' +
   '.dshOneTree_sessionRow .dshOneTree_title{flex:1;margin:0 6px 0 4px}' +
-  // #133：这条标记只在**非**选择态下打到行上（选择态下标题那 4px 是「框与标题之间的间隔」，
-  // 清零会让框贴上标题）——条件在 rows.ts 的 className 那一段，不在这里。
-  '.dshOneTree_flatRowWithoutStatus .dshOneTree_title{margin-left:0}' +
   // #115 行内改名的输入框：占标题那一格（同一份外边距与字号，行几何不动），选区要高亮
   // 所以 user-select 要显式放开（整行是 user-select:none）。高度走标题行高（密度档），
   // 边框与圆角与行内其它小件同语言。
