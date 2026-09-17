@@ -1,5 +1,5 @@
 /**
- * 无限周期 CSS 动画的「相位续播」（chat webview 与 sessions webview 共用）。
+ * 无限周期 CSS 动画的「相位续播」（现由自研侧栏的 sessions webview 使用）。
  *
  * 增量对账/快照重建会新建元素，新建节点让 CSS animation 从 0 重新开始——流式
  * 期间快照 ~100ms 一帧，转圈/闪烁动画每帧被打回起点，视觉上就是疯狂刷新。给
@@ -7,9 +7,6 @@
  * 元素的相位继续，观感即连续（周期 animation 相位对齐等价于节点保活，且能
  * 覆盖元素被重建的任意场景）。
  */
-export function syncAnimPhase(el: HTMLElement | SVGElement, periodMs: number): void {
-  el.style.animationDelay = `${-(performance.now() % periodMs)}ms`
-}
 
 /**
  * 运行中像素环：复刻官方 dsh web StateDot(ongoing)——10×10 画布上 8 个
