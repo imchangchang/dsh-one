@@ -75,6 +75,7 @@ export const HOST_CALLS = {
   'state.delete': 'Delete one plugin state value (same store).',
   'session.openInNewTab': 'Open one session in its own editor tab (explicit multi-open; the chat panel stays a singleton).',
   'session.inPanel': 'Whether one session is currently shown by this host\'s chat panel (the sidebar row\'s rename-vs-open decision, #121).',
+  'session.panelSessions': 'Which sessions this host\'s chat panels are currently showing (the sidebar\'s "finished but not opened" status dot, #147).',
   'session.openPanel': 'Show one session in this host\'s chat panel (create / reveal / switch in place; #121).',
   'vscode.openSettings': 'Open (or focus) the dsh-one settings editor page (the sidebar toolbar gear, #99).',
   'vscode.workspaceCreate': 'Create a workspace directory (~/.dsh/workspaces/<name>) and register it (the sidebar + menu, #99).',
@@ -158,6 +159,16 @@ export interface HostBridgeDeps {
    * 出来——用户报的「启动后点当前会话，右边对话区一直不出来」正是这个现场。
    */
   openSessionPanel?: (sessionId: string) => void
+  /**
+   * 面板里现在开着哪些会话（#147）：侧栏树渲染「跑完还没被打开」那颗绿点时要把这份
+   * 事实算进判据。装配视图提供实现（面板↔会话的跟踪都在那里）；缺省无实现 =
+   * `unsupported`——调用方按空表处理（不抑制任何提醒），与官方 web 侧同一个降级方向。
+   *
+   * 为什么不能只靠推送：侧栏页可能比面板晚起来（页面重挂、视图重建），那一刻的事实
+   * 用一条主动查询取回来，才不会漏；之后的变化由 `dshOne.panelSessions` 广播继续推
+   * （见 `pure/sessionPanelRouting.ts` 的 `PANEL_SESSIONS_MESSAGE`）。
+   */
+  panelSessions?: () => readonly string[]
   /**
    * 打开（或聚焦）设置页（#99 顶栏齿轮）。装配视图提供实现（设置页的注册与
    * 生命周期都在那里）；缺省无实现 = `unsupported`。
@@ -292,6 +303,7 @@ export async function runHostCall(
   | { path: string }
   | { value?: unknown; deleted?: boolean }
   | { paths: readonly string[] }
+  | { sessionIds: readonly string[] }
   | { open: boolean }
   | null
   | HostCapabilityError
@@ -340,6 +352,17 @@ export async function runHostCall(
     // 不开 await：开面板要等网关与页面起来（秒级），页面侧这是「发出去就完事」的动作。
     deps.openSessionPanel(parsed.sessionId)
     return null
+  }
+  // #147：面板里现在开着哪些会话（侧栏树渲染「跑完还没被打开」那颗绿点时要吃这份
+  // 事实）。无参调用，回执形状 `{ sessionIds: string[] }`——空表是正常回执（一条都
+  // 没开），与「能力不存在」在页面侧同义：都不抑制任何提醒。
+  if (call === 'session.panelSessions') {
+    const rejected = parseNoArgs(call, args)
+    if (rejected !== undefined) return rejected
+    if (deps.panelSessions === undefined) {
+      return { code: 'unsupported', message: 'this host has no chat panel to track sessions in' }
+    }
+    return { sessionIds: deps.panelSessions().filter((id) => id !== '') }
   }
   if (call === 'vscode.openSettings') {
     // 无参调用：多带参数说明调用方与契约不同步，直接拒（同其余能力的口径）。

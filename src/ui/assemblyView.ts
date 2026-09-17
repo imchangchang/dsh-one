@@ -11,7 +11,7 @@ import { parse as parseSemver, compare as compareSemver } from '../pure/semver.t
 import { assemblyPageHtml } from './assembly/pageHtml.ts'
 import { defaultHostBridgeDeps, subscribeHostCalls, type HostBridgeDeps } from './assembly/hostBridge.ts'
 import { createGatewayWorkspaceRoots } from './assembly/hostWorkspaceRoots.ts'
-import { drainAfterCreate, panelShowsSession, routeSelection } from '../pure/sessionPanelRouting.ts'
+import { drainAfterCreate, panelOpenSessionIds, panelSessionsMessage, routeSelection } from '../pure/sessionPanelRouting.ts'
 import { assignSessionTab, hasSessionTab, releaseSessionTab, sessionTabOf } from '../pure/sessionTabs.ts'
 import { listSessions } from '../server/dshRpc.ts'
 import { workspaceRootsOfSessionRows } from '../pure/workspaceRoots.ts'
@@ -257,6 +257,9 @@ function hostBridgeDeps(
     // 落到 openSessionChat，与侧栏点会话那条通路同一个函数）。
     sessionInPanel: (sessionId) => sessionInPanel(sessionId),
     openSessionPanel: (sessionId) => showSessionInPanel(sessionId, logger),
+    // #147：面板里现在开着哪些会话——侧栏树渲染「跑完还没被打开」那颗绿点时要吃它。
+    // 与 `sessionInPanel` 同一份事实（`panelOpenSessions`），保证查询与广播不漂移。
+    panelSessions: () => [...panelOpenSessions()],
     // git 查询的扫描/命中/超时留痕走输出面板「DSH One」频道（probe 同一条通道），
     // 页面侧不感知、UI 不阻塞。
     log: (line: string) => logger.info(line),
@@ -310,23 +313,52 @@ function panelSession(): string | undefined {
 }
 
 /**
- * 这个会话现在是不是正开在宿主的面板里（#121）——侧栏树据此判「点当前会话行 = 就地
- * 改名还是按打开处理」。判据是面板与它当前会话的映射：单例面板（`chatSingleton` /
- * `active` + `panelSessionId`）与显式多开的标签页（`sessionTabPanels`）都算——两种
- * 形态都是这条会话的对话区真的在屏幕上。无面板、或面板上挂着别的会话 = false。
+ * 宿主的面板里现在开着哪些会话（#121 的单条查询与 #147 的整份下发共用这一份事实）。
+ *
+ * 判据是面板与它当前会话的映射：单例面板（`chatSingleton` / `active` + `panelSessionId`）
+ * 与显式多开的标签页（`sessionTabPanels`）都算——两种形态都是这条会话的对话区真的
+ * 在屏幕上。无面板、或面板上挂着别的会话 = 不在集合里。
  *
  * 注意它**不等于**「侧栏认为的当前会话」（`list.current`）：那个来自官方 sessions
  * 服务的状态（启动时可能是官方恢复的上次会话），与宿主真的开了哪个面板是两件事。
  */
-function sessionInPanel(sessionId: string): boolean {
+function panelOpenSessions(): ReadonlySet<string> {
   const panel = chatSingleton?.panel ?? active?.panel
-  return panelShowsSession(
-    {
-      panelSessionId: panel === undefined ? undefined : panelSessionId.get(panel),
-      tabbed: sessionTabOf(sessionTabPanels, sessionId) !== undefined,
-    },
-    sessionId,
+  return panelOpenSessionIds(
+    panel === undefined ? undefined : panelSessionId.get(panel),
+    sessionTabPanels.keys(),
   )
+}
+
+/**
+ * 这个会话现在是不是正开在宿主的面板里（#121）——侧栏树据此判「点当前会话行 = 就地
+ * 改名还是按打开处理」。
+ */
+function sessionInPanel(sessionId: string): boolean {
+  return panelOpenSessions().has(sessionId)
+}
+
+/**
+ * 把「面板里正开着哪些会话」推给全部装配页（#147）。
+ *
+ * 为什么要这条宿主 → 页面的下行通道：官方「跑完还没被打开」那颗绿点的武装条件是
+ * **这一页的 selected 不是它**（`dsh-api-session-controller` 的
+ * `syncCompletedNotifications`）。官方 web 只有一页、selected 就是屏幕上那一条，判据
+ * 成立；我们的 shell 有两个 webview（侧栏页 + 对话面板页各一份官方 client），宿主把
+ * 面板切到某条会话不会回写给侧栏页，于是侧栏页的 selected 与屏幕上真正开着的会话可以
+ * 是两回事——那条会话跑完，侧栏照旧给它亮绿点，而用户正在看它（#147 报的现场）。
+ *
+ * 页面侧怎么消费：侧栏树把它算进「渲染这颗绿点」的判据（见
+ * `workspaceTree/tree.ts` 的 `usePanelOpenSessions`）。**官方 web 侧收不到这条消息**
+ * （那一端没有宿主面板这个事实）——集合恒为空、行为与今天完全一致。
+ *
+ * 发送时机 = 面板↔会话映射的每一处变化（建面板 / 页面报来的就地切换 / 关面板 /
+ * 多开标签页的增删），另有页面挂载时的一条主动查询（`session.panelSessions`：
+ * 页面可能比面板晚起来，只靠推送会漏掉这一刻的事实）。
+ */
+function broadcastPanelSessions(): void {
+  const message = panelSessionsMessage(panelOpenSessions())
+  for (const target of assemblyWebviews) void target.postMessage(message)
 }
 
 /**
@@ -463,16 +495,22 @@ function mountChatPanel(params: {
   const { mirror, assembly, banner } = setup
   if (sessionId !== undefined) panelSessionId.set(panel, sessionId)
   if (tab && sessionId !== undefined) assignSessionTab(sessionTabPanels, panel, sessionId)
+  // 地图变了就下发一次（#147）：新面板注入的会话当场就是「面板里开着它」。
+  if (sessionId !== undefined) broadcastPanelSessions()
   const probeSub = subscribeAssemblyProbe(panel.webview, logger)
   // 活跃/标题上报（session-boot 插件）：维护映射 + 面板标题跟随会话标题。
   const metaSub = panel.webview.onDidReceiveMessage((msg: unknown) => {
     if (typeof msg !== 'object' || msg === null) return
     const m = msg as { type?: unknown; sessionId?: unknown; title?: unknown }
     if (m.type !== 'dshOne.sessionMeta' || typeof m.sessionId !== 'string') return
+    const moved = panelSessionId.get(panel) !== m.sessionId
     panelSessionId.set(panel, m.sessionId)
     // 页面内切会话（多开面板）：把**这个面板**的格子挪到新会话，别的面板的格子不碰
     //（旧实现按会话 id 直接删，两面板映射交叉时会删错，见 pure/sessionTabs.ts）。
     if (tab) assignSessionTab(sessionTabPanels, panel, m.sessionId)
+    // 页面内切走 / 切到另一条会话 = 地图变了，下发一次（#147）。同 id 的重复上报
+    //（官方每次重挂都会报一次）不发，免得白白重推。
+    if (moved) broadcastPanelSessions()
     if (typeof m.title === 'string' && m.title !== '') panel.title = `dsh: ${m.title}`
   })
   // 宿主能力桥（#65 批 1）：页面插件（git 卡片/右键菜单/多开入口等）经它取 git 数据、
@@ -495,6 +533,8 @@ function mountChatPanel(params: {
     panelSessionId.delete(panel)
     if (active?.panel === panel) active = undefined
     if (chatSingleton?.panel === panel) chatSingleton = undefined
+    // 这个面板不在屏幕上了：地图变了，下发一次（#147）。
+    broadcastPanelSessions()
     // 「用户关过」只记单例：关掉一个多开面板不该改变默认打开（#68）的行为。
     if (!tab && !replacing) closedByUser = true
     releaseSharedMirror(mirror)

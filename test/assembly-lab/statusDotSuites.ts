@@ -19,6 +19,13 @@
  * | 运行中 | `ongoing` 8 格矩阵 | 同 | 一致 |
  * | 等待交互 | `warning` 黄点 | 同 | 一致 |
  * | 手动未读 | `done` 绿点 + 标题加粗 | （官方没有这个功能） | **我们自定**：形态与**旧侧栏正本**一致（见下） |
+ * | 跑完时**正开在宿主面板里**（#147） | 不渲染点（宿主报的集合把它压住） | `done` 绿点 | **有意不同**：官方 web 只有一页、`selected` 就是屏幕上那一条；我们有两个 webview，侧栏页的 `selected` 与宿主开着的面板可以是两回事，所以宿主的这份事实要并进渲染判据（见下） |
+ *
+ * #147 那一行怎么做出来的（本套件的 ⑧ 段）：夹具 = 假宿主报「面板里开着这条会话」
+ * （`reportPanelSessions`：记表 + 广播 `dshOne.panelSessions`，与真宿主同一份事实），
+ * 会话**不是**侧栏页的当前会话，再驱动官方那条 run→idle 边；断言 = 我们自己这一页不
+ * 亮点、同屏对照的官方页照旧亮（差异正是补的那条）。另外钉住边界：宿主改口「没开」
+ * 之后绿点会回来（官方提醒从头到尾都在，压住它的就是宿主这份事实）。
  *
  * 手动未读为什么是「绿点 + 加粗」而不是「只有加粗」：旧侧栏的**渲染体**是
  * `src/ui/sessionsWebview.ts`（`sessionsView.ts` 是宿主侧那一半：HTML/CSS + 消息处理，
@@ -188,6 +195,32 @@ async function waitFor<T>(page: Page, read: () => Promise<T>, predicate: (value:
 
 const rowOf = (rows: readonly RowFacts[], id: string): RowFacts | undefined => rows.find((row) => row.id === id)
 const offRowOf = (rows: readonly RowFacts[], title: string): RowFacts | undefined => rows.find((row) => row.title === title)
+
+/**
+ * #147：让假宿主把「面板里开着哪些会话」报成这一批——真宿主在这一处做的正是同一件事
+ * （记下这份事实 + 给装配页广播一条 `dshOne.panelSessions`），假宿主的 `reportPanelSessions`
+ * 把两者做在一起（表 + 广播），所以「逐条查询」与「整份读取」看到的是同一份事实。
+ */
+async function reportPanelSessions(page: Page, sessionIds: readonly string[]): Promise<void> {
+  await page.evaluate((ids: string[]) => {
+    const host = (globalThis as unknown as { __LAB_HOST__?: { reportPanelSessions(ids: string[]): void } }).__LAB_HOST__
+    host?.reportPanelSessions(ids)
+  }, [...sessionIds])
+}
+
+/** 假宿主侧关于 #147 那条通道的观测：页面挂载时读了几次快照、当前这份集合是什么。 */
+async function panelSessionsHostFacts(page: Page): Promise<{ reads: number; open: readonly string[] }> {
+  return await page.evaluate(() => {
+    const host = (globalThis as unknown as {
+      __LAB_HOST__?: { panelSessions?: unknown; hostCalls?: { call: string }[] }
+    }).__LAB_HOST__
+    const open = Array.isArray(host?.panelSessions) ? (host?.panelSessions as unknown[]).map((id) => String(id)) : []
+    return {
+      reads: (host?.hostCalls ?? []).filter((call) => call.call === 'session.panelSessions').length,
+      open,
+    }
+  })
+}
 /** 官方页里某一行元素的下标（官方不写 data 属性，只能按标题在既定序列里定位）。 */
 const officialRowIndex = async (page: Page, title: string): Promise<number> =>
   await page.evaluate(
@@ -284,9 +317,9 @@ async function pairShot(
 export const STATUS_DOT_SUITE: LabSuite = {
   id: 'F-46',
   phase: 'new-feature',
-  name: '会话行状态点逐案与官方页对照（#146）：空闲不渲染 / 跑完没打开 = 官方绿点 / 运行中 = 矩阵 / 等待 = 黄点 / 手动未读 = 绿点 + 加粗',
+  name: '会话行状态点逐案与官方页对照（#146）：空闲不渲染 / 跑完没打开 = 官方绿点 / 运行中 = 矩阵 / 等待 = 黄点 / 手动未读 = 绿点 + 加粗 / 宿主面板里开着的不亮绿点（#147）',
   expect:
-    '同一条会话行在**同一份数据**下的状态点，自有侧栏树与官方浏览区逐案对照，四项（在不在 / `data-state` / 解析色 / 尺寸）逐项相等——对照用的态由官方那条链路在两侧同时造出来（`api-session/status` 帧造运行中与「跑完还没打开」、`approval/request` 瀑布帧造等待交互）。① **空闲**：两侧都不渲染点，状态槽 = 档位表标准档 `slotWidth`×`slotHeight`（16×20，从 `styles.ts` 的 `SCALE_TIERS` 读，不硬编码）。② **跑完还没打开**：两侧都是 `data-state=done`、解析色 = 官方 `--dsw-alias-state-success-primary`（同一枚 token 挂探针比，不写死色值）、读屏文案「已完成」、点几何相等。③ **运行中**：两侧 `ongoing`、8 格矩阵 svg（视框 `0 0 10 10`）、颜色 = `--dsw-static-deepseek-450`。④ **等待交互**：两侧 `warning`、颜色 = `--dsw-alias-state-warn-primary`、文案「等待审批」（#140 那条路不动，只在本套件里回归一遍）。⑤ **手动未读**（我们自定，官方没有这个概念）：`done` 绿点 + 标题加粗 600 + 读屏文案「未读」——形态与**旧侧栏正本**一致（`sessionsWebview.ts` 的 `sessionStatusMarker` 返回 `session-dot completed`、CSS 在 `sessionsView.ts`、行上同时挂 `session-title unread`；仓库自己的 `docs/legacy-vs-current-sidebar-compare.md` 第 115 行同样记成「绿点 + 标题加粗」），与「已完成」的区分点是**标题字重 600 / 400** 与读屏文案——三处都由本套件钉住；官方页同一行没有点也不加粗（那一侧没有这个功能）。⑥ **绿点灭的时机**：跑完还没打开的绿点在**打开这一行**之后灭（点行 → 官方 `sessions.open` → 官方 client 的 `select` 撤掉完成提醒，与官方页点行同一条语义）。⑦ **搜索结果行也是状态点的一处**：修掉 #146 查出来的「树层自己拼节点漏掉 `pendingInteraction` 与 `runningSubagentCount` 两格」——搜索命中一条正在等审批的会话时结果行同样亮黄点。每案附一张同屏并排截图（左自有树 / 右官方页，行原尺寸）。全程零 pageerror、零槽位崩溃 / 零装载未激活；夹具只改页面收到的帧，网关只读。',
+    '同一条会话行在**同一份数据**下的状态点，自有侧栏树与官方浏览区逐案对照，四项（在不在 / `data-state` / 解析色 / 尺寸）逐项相等——对照用的态由官方那条链路在两侧同时造出来（`api-session/status` 帧造运行中与「跑完还没打开」、`approval/request` 瀑布帧造等待交互）。① **空闲**：两侧都不渲染点，状态槽 = 档位表标准档 `slotWidth`×`slotHeight`（16×20，从 `styles.ts` 的 `SCALE_TIERS` 读，不硬编码）。② **跑完还没打开**：两侧都是 `data-state=done`、解析色 = 官方 `--dsw-alias-state-success-primary`（同一枚 token 挂探针比，不写死色值）、读屏文案「已完成」、点几何相等。③ **运行中**：两侧 `ongoing`、8 格矩阵 svg（视框 `0 0 10 10`）、颜色 = `--dsw-static-deepseek-450`。④ **等待交互**：两侧 `warning`、颜色 = `--dsw-alias-state-warn-primary`、文案「等待审批」（#140 那条路不动，只在本套件里回归一遍）。⑤ **手动未读**（我们自定，官方没有这个概念）：`done` 绿点 + 标题加粗 600 + 读屏文案「未读」——形态与**旧侧栏正本**一致（`sessionsWebview.ts` 的 `sessionStatusMarker` 返回 `session-dot completed`、CSS 在 `sessionsView.ts`、行上同时挂 `session-title unread`；仓库自己的 `docs/legacy-vs-current-sidebar-compare.md` 第 115 行同样记成「绿点 + 标题加粗」），与「已完成」的区分点是**标题字重 600 / 400** 与读屏文案——三处都由本套件钉住；官方页同一行没有点也不加粗（那一侧没有这个功能）。⑥ **绿点灭的时机**：跑完还没打开的绿点在**打开这一行**之后灭（点行 → 官方 `sessions.open` → 官方 client 的 `select` 撤掉完成提醒，与官方页点行同一条语义）。⑦ **搜索结果行也是状态点的一处**：修掉 #146 查出来的「树层自己拼节点漏掉 `pendingInteraction` 与 `runningSubagentCount` 两格」——搜索命中一条正在等审批的会话时结果行同样亮黄点。⑧ **宿主的面板里开着的会话不亮这颗绿点**（#147）：官方那条提醒的武装条件是「这一页的 `selected` 不是它」，官方 web 只有一页所以成立，我们的 shell 有两个 webview（侧栏页 + 对话面板页各一份官方 client），宿主把面板切到某条会话不会回写给侧栏页 → 侧栏页照旧给一条**用户正开着**的会话亮「跑完还没打开」的绿点。本段夹具 = 假宿主报「面板里开着这条会话」（`reportPanelSessions`：记表 + 广播 `dshOne.panelSessions`，与真宿主同一份事实）+ 官方 `api-session/status` 帧驱动 run→idle 边（这条会话不是侧栏页的当前会话），断言四条：侧栏页挂载时确实读过宿主那份快照（通道真的通了）；宿主报「开着它」→ 那一行的绿点被压住，而同屏对照的**官方页照旧亮着**（差异正是补的那条）；面板还开着它再跑完一轮 → 绿点不出现且它仍不是当前会话（不是靠「点开它」撤掉的）；宿主改口「一条都没开」→ 绿点回来（官方提醒从头到尾都在，压住它的是宿主这份事实——这条边界是有意留下的，见 `pure/workspaceTreeView.ts` 的 `withoutPanelOpenCompleted`）。每案附一张同屏并排截图（左自有树 / 右官方页，行原尺寸）。全程零 pageerror、零槽位崩溃 / 零装载未激活；夹具只改页面收到的帧，网关只读。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const own = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 380, height: 900 })
@@ -452,6 +485,55 @@ export const STATUS_DOT_SUITE: LabSuite = {
         screenshots.push(await pairShot(ctx, own.page, official.page, target.id, target.title, 'status-dot-completed-pair'))
       }
 
+      // ---- ⑧ 宿主的面板里开着的会话（#147）----
+      // 现场（用户话）：「这条会话我明明开着，它还给我一颗『跑完还没打开』的绿点」。
+      // 官方那条提醒的武装条件是**这一页的 selected 不是它**（`syncCompletedNotifications`），
+      // 官方 web 只有一页所以成立；我们的 shell 有两个 webview（侧栏页 + 对话面板页），
+      // 宿主把面板切到某条会话不会回写给侧栏页 → 侧栏页的 selected 与屏幕上开着的会话
+      // 可以是两回事。修法：宿主把自己那份事实（面板里开着哪些会话）广播给装配页，侧栏树
+      // 把它算进**渲染判据**（`pure/workspaceTreeView.ts` 的 `withoutPanelOpenCompleted`）。
+      //
+      // 这一段的所有夹具都是「宿主报什么」（假宿主 `reportPanelSessions` = 记表 + 广播，
+      // 与真宿主同一份事实），驱动的边是官方那条链路（`api-session/status` 帧）——所以
+      // 「官方那条提醒真的武装着」这件事由 ② 与下面的「宿主改口没开 → 绿点回来」一起证。
+      {
+        const hostFacts = await panelSessionsHostFacts(own.page)
+        check.ok(
+          '⑧ 通道真的通了：侧栏页挂载时读了宿主那份快照（`session.panelSessions` 至少被调用一次）',
+          hostFacts.reads >= 1,
+          JSON.stringify(hostFacts),
+        )
+        check.eq('⑧ 前置：此刻这一行亮着「跑完还没打开」的绿点（② 刚武装的）', (await ownTarget())?.dot?.state ?? null, 'done')
+        await reportPanelSessions(own.page, [target.id])
+        const hidden = await waitFor(own.page, ownTarget, (row) => row?.dot === null)
+        check.eq('⑧ 宿主报「这条会话开在面板里」→ 这一行的绿点被压住（它跑完时用户正开着它）', hidden?.dot ?? null, null)
+        check.eq(
+          '⑧ 同一时刻官方对照页同一行照旧亮着（那一侧没有「宿主面板」这件事实，判据原样成立——差异正是我们补的那条）',
+          (await offTarget())?.dot?.state ?? null,
+          'done',
+        )
+        check.fact(`⑧ 宿主报的这份事实：${JSON.stringify(hostFacts.open)}（这条会话 + 面板里开着它）`)
+        screenshots.push(await pairShot(ctx, own.page, official.page, target.id, target.title, 'status-dot-panel-open-pair'))
+
+        // 现场本体：面板还开着它，它又跑了一轮 —— 跑完仍不亮点（完成提醒连武装都不该发生）
+        injector.push(emit('api-session/status', [target.id, true]))
+        await waitOwn('ongoing')
+        injector.push(emit('api-session/status', [target.id, false]))
+        await own.page.waitForTimeout(1_200)
+        const stillOpen = await ownTarget()
+        check.eq('⑧ 开着它再跑完一轮：绿点不出现（用户报的现场本体）', stillOpen?.dot ?? null, null)
+        check.eq('⑧ 跑完这一轮之后它仍不是当前会话（不是靠「点开它」把提醒撤掉的）', stillOpen?.current, false)
+
+        // 边界（有意留下、写进断言免得被当成漏网）：宿主改口「一条都没开」→ 绿点回来，
+        // 说明官方那条提醒从头到尾都在，压住它的一直是宿主这份事实。判据回答的是
+        // 「此刻这条会话开在不在面板里」，不记忆「武装那一刻」——理由写在
+        // `pure/workspaceTreeView.ts` 的 `withoutPanelOpenCompleted` 上面。
+        await reportPanelSessions(own.page, [])
+        const back = await waitFor(own.page, ownTarget, (row) => row?.dot?.state === 'done')
+        check.eq('⑧ 边界：宿主改口「没开」→ 绿点回来（官方提醒仍在，压住它的是宿主这份事实）', back?.dot?.state ?? null, 'done')
+        check.fact('⑧ 边界口径：绿点压住的条件是「此刻这条会话开在宿主面板里」；关掉面板之后提醒会回来（本步有意不做「武装那一刻」的记忆，见 issue #147 的结论）')
+      }
+
       // ---- ⑥ 绿点灭的时机：打开这一行之后 ----
       {
         check.eq('⑥ 打开前：这一行亮着「跑完还没打开」的绿点', (await ownTarget())?.dot?.state ?? null, 'done')
@@ -572,16 +654,13 @@ export const STATUS_DOT_SUITE: LabSuite = {
         injector.push({ type: 'cancel', eventId: searchId })
       }
 
-      // ---- ⑧ 记一笔固定缺口：宿主面板态不进绿点的判据 ----
-      // 官方完成提醒的判据是**页面的 selected**（`select()` 撤提醒）；官方 web 只有一页，
-      // selected 就是屏幕上那一条。我们的 shell 有两个 webview（侧栏页 + 对话面板页），
-      // 侧栏页的 selected 与宿主真的开着哪个面板可以是两件事（多开标签页、宿主驱动的切换），
-      // 于是「宿主面板里开着的那条会话跑完」仍会被武装成绿点。宿主面板态今天只进**点击**那条
-      // 判据（`activateSessionRow` 问 `session.inPanel`），不进渲染判据（`tree.ts` 给
-      // `showsStatusDot` 的第二参是 `node.completed || unread`）。这是**读代码**记下的缺口
-      // （未在实验室实测），不在本条修——修法要把宿主面板态接到渲染判据上，见 issue #146 的判定。
+      // ---- ⑧ 宿主的面板里开着的会话 ----
+      // #147 起这一段是**断言**（原来是一条读代码记下的固定缺口 `check.fact`）：宿主把
+      // 「面板里开着哪些会话」广播给装配页，侧栏树把它算进渲染绿点的判据——现场与逐条
+      // 断言都写在上面 ⑧ 那一段里面（位置在 ② 与 ⑥ 之间：那时这一行还没被打开，绿点
+      // 正由官方那条提醒武装着，正是要复现的现场）。
       check.fact(
-        '⑧ 固定缺口（未修，读代码记下）：宿主报「这条会话开在面板里」时，「跑完还没打开」的绿点照旧渲染——树给 `showsStatusDot` 的第二参只有 `completed || unread`（`workspaceTree/tree.ts`），宿主面板态只进点击判据（`activateSessionRow`）。多开标签页里开着的会话跑完会因此亮一颗绿点。',
+        '⑧ 宿主面板态已进绿点判据（#147）：判据 = 官方完成提醒 × 宿主报的「此刻开在面板里」的集合；修法与边界的出处见 pure/workspaceTreeView.ts 的 `withoutPanelOpenCompleted`。',
       )
 
       check.eq('自有页零 pageerror', own.capture.pageErrors, [])

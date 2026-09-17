@@ -11,6 +11,7 @@ import {
   sessionStatuses,
   sessionVisible,
   showsStatusDot,
+  withoutPanelOpenCompleted,
   workspaceActivityCounts,
   type PendingInteractions,
   type SessionListLike,
@@ -288,6 +289,44 @@ test('showsStatusDot：手动未读要与 completed 一起并进第二参，否�
   const unreadIdle = sessionStatuses({ running: false, runningSubagentCount: 0, completed: false, unread: true })
   assert.equal(showsStatusDot(unreadIdle, true), true)
   assert.equal(showsStatusDot(unreadIdle, false), false)
+})
+
+// #147：宿主面板里正开着的会话——官方那条完成提醒的武装条件（「这一页的 selected 不是
+// 它」）在这一端不成立（侧栏页的 selected 与屏幕上开着的面板可以是两回事），所以把宿主
+// 的这份事实并进渲染判据：集合里的会话，completed 一律按 false 渲染。
+test('withoutPanelOpenCompleted：集合里的会话不再算「跑完还没被打开」', () => {
+  const sessions = list([summary('a', { completed: true }), summary('b')])
+  const hidden = withoutPanelOpenCompleted(sessions, new Set(['a']))
+  const completed = hidden.byId['a']?.completed === true
+  assert.equal(completed, false)
+  // 判据的落点：这一条给 `showsStatusDot` 的第二参（`node.completed || unread`）从此是
+  // false，空闲档那颗绿点不渲染——与官方「跑完还没被打开」的口径一致。
+  const statuses = sessionStatuses({ running: false, runningSubagentCount: 0, completed })
+  assert.equal(showsStatusDot(statuses, completed), false)
+  assert.equal(hidden.byId['b']?.completed, undefined, '没开的会话一个字节不动')
+})
+
+test('withoutPanelOpenCompleted：集合外的会话照旧（只有真在提醒的那条被压住）', () => {
+  const sessions = list([summary('a', { completed: true }), summary('b', { completed: true })])
+  const hidden = withoutPanelOpenCompleted(sessions, new Set(['b']))
+  assert.equal(hidden.byId['a']?.completed, true)
+  assert.equal(hidden.byId['b']?.completed, false)
+})
+
+test('withoutPanelOpenCompleted：空集原样返回同一份 list（官方 web 侧 = 这条通道不存在）', () => {
+  const sessions = list([summary('a', { completed: true })])
+  assert.equal(withoutPanelOpenCompleted(sessions, new Set()), sessions)
+  assert.equal(withoutPanelOpenCompleted(sessions, new Set(['b'])), sessions, '集合里没有一条在提醒时同样不重算')
+})
+
+test('withoutPanelOpenCompleted：不动别的字段，也不动 ids / current', () => {
+  const sessions = list([summary('a', { completed: true, running: true, blank: true })], { current: 'a' })
+  const hidden = withoutPanelOpenCompleted(sessions, new Set(['a']))
+  assert.deepEqual(hidden.ids, ['a'])
+  assert.equal(hidden.current, 'a')
+  assert.equal(hidden.byId['a']?.running, true)
+  assert.equal(hidden.byId['a']?.blank, true)
+  assert.equal(hidden.byId['a']?.title, sessions.byId['a']?.title)
 })
 
 // ---------------------------------------------------------------------------

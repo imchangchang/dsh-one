@@ -11,8 +11,9 @@
  *   的假提交——实验室要的是契约与配对语义，不是真 git。另按能力各自记录观测值：
  *   `openedUrls`（VS Code 侧开外链的要求）、`sessionTabsOpened`（多开通道要求开的
  *   会话 id，#72）、`panelQueries` / `panelsOpened`（#121 侧栏树问「这条会话开在面板里
- *   吗」与请宿主把面板亮到某会话——宿主面板本身在真宿主里，`panelSession` 是那两个
- *   回执的开关，见下）。
+ *   吗」与请宿主把面板亮到某会话——宿主面板本身在真宿主里；#147 起这份「哪些会话开着」
+ *   的事实有一份**按 id** 的确定性夹具：`host.reportPanelSessions([…])` 同时记表并广播，
+ *   逐条查询与整份读取都以它为准，见下面 `session.inPanel` 的说明）。
  * - `window.open`：官方 web 侧的开外链出口（#83），调用记进
  *   `__LAB_HOST__.openedByWindow`（不真的开窗）。
  * - **状态三件套**（`state.read/write/delete`，#82）：宿主半的状态存储在实验室里由
@@ -20,7 +21,7 @@
  *   （`openTreePage(..., { state })`）——套件据此验「旧 groups.json 能被读进来」
  *   与「写回的键名/形状对得上」，而不去动用户真实的 `~/.dsh`。
  * - `__LAB_HOST__.send(msg)`：模拟宿主→页面方向的消息（`dshOne.setTheme` /
- *   `dshOne.switchSession` 等），供后续套件驱动。
+ *   `dshOne.switchSession` / `dshOne.panelSessions` 等），供后续套件驱动。
  * - **VS Code 打开的文件夹**（`vscode.workspaceFolders`，#112）：假宿主没有「用户开了
  *   哪个文件夹」这件真事，所以由套件喂（`openTreePage(..., { workspaceFolders })`）；
  *   缺省空表 = 这个窗口没开任何文件夹，也就是「没有当前工作区」（不显示徽标、不置顶）。
@@ -74,7 +75,15 @@ export function fakeHostScript(
     // 就地改名」成立，F-22 等套件按它验）；设 false 就造出「宿主说没打开」的现场
     //（#121 的 F-26 要的正是它）。session.openPanel 到达时把它翻回 true——真宿主
     // 在那之后确实开着这条会话了；要让「没打开」一直成立，套件点完再设回 false。
+    //
+    // #147 起多一份**按 id 的**确定性夹具 panelSessions（字符串数组，或 null = 还没
+    // 设过）：非 null 时逐条查询（session.inPanel）与整份读取（session.panelSessions）
+    // 都以它为准——「宿主报的这批就是开着的」这条事实在两处必须是同一份（真宿主就是
+    // 同一份，见 src/pure/sessionPanelRouting.ts 的 panelOpenSessionIds）。null 时退回
+    // 上面那个全局开关（逐条查询按它答；整份读取答不出，回空表——那是 #147 之前的
+    // 老夹具形态，新套件请用 panelSessions）。
     panelSession: true,
+    panelSessions: null,
     panelQueries: [],
     panelsOpened: [],
     settingsOpened: [],
@@ -187,14 +196,23 @@ export function fakeHostScript(
       return
     }
     if (message.call === "session.inPanel") {
-      // #121 侧栏树问「这条会话现在开在宿主面板里吗」：假宿主按 panelSession 如实回。
+      // #121 侧栏树问「这条会话现在开在宿主面板里吗」：假宿主如实回——#147 起按 id 的
+      // 那份集合优先（panelSessions 非 null 时），没设过就按全局开关 panelSession。
       var askedId = message.args && typeof message.args.sessionId === "string" ? message.args.sessionId : ""
       if (askedId === "") {
         result(message.id, false, { code: "invalid-args", message: "lab host: empty session id" })
         return
       }
       host.panelQueries.push(askedId)
-      result(message.id, true, { open: host.panelSession === true })
+      var openNow = host.panelSessions === null ? host.panelSession === true : host.panelSessions.indexOf(askedId) >= 0
+      result(message.id, true, { open: openNow })
+      return
+    }
+    if (message.call === "session.panelSessions") {
+      // #147 侧栏页挂载时读一次「面板里开着哪些会话」（只有推送会漏掉页面起来之前就
+      // 开着的那批）。按 id 的那份集合就是答案；没设过（老夹具的全局开关）答空表。
+      var openIds = host.panelSessions === null ? [] : host.panelSessions.slice()
+      result(message.id, true, { sessionIds: openIds })
       return
     }
     if (message.call === "session.openPanel") {
@@ -208,6 +226,8 @@ export function fakeHostScript(
       }
       host.panelsOpened.push(showId)
       host.panelSession = true
+      // 真宿主在这之后确实开着这条会话：按 id 的那份集合在场时把它并进去（#147）。
+      if (host.panelSessions !== null && host.panelSessions.indexOf(showId) < 0) host.panelSessions.push(showId)
       result(message.id, true, null)
       return
     }
@@ -282,5 +302,11 @@ export function fakeHostScript(
     return api
   }
   host.send = function (message) { resume(message) }
+  // #147：把「面板里开着哪些会话」这份事实同时记进按 id 的表并广播一条——真宿主在这两处
+  // 就是同一份事实（读取一次快照 + 每次变化广播），套件用这一个入口造现场即可。
+  host.reportPanelSessions = function (ids) {
+    host.panelSessions = ids.slice()
+    host.send({ type: "dshOne.panelSessions", sessionIds: ids.slice() })
+  }
 })()`
 }
