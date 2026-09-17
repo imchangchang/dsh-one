@@ -1,5 +1,5 @@
 /**
- * 二级菜单（就地展开的子项）的缩进（#126 立、#143 按旧侧栏那条关系重定）。
+ * 二级菜单（就地展开的子项）的缩进（#126 立、#143 收到 0、#167 按旧侧栏那一档取回一位）。
  *
  * 独立成一个文件、不写进 `suites.ts` 的理由与 `driftSuites.ts` / `recycleEntrySuites.ts` /
  * `selectionBarSuites.ts` 同一条：那个文件是本批开发的合入热点，新套件放外面能少一半冲突面。
@@ -9,11 +9,12 @@
  * 的 `SCALE_TIERS.compact` 里读（`rowPaddingInline` / `iconSize` / `rowGap`）——档位表改了值，
  * 本套件跟着走。
  *
- * 断言的口径是**关系不变量**（#126 / #143 正文），而不是某个绝对坐标（绝对坐标会随菜单在
- * 屏幕上的位置变）：#143 起子项文字左缘 = 父项文字左缘（缩进 0，= 父项图标槽右缘 + 一项内
- * 间隙），并钉住「从此不再比父项深」这条回归。同时钉住三件容易一起坏掉的观感：
- * 子项自己的图标与文字仍然相邻（不因为缩进脱开）、所有子项的文字落在同一列（有没有图标都一样）、
- * 勾选态 ✓ 与右端 ▸/▾ 的几何不受影响。
+ * 断言的口径是**关系不变量**（#126 / #143 / #167 正文），而不是某个绝对坐标（绝对坐标会随
+ * 菜单在屏幕上的位置变）：#167 起子项文字左缘 − 父项文字左缘 = 一个图标槽的宽度（紧凑档
+ * `iconSize` 14px——旧侧栏实测就是这一档，见 `test/legacy-sidebar/` 的台账），并钉住「不再
+ * 深回 #143 之前那两格」这条回归。同时钉住三件容易一起坏掉的观感：子项自己的图标与文字仍然
+ * 相邻（不因为缩进脱开）、所有子项的文字落在同一列（有没有图标都一样）、勾选态 ✓ 与右端
+ * ▸/▾ 的几何不受影响。
  *
  * 数据面：真实网关**只读** + 假宿主 + 树层注入的分组状态（`groups`）与标签组状态（`tags`）。
  * 归档确认、新建会话这类会写网关的动作一律不点。
@@ -33,19 +34,31 @@ const route = (name: string): LabTreeRoute => {
 }
 
 /**
- * 期望的缩进量（#143）：**0**——子项文字与父项文字同列。
+ * 一个缩进位的长度（#167）：**紧凑档的图标槽宽度 14px**（`SCALE_TIERS.compact.iconSize`）。
+ *
+ * 出处：旧侧栏（正本）实测的那条关系就是这一个数——它的子项比父项多让开一位，正好等于它
+ * 自己那个 14px 的图标槽宽（读数见 `test/legacy-sidebar/` 台账的 `submenu-text-vs-parent-text`：
+ * 旧 +14）。选一个有出处的档位量当「一位」，档位表改了本套件跟着走，也不用登记例外。
+ */
+const INDENT_STEP = Number.parseFloat(SCALE_TIERS.compact.iconSize)
+
+/**
+ * 期望的缩进量（#167）：**一个图标槽 14px**——子项文字比父项文字深一格（#143 曾收到 0 =
+ * 两边同列，用户看下来「层级没了」，这条是取回一位）。
  *
  * 算式（三项全出在官方紧凑档，出处见 styles.ts 那条规则上方）：
- *   子项文字左缘 = 子项左内边距 7（`compact.rowPaddingInline`）+ 空图标槽 14（`iconSize`）
- *                + 项内间隙 6（`rowGap`）= 27
+ *   子项文字左缘 = 子项左内边距 7 + 缩进位 14（`rowPaddingInline` + `iconSize`）
+ *                + 空图标槽 14 + 项内间隙 6 = 41
  *   父项文字左缘 = 父项左内边距 7 + 图标槽 14 + 项内间隙 6 = 27
- * 两边同值，所以差是 0；子项文字同时落在「父项图标槽右缘（7 + 14 = 21）+ 一项内间隙」上。
- * 写 0 而不是写「7 + 14 + 6 − 27」：这条量的是**关系**（两边同列），不是某一侧的绝对值。
+ * 两者相差 14 = 一个缩进位。期望值从 `SCALE_TIERS` 读，不写死。
  */
-const EXPECTED_INDENT = 0
+const EXPECTED_INDENT = INDENT_STEP
 
-/** 子项的左内边距（= 父项的，所以整行的图标槽列也重合）：从档位表读，用于报告与诊断。 */
-const SUBMENU_PADDING_INLINE = Number.parseFloat(SCALE_TIERS.compact.rowPaddingInline)
+/**
+ * 子项整行的左内边距 = 紧凑档的项内边距 7px + 一个缩进位 14px = 21px（同样从档位表算，
+ * 用于报告与诊断）；父项的整行左内边距仍是 7px。
+ */
+const SUBMENU_PADDING_INLINE = `${String(Number.parseFloat(SCALE_TIERS.compact.rowPaddingInline) + INDENT_STEP)}px`
 
 /** 菜单项的一条几何事实（页面侧一次量完，避免多次 round-trip 之间的抖动）。 */
 interface ItemGeometry {
@@ -222,17 +235,17 @@ async function openRowContextMenu(page: OpenedPage['page'], selector: string): P
 }
 
 /**
- * 二级菜单（就地展开的子项）的缩进（#126 立 / #143 重定）。量的是**关系不变量**：子项文字
- * 左缘 − 父项文字左缘 = 0（±1px，子项与父项同列；等价说法是「子项文字落在父项图标槽右缘 +
- * 一项内间隙」），并钉住「不再比父项深」这条回归——两个菜单各量一遍；
+ * 二级菜单（就地展开的子项）的缩进（#126 立 / #143 收到 0 / #167 取回一位）。量的是**关系
+ * 不变量**：子项文字左缘 − 父项文字左缘 = 一个图标槽的宽度（±1px；这一档就是旧侧栏实测的
+ * 那一位），并钉住「不再深回 #143 之前那两格」这条回归——两个菜单各量一遍；
  * 另钉子项的图标与文字仍相邻、所有子项落在同一列、✓ 与 ▸/▾ 的几何不受影响，
  * 以及「没有标签组时的缺席」与「二级项点击不关菜单、✓ 就地翻转」两条既有行为。
  */
 export const SUBMENU_INDENT_SUITE: LabSuite = {
   id: 'F-32',
   phase: 'new-feature',
-  name: '二级菜单的缩进（#126 立 / #143 重定）：子项文字与父项文字同列、不再比父项深（会话菜单与工作区菜单同一口径，SUBMENU-INDENT 套件）',
-  expect: `二级菜单（会话菜单的「移到分组…」与工作区菜单的「分组…」就地展开出来的子项）在真实装配页上（真网关**只读** + 假宿主 + 注入的分组状态与标签组状态）量关系不变量，不量绝对坐标：① **会话菜单**：子项文字左缘 − 父项文字左缘 = ${String(EXPECTED_INDENT)}px（±1px）——子项的整行左内边距就是紧凑档的项内边距（${SCALE_TIERS.compact.rowPaddingInline}），接着那个空图标槽（${SCALE_TIERS.compact.iconSize}）与项内间隙（${SCALE_TIERS.compact.rowGap}）与父项自己那串逐项同值，所以子项文字落在父项文字那一列上（也等于「父项图标槽右缘 + 一项内间隙」；期望值全从 styles.ts 的 SCALE_TIERS 读，不写死）；**回归钉子**：子项文字不再比父项文字更深（#143 用户报的就是深了 20px），并且子项整行的左内边距实测就是紧凑档的项内边距；② **工作区菜单**同一 helper，量同一条关系（含同一枚回归钉子），读数与①一致；③ **没有标签组 / 没有自定义分组时的缺席**——会话菜单的「移到分组…」恒在场（一个组都没有时也渲染，不然新建第一个组没有入口，出处是 tree.ts 里那一节的注释），所以这一侧断的是「标签组那几条子项一条都不出现、只剩两条固定入口（不归入标签组 / 新建标签组）」，而工作区菜单的「分组…」在没有自定义分组时**整项不渲染**；**有**组时父项点一下展开、再点一下收起、菜单两次都还开着（父项行为不变）；④ **二级项点击不关菜单、✓ 就地翻转**（回归）：工作区菜单的子项点一下就勾上（菜单仍开着、文字列一分不动），再点一下取消；会话菜单的子项点完后那一行会搬进对应标签组（行换父节点 → 菜单跟着收起，这是既有行为），重开菜单时该项带官方 ✓、文字仍在同一列。另外钉住三件容易被缩进带坏的事：子项的图标槽与文字**仍然相邻**（间距还是紧凑档的 ${SCALE_TIERS.compact.rowGap}，不是把文字推远）、**所有**子项的文字落在同一列（有没有图标都一样）、父项右端 ▸/▾ 与子项的 ✓ 的几何不受影响（▸→▾ 只是换字形，勾不把文字挤走）。全程零 pageerror，不点任何会写网关的动作。`,
+  name: '二级菜单的缩进（#126 立 / #143 收到 0 / #167 取回一位）：子项文字比父项文字深一个图标槽、不再深回两格（会话菜单与工作区菜单同一口径，SUBMENU-INDENT 套件）',
+  expect: `二级菜单（会话菜单的「移到分组…」与工作区菜单的「分组…」就地展开出来的子项）在真实装配页上（真网关**只读** + 假宿主 + 注入的分组状态与标签组状态）量关系不变量，不量绝对坐标：① **会话菜单**：子项文字左缘 − 父项文字左缘 = ${String(EXPECTED_INDENT)}px（±1px）——子项整行的左内边距 = 紧凑档的项内边距（${SCALE_TIERS.compact.rowPaddingInline}）+ 一个缩进位（${SCALE_TIERS.compact.iconSize}，紧凑档的图标槽宽）= ${SUBMENU_PADDING_INLINE}，接着那个空图标槽与项内间隙（${SCALE_TIERS.compact.rowGap}）与父项自己那串逐项同值，所以子项文字比父项文字深整整**一个图标槽**（这一档就是旧侧栏实测的那一位，读数见 legacy-sidebar 台账；期望值全从 styles.ts 的 SCALE_TIERS 读，不写死）；**回归钉子**：子项文字比父项文字深不超过一个缩进位（#143 之前是深两个图标槽 = 20px，用户报的就是它；#143 收到 0 之后用户又觉得层级没了，本套件钉的是这一位），并且子项整行的左内边距实测就是上面那个和；② **工作区菜单**同一 helper，量同一条关系（含同一枚回归钉子），读数与①一致；③ **没有标签组 / 没有自定义分组时的缺席**——会话菜单的「移到分组…」恒在场（一个组都没有时也渲染，不然新建第一个组没有入口，出处是 tree.ts 里那一节的注释），所以这一侧断的是「标签组那几条子项一条都不出现、只剩两条固定入口（不归入标签组 / 新建标签组）」，而工作区菜单的「分组…」在没有自定义分组时**整项不渲染**；**有**组时父项点一下展开、再点一下收起、菜单两次都还开着（父项行为不变）；④ **二级项点击不关菜单、✓ 就地翻转**（回归）：工作区菜单的子项点一下就勾上（菜单仍开着、文字列一分不动），再点一下取消；会话菜单的子项点完后那一行会搬进对应标签组（行换父节点 → 菜单跟着收起，这是既有行为），重开菜单时该项带官方 ✓、文字仍落在它那个缩进位。另外钉住三件容易被缩进带坏的事：子项的图标槽与文字**仍然相邻**（间距还是紧凑档的 ${SCALE_TIERS.compact.rowGap}，不是把文字推远）、**所有**子项的文字落在同一个缩进位（有没有图标都一样）、父项右端 ▸/▾ 与子项的 ✓ 的几何不受影响（▸→▾ 只是换字形，勾不把文字挤走）。全程零 pageerror，不点任何会写网关的动作。`,
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const shot = async (page: OpenedPage['page'], name: string): Promise<string> => {
@@ -382,18 +395,18 @@ export const SUBMENU_INDENT_SUITE: LabSuite = {
         const relations = expanded.children.map((child) => child.labelLeft - parent.labelLeft)
         check.fact(`会话菜单：子项文字左缘 − 父项文字左缘 = ${JSON.stringify(relations.map((value) => Number(value.toFixed(2))))}`)
         check.eq(
-          `① 会话菜单：子项的整行左内边距 = 紧凑档的项内边距 ${String(SUBMENU_PADDING_INLINE)}px（与父项同档 → 缩进归零）`,
+          `① 会话菜单：子项的整行左内边距 = 紧凑档的项内边距 ${SCALE_TIERS.compact.rowPaddingInline} + 一个缩进位 ${SCALE_TIERS.compact.iconSize} = ${SUBMENU_PADDING_INLINE}（比父项多让开一个图标槽）`,
           [...new Set(expanded.children.map((child) => child.paddingLeft))],
-          [SCALE_TIERS.compact.rowPaddingInline],
+          [SUBMENU_PADDING_INLINE],
         )
         check.ok(
-          `① 会话菜单：子项文字左缘 − 父项文字左缘 = ${String(EXPECTED_INDENT)}px（±1）——子项文字与父项文字同列`,
+          `① 会话菜单：子项文字左缘 − 父项文字左缘 = ${String(EXPECTED_INDENT)}px（±1）——子项文字比父项文字深一个图标槽（#167 取回旧侧栏那一档）`,
           relations.every((value) => Math.abs(value - EXPECTED_INDENT) <= 1),
           JSON.stringify(relations.map((value) => Number(value.toFixed(2)))),
         )
         check.ok(
-          '回归钉子（#143）：子项文字不再比父项文字更深——用户报的就是这件事',
-          relations.every((value) => value <= 1),
+          `回归钉子（#143 / #167）：子项文字比父项文字深不超过一个缩进位（≤ ${String(EXPECTED_INDENT + 1)}px）——#143 之前深两个图标槽（20px）`,
+          relations.every((value) => value <= EXPECTED_INDENT + 1),
           JSON.stringify(relations.map((value) => Number(value.toFixed(2)))),
         )
         check.ok(
@@ -407,7 +420,7 @@ export const SUBMENU_INDENT_SUITE: LabSuite = {
           JSON.stringify(expanded.children.map((child) => `${child.itemLeft.toFixed(1)}/${child.itemWidth.toFixed(1)}`)),
         )
         check.ok(
-          '子项的图标槽与父项的图标槽同列（左右内边距同档，整行没有位移）',
+          '子项的图标槽比父项的图标槽右移一个缩进位（左内边距多让开一格，行盒本身没动）',
           expanded.children.every(
             (child) => child.iconLeft !== null && parent.iconLeft !== null && Math.abs(child.iconLeft - parent.iconLeft - EXPECTED_INDENT) <= 1,
           ),
@@ -454,7 +467,7 @@ export const SUBMENU_INDENT_SUITE: LabSuite = {
       // ---- ④ 会话菜单的子项：点一项就归组（那一行会搬进标签组，菜单跟着收起）；重开时 ✓ 落在组一上 ----
       // 这一侧「点击不关菜单」不成立（既有行为，见下）：子项一改归属，那一行就换父节点搬进
       // 组块、React 重挂，挂在行上的菜单跟着收起；所以这里断的是它的等价结果（归属写回 +
-      // 重开菜单时 ✓ 落在组一上 + 文字仍在同一列）。
+      // 重开菜单时 ✓ 落在组一上 + 文字仍落在它那个缩进位）。
       await page.click('[data-dshone-tree-item="moveToGroup"]')
       await page.waitForTimeout(300)
       await page.click('[data-dshone-tree-item="tag:t-one"]')
@@ -490,7 +503,7 @@ export const SUBMENU_INDENT_SUITE: LabSuite = {
       )
       check.eq('重开菜单时「组一」项带官方勾选态（selectedIds 的 ✓）', checkedChild?.childCount, 3)
       check.ok(
-        '带勾的子项文字仍在同一列（勾不把文字挤走）',
+        '带勾的子项文字仍在它那个缩进位（勾不把文字挤走）',
         checkedChild !== null && checked.parent !== null && Math.abs(checkedChild.labelLeft - checked.parent.labelLeft - EXPECTED_INDENT) <= 1,
         `子项=${checkedChild?.labelLeft.toFixed(1) ?? '无'} 父项=${checked.parent?.labelLeft.toFixed(1) ?? '无'}`,
       )
@@ -528,9 +541,9 @@ export const SUBMENU_INDENT_SUITE: LabSuite = {
           const relations = wsExpanded.children.map((child) => child.labelLeft - wsParent.labelLeft)
           check.fact(`工作区菜单：子项文字左缘 − 父项文字左缘 = ${JSON.stringify(relations.map((value) => Number(value.toFixed(2))))}`)
           check.eq(
-            `② 工作区菜单：子项的整行左内边距 = 紧凑档的项内边距 ${String(SUBMENU_PADDING_INLINE)}px（与父项同档 → 缩进归零）`,
+            `② 工作区菜单：子项的整行左内边距 = 紧凑档的项内边距 ${SCALE_TIERS.compact.rowPaddingInline} + 一个缩进位 ${SCALE_TIERS.compact.iconSize} = ${SUBMENU_PADDING_INLINE}（比父项多让开一个图标槽）`,
             [...new Set(wsExpanded.children.map((child) => child.paddingLeft))],
-            [SCALE_TIERS.compact.rowPaddingInline],
+            [SUBMENU_PADDING_INLINE],
           )
           check.ok(
             `② 工作区菜单：子项文字左缘 − 父项文字左缘 = ${String(EXPECTED_INDENT)}px（±1，与①同一个 helper、同一个值）`,
@@ -538,8 +551,8 @@ export const SUBMENU_INDENT_SUITE: LabSuite = {
             JSON.stringify(relations.map((value) => Number(value.toFixed(2)))),
           )
           check.ok(
-            '回归钉子（#143）：工作区菜单的子项文字也不再比父项文字更深',
-            relations.every((value) => value <= 1),
+            `回归钉子（#143 / #167）：工作区菜单的子项文字比父项文字深不超过一个缩进位（≤ ${String(EXPECTED_INDENT + 1)}px）`,
+            relations.every((value) => value <= EXPECTED_INDENT + 1),
             JSON.stringify(relations.map((value) => Number(value.toFixed(2)))),
           )
           check.ok(
@@ -548,7 +561,7 @@ export const SUBMENU_INDENT_SUITE: LabSuite = {
             JSON.stringify(relations.map((value) => Number(value.toFixed(2)))),
           )
           check.ok(
-            '子项的图标槽与父项的图标槽同列（整行没有位移）',
+            '子项的图标槽比父项的图标槽右移一个缩进位（整行没有位移）',
             wsExpanded.children.every(
               (child) => child.iconLeft !== null && wsParent.iconLeft !== null && Math.abs(child.iconLeft - wsParent.iconLeft - EXPECTED_INDENT) <= 1,
             ),
@@ -586,7 +599,7 @@ export const SUBMENU_INDENT_SUITE: LabSuite = {
         check.eq('再点一次就地取消勾选（同一入口的开关语义）', afterUncheck.children[0]?.checked, 'false')
         check.eq('取消勾选后菜单还开着', afterUncheck.menuCount, 1)
         check.ok(
-          '取消勾选后文字仍在同一列（与①同一条关系）',
+          '取消勾选后文字仍在它那个缩进位（与①同一条关系）',
           afterUncheck.children.length > 0 &&
             afterUncheck.parent !== null &&
             afterUncheck.children.every((child) => Math.abs(child.labelLeft - (afterUncheck.parent?.labelLeft ?? child.labelLeft) - EXPECTED_INDENT) <= 1),
