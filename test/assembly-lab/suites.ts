@@ -68,6 +68,7 @@ import { SIDEBAR_NO_HSCROLL_SUITE } from './sidebarHScrollSuites.ts'
 import { COMBO_CACHE_KEY_SUITE } from './comboCacheKeySuites.ts'
 import { ADD_WORKSPACE_SUITE } from './addWorkspaceSuites.ts'
 import { HTML_PREVIEW_HEIGHT_SUITE } from './htmlPreviewHeightSuites.ts'
+import { GIT_CARD_CWD_SUITE } from './gitCardCwdSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
@@ -6408,4 +6409,7 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // #185 沙箱 srcdoc 帧的内容高度撑开（F-59：F-01…F-58 与 R-06 已占，按「从未占用的继续」
   // 顺延；套件本体在 htmlPreviewHeightSuites.ts，同为独立文件，少一处合入热点）。
   HTML_PREVIEW_HEIGHT_SUITE,
+  // #182 git 卡片的工作目录取值两路来源都必须留（F-60：F-01…F-59 与 R-06 已占，按
+  // 「从未占用的继续」顺延；套件本体在 gitCardCwdSuites.ts，同为独立文件，少一处合入热点）。
+  GIT_CARD_CWD_SUITE,
 ]
