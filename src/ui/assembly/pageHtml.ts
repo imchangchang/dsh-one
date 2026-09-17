@@ -333,7 +333,7 @@ function themePresetJs(theme: 'dark' | 'light'): string {
 }
 
 /**
- * 给沙箱 `srcdoc` 帧里的内联脚本补上本页 nonce（#185）。
+ * 给沙箱 `srcdoc` 帧里的内联脚本补上本页 nonce（#185；#196 补上「两个属性谁先写」这一维）。
  *
  * **为什么需要它**：Chromium 把本页的 CSP **继承给 `srcdoc` 帧**（`srcdoc` 是 local
  * scheme，帧文档没有自己的来源可寻址）。于是 `script-src 'nonce-…'` 也管到帧里面去，
@@ -345,20 +345,39 @@ function themePresetJs(theme: 'dark' | 'light'): string {
  * `parent.postMessage({type:"dsh-visualize:height", height: document.documentElement.scrollHeight})`
  * 从来没被执行过。
  *
- * **做法**：在 `srcdoc` 写进 DOM 的那一刻，给帧文档里每个 `<script>` 打上本页 nonce——
- * 帧与本页自己的内联脚本从此走同一条政策（「script 必须带 nonce」，见
- * `docs/architecture.md` 的 webview CSP 那一条），既不放开 `script-src`，也不改插件一个
- * 字节。只对**声明了隔离沙箱的 `srcdoc` 帧**做（`sandbox` 带 `allow-scripts`、不带
- * `allow-same-origin`）：那种帧是不透明来源，碰不到本页 DOM、localStorage 与宿主桥，
- * 给它脚本执行权等于官方页本来就有的处境；反过来，没有 `sandbox` 或带
- * `allow-same-origin` 的 `srcdoc` 帧与本页同源，给它们打 nonce 等于把本页的信任边界
- * 让出去，所以一律原样放过（这类帧今天就是被挡住的状态，行为不变）。
+ * **做法**：给帧文档里每个 `<script>` 打上本页 nonce——帧与本页自己的内联脚本从此走
+ * 同一条政策（「script 必须带 nonce」，见 `docs/architecture.md` 的 webview CSP 那一条），
+ * 既不放开 `script-src`，也不改插件一个字节。判据是 `isolated(frame)`：只对**声明了隔离
+ * 沙箱的 `srcdoc` 帧**做（`sandbox` 带 `allow-scripts`、不带 `allow-same-origin`）——那种
+ * 帧是不透明来源，碰不到本页 DOM、localStorage 与宿主桥，给它脚本执行权等于官方页本来就
+ * 有的处境；反过来，没有 `sandbox` 或带 `allow-same-origin` 的 `srcdoc` 帧与本页同源，
+ * 给它们打 nonce 等于把本页的信任边界让出去，所以一律原样放过（这类帧今天就是被挡住的
+ * 状态，行为不变）。
  *
- * 两条已知不覆盖的边（都不影响 #185 的卡片）：① 帧里的内联事件属性（`onclick=`）
+ * **判据有三个落点，都汇到同一个复核**（#196）：「先写 `sandbox`、后写 `srcdoc`」是 React
+ * 按 JSX 属性顺序渲染的结果，写 `srcdoc` 那一刻 `sandbox` 已经在，当场就能判；但插件也可能
+ * 反过来写，那一刻读到的 `sandbox` 还是 `null`，帧会被当成「没沙箱的帧」放过，帧内脚本照旧
+ * 被挡住、卡片又停回最小高度。所以：
+ *   ① 写 `srcdoc` 的那一刻先判一次（`sandbox` 已经在了的情形，直接给值打 nonce，不多绕一步）；
+ *   ② 那一刻还判不出来（`sandbox` 没来）就在这一轮任务结束时再判一次：同一个任务里写的
+ *      `sandbox`（不管用 `setAttribute` 还是令牌表 `frame.sandbox.add(...)`）那时都落在了
+ *      元素上，帧还挂在文档外也照样判得到（写 `srcdoc` 触发的那次载入排在这个复核之后，
+ *      所以帧拿到的仍是补过 nonce 的那一份）；
+ *   ③ 帧挂在文档里时，`sandbox` 的任何改动都由盯这条属性的属性观察再复核一次——隔了任务
+ *      才写的、用令牌表写的、`removeAttribute` 拿掉的，这一层都覆盖得到。
+ * 复核读到什么就写回什么：该补的补上、该还原的还原（`srcdoc` 改一次就重新载入一次，帧里
+ * 那句量高上报这才跑得起来）。帧若从隔离档改成同源档，复核会把打上去的 nonce 摘掉，让那份
+ * `srcdoc` 还原成插件写的那一份——边界两侧都不留痕。
+ *
+ * 三条已知不覆盖的边（都不影响 #185 的卡片）：① 帧里的内联事件属性（`onclick=`）
  * 按 CSP 规则只能靠 `'unsafe-inline'` 放行，nonce/hash 对它无效——同类插件若只靠它做
  * 交互，装配页里仍然不响应；② 帧要用的远端资源（CDN 的图片/字体）仍受本页 `img-src` /
- * `font-src` 限制。两者都记在 #185 的报告里。
+ * `font-src` 限制；③ **帧还没挂进文档、`sandbox` 又是隔了一轮任务才写上去**的那一档
+ * （② 那一轮已经过去、③ 的属性观察看不到文档外的节点）——同一个任务里写完两个属性的
+ * 帧（插件先建节点再插进去的写法）不受影响。三者都记在 #185 / #196 的报告里。
  */
+// 注：本函数返回的是**内嵌进页面的脚本正文**，里面的注释一律英文——
+// 外层文件的注释剥离器看不到字符串内部的中文，会触发 check-i18n 的兜底扫描。
 function srcdocNonceJs(cspNonce: string): string {
   return `(() => {
   const NONCE = ${JSON.stringify(cspNonce)}
@@ -372,14 +391,36 @@ function srcdocNonceJs(cspNonce: string): string {
   const stamped = (html) => (typeof html === "string" && html.indexOf("<script") !== -1)
     ? html.replace(/<script(?![^>]*\\snonce\\s*=)([^>]*)>/gi, (tag, rest) => '<script nonce="' + NONCE + '"' + rest + '>')
     : html
-  const forFrame = (frame, value) => (isolated(frame) ? stamped(value) : value)
+  // Strip the stamp this function added: a frame that moves from the isolated tier to the
+  // same-origin tier must get the plugin's own srcdoc back. The stamp is exactly
+  // ' nonce="' + NONCE + '"', so splitting on it and re-joining restores the original verbatim.
+  const unstamped = (html) => (typeof html === "string") ? html.split(' nonce="' + NONCE + '"').join("") : html
   const setAttribute = Element.prototype.setAttribute
+  // Which srcdoc belongs under the current pair of attributes? Skip the write when the value
+  // is already right — writing it again would reload the frame for nothing.
+  const reconcile = (frame) => {
+    const value = frame.getAttribute("srcdoc")
+    if (typeof value !== "string") return
+    const next = isolated(frame) ? stamped(value) : unstamped(value)
+    if (next !== value) setAttribute.call(frame, "srcdoc", next)
+  }
+  const pending = new Set()
+  const laterReconcile = (frame) => {
+    if (pending.has(frame)) return
+    pending.add(frame)
+    queueMicrotask(() => {
+      pending.delete(frame)
+      reconcile(frame)
+    })
+  }
+  const writeSrcdoc = (frame, value) => {
+    if (isolated(frame)) return setAttribute.call(frame, "srcdoc", stamped(value))
+    laterReconcile(frame)
+    return setAttribute.call(frame, "srcdoc", value)
+  }
   Element.prototype.setAttribute = function (name, value) {
-    return setAttribute.call(
-      this,
-      name,
-      this instanceof HTMLIFrameElement && String(name).toLowerCase() === "srcdoc" ? forFrame(this, value) : value,
-    )
+    if (this instanceof HTMLIFrameElement && String(name).toLowerCase() === "srcdoc") return writeSrcdoc(this, value)
+    return setAttribute.call(this, name, value)
   }
   const descriptor = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, "srcdoc")
   if (descriptor !== undefined && typeof descriptor.set === "function" && typeof descriptor.get === "function") {
@@ -387,8 +428,18 @@ function srcdocNonceJs(cspNonce: string): string {
       configurable: true,
       enumerable: descriptor.enumerable,
       get() { return descriptor.get.call(this) },
-      set(value) { descriptor.set.call(this, forFrame(this, value)) },
+      set(value) { writeSrcdoc(this, value) },
     })
+  }
+  // Sandbox changes on a frame already in the document are re-checked by this attribute
+  // observer (token-list writes, removeAttribute, and writes deferred by a task).
+  const root = document.documentElement
+  if (typeof MutationObserver === "function" && root !== null && root !== undefined) {
+    new MutationObserver((records) => {
+      for (const record of records) {
+        if (record.target instanceof HTMLIFrameElement) reconcile(record.target)
+      }
+    }).observe(root, { attributes: true, subtree: true, attributeFilter: ["sandbox"] })
   }
 })()`
 }
