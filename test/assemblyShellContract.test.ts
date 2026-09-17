@@ -187,7 +187,9 @@ test('密度档扩散（#104）：四区新键各挂各的规则，且每项 VS 
     { key: 'pill-font-size', rules: ['dshOneTree_pill'] },
     { key: 'pill-padding-start', rules: ['dshOneTree_pill'] },
     { key: 'pill-padding-end', rules: ['dshOneTree_pill'] },
-    { key: 'drawer-block-header-height', rules: ['dshOneTree_drawerGroupLabel'] },
+    // #144 的退场：`drawer-block-header-height` 随抽屉块头与侧栏工作区行收敛（块头改吃行族的
+    // `row-height`）而整条退场——树侧不再消费它，所以这里也不再登记（登记了会在上面那条
+    // 「键集两边一致」里红）。
   ]
   const numeric = (v: string): number => Number.parseFloat(v)
   for (const { key, rules } of SPREAD) {

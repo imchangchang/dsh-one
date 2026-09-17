@@ -270,7 +270,7 @@ export const SCALE_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '侧栏风格档位表（#113/#134）：几何读数逐项落在官方档位表里，行家族取标准档、菜单统一官方紧凑档（SCALE 套件）',
   expect:
-    '侧栏树在真实装配页上（真网关只读 + 假宿主）：① **几何读数逐项有出处**——会话行 / 工作区行 / 行标题 / 行时间 / 行内图标位 / 行内图标按钮 / 顶栏（分节头）/ 顶栏图标按钮 / 搜索框（两态：#132 起默认折叠，折叠态与点开后的展开态各量一遍）/ 分组胶囊 / 回收站入口行动作按钮 / 当前工作区胶囊 / 抽屉头 / 抽屉分块块头 / 抽屉会话行的圆角、高度、字号、行高读数，每一条都能在 `styles.ts` 那份官方档位表（紧凑档 / 标准档 / 容器档）里按属性对上出处（期望值从档位表读，不硬编码）；单独钉住的关键值里，**行家族取标准档**（#134）：会话行高 32px 与圆角 8px、工作区行高 34px、行标题 14px/20px（#123 起就走标准档，完整断言在 F-30）、搜索框展开态圆角 10px；**菜单一侧仍紧凑**——分组胶囊高 26px（= 菜单项高）与容器档的 999px 圆角原样不动。（**回收站入口行主区自 #137 起不在这张表里**：那一行整套按旧侧栏规格取定值，只留字号一项仍按标题档判；它的几何由 F-38 钉。）② **菜单统一官方紧凑档**：分组胶囊与会话行 ⋯ 两份菜单都开一遍（#131 前第二份是顶栏「视图选项」，那一枚退役后换成会话行菜单），官方 Menu 的项（渲染高 26px / 最小高 26px / 字号 12px / 行高 18px / 圆角 5px / 间隙 6px / 内边距 3px 7px）、项内图标盒（14×14）、分组标题（11px / 16px / 内边距 4px 7px）、分隔线（外边距 2px）、列表容器（内边距 2px / 圆角 7px）逐项等于官方紧凑档实测值；两份菜单的项几何彼此一致（同一侧栏里只有一种菜单密度）。全程零 pageerror。',
+    '侧栏树在真实装配页上（真网关只读 + 假宿主）：① **几何读数逐项有出处**——会话行 / 工作区行 / 行标题 / 行时间 / 行内图标位 / 行内图标按钮 / 顶栏（分节头）/ 顶栏图标按钮 / 搜索框（两态：#132 起默认折叠，折叠态与点开后的展开态各量一遍）/ 分组胶囊 / 回收站入口行动作按钮 / 当前工作区胶囊 / 抽屉头 / 抽屉分块块头 / 抽屉会话行的圆角、高度、字号、行高读数，每一条都能在 `styles.ts` 那份官方档位表（紧凑档 / 标准档 / 容器档）里按属性对上出处（期望值从档位表读，不硬编码）；单独钉住的关键值里，**行家族取标准档**（#134）：会话行高 32px 与圆角 8px、工作区行高 34px、行标题 14px/20px（#123 起就走标准档，完整断言在 F-30）、搜索框展开态圆角 10px、**抽屉分块块头 34px / 圆角 8px / 名字 14px（#144：与工作区行同一套折叠语言）**；**菜单一侧仍紧凑**——分组胶囊高 26px（= 菜单项高）与容器档的 999px 圆角原样不动。（**回收站入口行主区自 #137 起不在这张表里**：那一行整套按旧侧栏规格取定值，只留字号一项仍按标题档判；它的几何由 F-38 钉。）② **菜单统一官方紧凑档**：分组胶囊与会话行 ⋯ 两份菜单都开一遍（#131 前第二份是顶栏「视图选项」，那一枚退役后换成会话行菜单），官方 Menu 的项（渲染高 26px / 最小高 26px / 字号 12px / 行高 18px / 圆角 5px / 间隙 6px / 内边距 3px 7px）、项内图标盒（14×14）、分组标题（11px / 16px / 内边距 4px 7px）、分隔线（外边距 2px）、列表容器（内边距 2px / 圆角 7px）逐项等于官方紧凑档实测值；两份菜单的项几何彼此一致（同一侧栏里只有一种菜单密度）。全程零 pageerror。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const opened = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 380, height: 900 })
@@ -383,6 +383,22 @@ export const SCALE_SUITE: LabSuite = {
         if (drawerRow !== undefined) {
           check.eq('抽屉会话行高 = 标准档 32px（#134：与主树会话行同高）', drawerRow.readings.height, SCALE_TIERS.standard.sessionRowHeight)
           check.eq('抽屉会话行圆角 = 标准档 8px（#134）', drawerRow.readings.borderRadius, SCALE_TIERS.standard.rowRadius)
+        }
+        // #144：抽屉分块块头与侧栏工作区行收敛成同一套折叠语言——高 / 圆角 / 名字字号都取行族
+        // 那一档（此前是「紧凑档小块头」：26px 高、12px 字）。空回收站时块头不渲染，跳过。
+        const drawerBlockHeader = drawerProbes.find((probe) => probe.label === '抽屉分块块头')
+        if (drawerBlockHeader !== undefined) {
+          check.eq(
+            '抽屉分块块头高 = 标准档 34px（#144：与侧栏工作区行同高、同一套折叠语言）',
+            drawerBlockHeader.readings.height,
+            SCALE_TIERS.standard.projectRowHeight,
+          )
+          check.eq('抽屉分块块头圆角 = 标准档的行圆角 8px（#144）', drawerBlockHeader.readings.borderRadius, SCALE_TIERS.standard.rowRadius)
+          check.eq(
+            '抽屉分块块头名字字号 = 标准档的行标题档 14px（#144 之前是紧凑档的 12px）',
+            drawerBlockHeader.readings.fontSize,
+            SCALE_TIERS.standard.titleFontSize,
+          )
         }
         screenshots.push(await shot(ctx, page, 'scale-drawer-standard'))
         await page.click('[data-dshone-tree-action="recycle-close"]')

@@ -50,6 +50,7 @@ import { TOOLBAR_SINGLE_ROW_SUITE } from './toolbarSingleRowSuites.ts'
 import { PENDING_DOT_SUITE } from './pendingDotSuites.ts'
 import { TOPBAR_RIGHT_INSET_SUITE } from './topbarRightInsetSuites.ts'
 import { STATUS_DOT_SUITE } from './statusDotSuites.ts'
+import { RECYCLE_DRAWER_ROW_SUITE } from './recycleDrawerRowSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
@@ -2062,15 +2063,19 @@ const DENSITY_REGIONS: ReadonlyArray<{
  *   行家族键，#134 起两边同值（32px / 8px）；
  * - `抽屉分块块头` / `抽屉头` 的左内边距与 `回收站入口主区` 的左右内边距：吃的是**行内容基准**
  *   `row-padding-inline`（它们要与行的文字左缘对齐），跟着行一起回官方 8px；
- * - 抽屉头与块头的**高度**、入口主区的**高度**都不在这份名单里：它们的行高键
- *   （`section-header-height` / `drawer-block-header-height` / `footer-row-height`）仍是紧凑档，
- *   照样得严格更紧——这正是「只放开了行，其他控件没被顺带放开」那条口径的落地。
+ * - **#144 起 `抽屉分块块头` 的高度也进这份名单**：块头与侧栏工作区行收敛成同一套折叠语言，
+ *   高度改吃行族的 `row-height`（标准档 = 官方 34px，两档同值），原来那个独立的块头高键
+ *   `drawer-block-header-height` 随条目退场；
+ * - 抽屉头与入口主区的**高度**仍不在这份名单里：它们的行高键（`section-header-height` /
+ *   入口行自己那套定值）仍是紧凑档，照样得严格更紧——这正是「只放开了行，其他控件没被
+ *   顺带放开」那条口径的落地。
  * 名单里没有的区域（顶栏 / 图标按钮 / 过滤条 / 胶囊 / 入口动作按钮 / 抽屉列表）每一项都仍按
  * 「紧凑档严格更小」判。
  */
 const ROW_FAMILY_SAME: Readonly<Record<string, readonly string[]>> = {
   抽屉会话行: ['height', 'paddingLeft', 'paddingRight'],
-  抽屉分块块头: ['paddingLeft', 'paddingRight'],
+  // #144：块头的**高度**也进这份名单（改吃行族的 `row-height`，与工作区行同高 34px）。
+  抽屉分块块头: ['height', 'paddingLeft', 'paddingRight'],
   抽屉头: ['paddingLeft'],
   回收站入口主区: ['paddingLeft', 'paddingRight'],
   // #125 起分组过滤条的左内缩也吃「行内容基准」（里面的胶囊要与列表行的内容左缘同一条竖线），
@@ -2156,7 +2161,7 @@ export const DENSITY_SPREAD_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '侧栏密度档扩散（#104，口径按 #134 重写）：顶栏 / 分组过滤条 / 抽屉在三档宽度下的密度对照（DENSITY-SPREAD 套件；回收站入口行 #137 起退出这张表）',
   expect:
-    '同一页、同一数据、260/340/500 三档宽度下，把自有树的密度变量从宿主给的 VS Code 档切到它自己声明的官方兜底值（= 官方档），四区的几何逐一比较：顶栏行（高/左内边距/行内间隙）、顶栏图标按钮（宽高）、顶栏动作组间隙、分组过滤条（左内边距/间隙）、分组胶囊（高/字号/间隙/左右内边距）、入口主区（左内边距，其余项 #137 起退出这张表）、抽屉头（高/左右内边距/间隙）、抽屉分块块头（高/左右内边距）、抽屉会话行（高/左右内边距）、抽屉列表（左右内边距/底部留白）。判据分两类（#134 行家族取官方标准档之后的口径）：① **行家族回标准档的那些测量点两个档同值**——抽屉会话行（高 32px / 左右内边距 8px）、抽屉头与抽屉分块块头的左内边距、回收站入口主区的左右内边距、分组过滤条的左内边距（这几处吃的是「行内容基准」，跟着行一起回 8px；过滤条那一条是 #125 把胶囊对齐到行内容基准带来的）；② **其余每一项紧凑档仍严格小于官方原值**（含抽屉头与块头的高度、入口主区的高度——它们自己的行高键仍是紧凑档，不能跟着放开）。另钉住三件：**行族同值那几项真的量到了**（名单至少覆盖 6 项，否则说明这一轮改动没跑到）、**判「严格更紧」的项仍足够多**（至少 15 项，否则套件等于空跑）、同一区域在三档宽度下的紧凑读数一致（密度是容器给的，不随宽度漂）。全程零 pageerror。',
+    '同一页、同一数据、260/340/500 三档宽度下，把自有树的密度变量从宿主给的 VS Code 档切到它自己声明的官方兜底值（= 官方档），四区的几何逐一比较：顶栏行（高/左内边距/行内间隙）、顶栏图标按钮（宽高）、顶栏动作组间隙、分组过滤条（左内边距/间隙）、分组胶囊（高/字号/间隙/左右内边距）、入口主区（左内边距，其余项 #137 起退出这张表）、抽屉头（高/左右内边距/间隙）、抽屉分块块头（高/左右内边距）、抽屉会话行（高/左右内边距）、抽屉列表（左右内边距/底部留白）。判据分两类（#134 行家族取官方标准档、#144 抽屉块头并入行族之后的口径）：① **回标准档的那些测量点两个档同值**——抽屉会话行（高 32px / 左右内边距 8px）、**抽屉分块块头（高 34px / 左右内边距 8px，与侧栏工作区行同高**：它 #144 起与工作区行收敛成同一套折叠语言，吃行族的 `row-height` 键）、抽屉头与抽屉分块块头的左内边距、回收站入口主区的左右内边距、分组过滤条的左内边距（这几处吃的是「行内容基准」，跟着行一起回 8px；过滤条那一条是 #125 把胶囊对齐到行内容基准带来的）；② **其余每一项紧凑档仍严格小于官方原值**（含抽屉头的高度与入口主区的高度——它们自己的行高键仍是紧凑档，不能跟着放开）。另钉住三件：**行族同值那几项真的量到了**（名单至少覆盖 6 项，否则说明这一轮改动没跑到）、**判「严格更紧」的项仍足够多**（至少 15 项，否则套件等于空跑）、同一区域在三档宽度下的紧凑读数一致（密度是容器给的，不随宽度漂）。全程零 pageerror。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const widths = [260, 340, 500] as const
@@ -2190,7 +2195,7 @@ export const DENSITY_SPREAD_SUITE: LabSuite = {
         check.ok(
           `w=${String(width)}：密度变量对齐到官方兜底值（内联项数 > 0）`,
           aligned >= 20,
-          `内联项数=${String(aligned)}（#104 起键面 25 项、#113 加行圆角到 26 项、#137 减回 25 项（入口行退出密度档）；精确键集由外壳契约套件守）`,
+          `内联项数=${String(aligned)}（#104 起键面 25 项、#113 加行圆角到 26 项、#137 减回 25 项（入口行退出密度档）、#144 再减到 24 项（抽屉块头改吃行族的 row-height）；精确键集由外壳契约套件守）`,
         )
         await page.waitForTimeout(200)
         const official = await readDensity(page, 'tree')
@@ -2706,7 +2711,7 @@ export const RECYCLE_TWO_LAYER_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '回收站两层语义（#103）：移入/还原是本地可逆、归档=删除带确认（RECYCLE-TWO-LAYER 套件）',
   expect:
-    '#103 定的两层语义在真实装配页上成立（真网关**只读** + 假宿主 + 同一上下文里并排开官方浏览区对照档）：① **移入回收站只写本地状态**——行菜单「移入回收站」后会话从我们树里消失、入口角标 +1、假宿主状态存储里出现 `recycle-bin`（形状 `{version:1, sessionIds:[按移入顺序]}`），而**官方浏览区里的会话一条都没少**（同时刻对照，证明 dsh 侧一个字节没动）；② **抽屉形态**：点入口行从底部半高滑出（高度档 50）、提手上拉吸附到 90、按原工作区分块、块内按移入顺序倒序、块头可折叠且折叠态落 `dsh.workspaceTree.view`（重载后仍收起）；③ 状态按旧侧栏那份文件的键名与形状读回（**旧 recycle-bin.json 原样迁入**），并在基线就绪时**清账**——集合里 dsh 侧已不存在的 id 被剔掉、真的那几条原样保留；④ **还原**（行尾按钮与入口「全部还原」）同样只动本地状态，会话回到树里；⑤ **归档 = 删除**：入口「清空」与多选操作条的「归档」都先开同一个确认弹窗（写明不可恢复、按工作区列出将归档的会话、写明跳过数），取消则什么都不发生；⑥ 多选操作条的「移入回收站」复用同一套本地动作（立即执行 + 飘提示 + 退出选择态）；⑦ 回收站空时入口两枚动作图标禁用。全程零 pageerror，且本套件**从不点归档确认**（那会写真实网关）。',
+    '#103 定的两层语义在真实装配页上成立（真网关**只读** + 假宿主 + 同一上下文里并排开官方浏览区对照档）：① **移入回收站只写本地状态**——行菜单「移入回收站」后会话从我们树里消失、入口角标 +1、假宿主状态存储里出现 `recycle-bin`（形状 `{version:1, sessionIds:[按移入顺序]}`），而**官方浏览区里的会话一条都没少**（同时刻对照，证明 dsh 侧一个字节没动）；② **抽屉形态**：点入口行从底部半高滑出（高度档 50）、提手上拉吸附到 90、按原工作区分块、块内按移入顺序倒序、块头可折叠且折叠态落 `dsh.workspaceTree.view`（重载后仍收起；#144 起块头与侧栏工作区行同一套折叠语言，每行行尾直接列出「还原」与「永久归档」两枚图标按钮、⋯ 二级菜单退场——两枚的几何与行为由 F-45 钉）；③ 状态按旧侧栏那份文件的键名与形状读回（**旧 recycle-bin.json 原样迁入**），并在基线就绪时**清账**——集合里 dsh 侧已不存在的 id 被剔掉、真的那几条原样保留；④ **还原**（行尾那两枚动作里的「还原」，与入口「全部还原」）同样只动本地状态，会话回到树里；⑤ **归档 = 删除**：入口「清空」与多选操作条的「归档」都先开同一个确认弹窗（写明不可恢复、按工作区列出将归档的会话、写明跳过数），取消则什么都不发生；⑥ 多选操作条的「移入回收站」复用同一套本地动作（立即执行 + 飘提示 + 退出选择态）；⑦ 回收站空时入口两枚动作图标禁用。全程零 pageerror，且本套件**从不点归档确认**（那会写真实网关）。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const opened = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 380, height: 900 })
@@ -2844,6 +2849,9 @@ export const RECYCLE_TWO_LAYER_SUITE: LabSuite = {
           blocks,
           rows: blocks.reduce((total, block) => total + block.rows.length, 0),
           restoreButtons: root.querySelectorAll('[data-dshone-recycle-restore]').length,
+          // #144：行尾直接列出两枚动作，⋯ 那一枚（`data-dshone-recycle-menu`）退场。
+          archiveButtons: root.querySelectorAll('[data-dshone-recycle-archive]').length,
+          rowMenus: root.querySelectorAll('[data-dshone-recycle-menu]').length,
         }
       })
       check.fact(`抽屉：高度档=${String(drawer?.height)} 实测比例=${String(drawer?.ratio.toFixed(2))} 块=${JSON.stringify(drawer?.blocks)}`)
@@ -2851,6 +2859,9 @@ export const RECYCLE_TWO_LAYER_SUITE: LabSuite = {
       check.ok('默认半高（高度档 50，实测比例在 0.45~0.55）', drawer?.height === 50 && (drawer?.ratio ?? 0) > 0.45 && (drawer?.ratio ?? 0) < 0.55, JSON.stringify(drawer))
       check.eq('抽屉里的行数 = 本地集合的条数', drawer?.rows, 2)
       check.eq('每行行尾一枚「还原」', drawer?.restoreButtons, 2)
+      // #144：两枚动作都在行尾直接摆开，二级菜单（⋯）不在——这一条比改前更强（改前只数还原）。
+      check.eq('每行行尾另一枚「永久归档」也在（#144：两枚动作都直接摆在行上）', drawer?.archiveButtons, 2)
+      check.eq('行尾不再有 ⋯ 二级菜单（#144：归档不再藏进菜单）', drawer?.rowMenus, 0)
       const fixtureBlock = (drawer?.blocks ?? []).find((block) => block.rows.includes(second))
       check.fact(`夹具两条所在块：${JSON.stringify(fixtureBlock)}（工作区块键 ${fixture.key}）`)
       check.eq('按原工作区分块：两条同工作区的会话落在同一个块里', fixtureBlock?.key, fixture.key)
@@ -6085,4 +6096,7 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // #146 会话行状态点逐案审计（F-46：F-44 归 #142、F-45 归 #144，按「从未占用的继续」顺延；
   // 套件本体在 statusDotSuites.ts，同上为独立文件，少一处合入热点）。
   STATUS_DOT_SUITE,
+  // #144 回收站抽屉的块头与行尾动作（F-45：F-01…F-44 与 R-06 已占，F-46 归 #146，
+  // 按「从未占用的继续」顺延；套件本体在 recycleDrawerRowSuites.ts，同为独立文件）。
+  RECYCLE_DRAWER_ROW_SUITE,
 ]

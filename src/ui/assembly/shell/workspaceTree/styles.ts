@@ -13,7 +13,7 @@
 // ## 密度偏好（#85 A 项，键面 #104 扩到骨架四区）：消费 shell 给的 CSS 变量，缺省即官方档
 // 几何/间距项（行高、行间空隙、分组空隙、行内边距、分节头高、字号、列表底部
 // 留白、图标按钮/搜索胶囊尺寸，以及 #104 扩出来的顶栏行内边距与行内间隙、
-// 分组胶囊的高/字号/内边距、回收站入口行行高、抽屉块头高）写成
+// 分组胶囊的高/字号/内边距）写成
 // `var(--dsh-one-density-<项>, <官方原值>)`：
 // - **本插件不判断宿主**：没人给偏好时取官方字面量（官方 web 侧原样），宿主
 //   （我们的 VS Code 侧栏外框 @dsh-one/vscode-sidebar-shell）在容器上设这组
@@ -96,6 +96,12 @@
 // - **不跟行家族的其余行形件**（#134 用户只点了侧栏的行，这些不动）：空态入口按钮
 //   （自绘件，仍取紧凑档 26px）。**弹窗里的行同样不跟**（管理分组对话框的行固定 26px，
 //   理由写在那条规则上方）。这几条在断言里逐条登记为「仍落紧凑档」，不是把口径放宽。
+// - **抽屉里的分块块头**（`.dshOneTree_drawerGroupLabel`，#144）→ **跟工作区行同一套**
+//   （用户实测：抽屉块头与侧栏工作区行是同一件事「折叠一个工作区分组」，此前却是两套形态）：
+//   行高 / 圆角 / 行内边距 / 名字文字整套取行家族那一档（与工作区行同高 34px、名字同一列），
+//   箭头那一格取行内图标位 16×20，块头自己的计数取行里的元信息档（12px / 20px）。块头那个
+//   独立密度键（`drawer-block-header-height`）随本条退场——两处同一个折叠语言，高度不该有
+//   两份。并排读数与逐条差异见 test/assembly-lab/recycleDrawerRowSuites.ts。
 // - **回收站入口行**（`.dshOneTree_footer*`，#137）→ **不进档位表**：用户点名的参照物是
 //   旧侧栏插件里的同一行，所以它的几何整套按那份旧规格取定值（行盒吃满宽度、右侧 8px、
 //   主区 7px 纵向内边距、计数胶囊、26×26 的动作按钮……），逐条对应与两处刻意不同（左内边距
@@ -247,7 +253,10 @@ export const SCALE_TIERS = {
     renameInputHeight: '44px', // .bhn1Oq_renameInput{height:44px}
     renameInputRadius: '22px', // .bhn1Oq_renameInput{border-radius:22px}
     renameInputLineHeight: '22px', // .bhn1Oq_renameInput{line-height:22px}
-    drawerBlockHeaderHeight: '26px', // ._7KE1Ra_groupTitle{padding:5px 8px 3px} + line-height:18px
+    // 这里原有一枚「抽屉分块块头的高」（官方同族件 `._7KE1Ra_groupTitle{padding:5px 8px 3px}
+    // + line-height:18px` 的 26px）：#144 把块头收敛成与工作区行同一套折叠语言，高度改吃
+    // 行族那一项（`projectRowHeight` 34px），这个量连同它的密度键一起退场，所以档位表里
+    // 也不再登记。
     // 底下一枚原是「回收站入口行的行高」（官方同座位的 `Nqubda_badge{height:42px}`）：
     // #137 把那一行整套改成旧侧栏规格（高度由纵向内边距 + 标题行高撑出，不再写死），
     // 这个量连同它的密度键一起退场，所以档位表里也不再登记。
@@ -858,30 +867,57 @@ export const CSS =
   // 标题右 2px）；右侧仍吃骨架基线。
   '.dshOneTree_drawerList{min-height:0;padding:0 var(--dsh-one-density-section-padding-inline,4px) var(--dsh-one-density-list-padding-bottom,16px) 0;flex:1;overflow-y:auto}' +
   '.dshOneTree_drawerGroup+.dshOneTree_drawerGroup{margin-top:var(--dsh-one-density-group-gap,4px)}' +
-  // 抽屉里的分块块头**就是那一枚可点折叠的按钮**：几何取**紧凑档的分组标题档**——
-  // 盒高 24px = 官方 compact 档 `._label_1nxmc_124{padding:4px 7px}` + `line-height:16px`
-  // 的 4+16+4；字号取紧凑档字号 12px。官方列表的分组块头（ui-model-selection 的
-  // `_7KE1Ra_groupTitle`：26px 总高、12px 字号）留标准档兜底。**圆角与行内边距吃
-  // 行内容基准那两个键**（`row-radius` / `row-padding-inline`，见文件头的档位表）：它们
-  // #134 起是官方的 8px / 8px，块头因此与它下面的抽屉会话行左右对齐（块头文字与行文字
-  // 同一左缘），高度仍走它自己的 `drawer-block-header-height`。
-  '.dshOneTree_drawerGroupLabel{cursor:pointer;width:100%;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:var(--dsh-one-density-row-radius,8px);height:var(--dsh-one-density-drawer-block-header-height,26px);align-items:center;gap:var(--dsh-one-density-section-gap,4px);padding:0 var(--dsh-one-density-row-padding-inline,8px);font-family:inherit;font-size:var(--dsh-one-density-meta-font-size,12px);display:flex}' +
-  '.dshOneTree_drawerGroupLabel:hover{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-interactive-bg-hover)}' +
-  '.dshOneTree_drawerGroupArrow{width:14px;flex:none;align-items:center;display:inline-flex}' +
+  // 抽屉里的分块块头**就是那一枚可点折叠的按钮**（#144：用户实测「抽屉里的折叠形态与侧栏
+  // 做成类似的」——两处都是「折叠一个工作区分组」，此前却是一套紧凑档的小块头）。它现在与
+  // 侧栏的**工作区行**同一套折叠语言，逐项取值见下（并排读数与差异表在
+  // test/assembly-lab/recycleDrawerRowSuites.ts）：
+  // - **行高 = 侧栏工作区行同一档**（标准档 `standard.projectRowHeight` 34px，官方
+  //   `.YDXeBa_projectRow{height:34px}`）：走**行族那个密度键** `row-height`（不是块头自己
+  //   的键——那个键随本条改动退场，见 sidebarFramePlugin.ts 的说明），所以它与工作区行永远
+  //   同高、跟着行家族一起动。
+  // - **圆角 8px / 左右内边距 8px**：行圆角（`row-radius`）与行内容基准（`row-padding-inline`，
+  //   与它下面的抽屉会话行同一左缘）。
+  // - **箭头那一格**与工作区行的折叠箭头同一格：宽 16px（标准档 `standard.slotWidth`，官方
+  //   `.YDXeBa_slot{width:16px;height:20px}`——侧栏那一行的箭头就住在这一格里）、高 20px
+  //   （`standard.slotHeight`），图标 `IconTriangleRightFill14` 与展开标记 `dshOneTree_arrowOpen`
+  //   逐字相同，颜色同取 `.dshOneTree_chevron` 的 `label-caption`。于是**名字那一列**
+  //   （8 + 16 + 6 = 30）与工作区行的名字列落在同一条竖线上。
+  // - **块头不补文件夹图标**：工作区行那一格里本来就只有一个图形（平时文件夹、悬停换成折叠
+  //   箭头，两者共用同一格），块头恒显箭头 = 那一行的悬停形态；再补一枚文件夹会把名字列推右
+  //   一格（+16+6 = 22px），「名字同一列」当场不成立。
+  // - **计数仍留在行尾右缘**（不与名字同列）：它与工作区行里那一枚活状态计数不是一个东西
+  //   （那一枚紧跟标题文字、可能有两枚），这一枚是「本组几条」的定长读数，贴右缘成列便于逐组
+  //   扫读；字号与颜色按行内元信息那一档（`meta-font-size` / `meta-line-height`，与工作区行
+  //   里的 `.dshOneTree_activityItem` 同源）。
+  '.dshOneTree_drawerGroupLabel{box-sizing:border-box;cursor:pointer;width:100%;color:var(--dsw-alias-label-primary);background:0 0;border:none;border-radius:var(--dsh-one-density-row-radius,8px);height:var(--dsh-one-density-row-height,34px);align-items:center;gap:6px;padding:0 var(--dsh-one-density-row-padding-inline,8px);font-family:inherit;font-size:var(--dsh-one-density-title-font-size,14px);line-height:var(--dsh-one-density-title-line-height,20px);display:flex}' +
+  '.dshOneTree_drawerGroupLabel:hover{background:var(--dsw-alias-interactive-bg-hover)}' +
+  '.dshOneTree_drawerGroupArrow{width:16px;height:20px;color:var(--dsw-alias-label-caption);flex:none;justify-content:center;align-items:center;display:inline-flex}' +
   '.dshOneTree_drawerGroupLabelText{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;text-align:left;overflow:hidden}' +
-  '.dshOneTree_drawerGroupCount{flex:none}' +
+  '.dshOneTree_drawerGroupCount{color:var(--dsw-alias-label-tertiary);flex:none;font-size:var(--dsh-one-density-meta-font-size,12px);line-height:var(--dsh-one-density-meta-line-height,20px)}' +
   // 抽屉会话行（行家族一员）：**#134 起取标准档**——高 32px（与主树会话行同高）/
   // 圆角 8px / 行内间隙 6px / 行内边距 8px，逐项是官方 `.YDXeBa_sessionRow` 的值。
   '.dshOneTree_drawerRow{cursor:pointer;height:var(--dsh-one-density-session-row-height,32px);color:var(--dsw-alias-label-primary);border-radius:var(--dsh-one-density-row-radius,8px);align-items:center;gap:6px;padding:0 var(--dsh-one-density-row-padding-inline,8px);display:flex}' +
   '.dshOneTree_drawerRow:hover,.dshOneTree_drawerRow.dshOneTree_menuOpen{background:var(--dsw-alias-interactive-bg-hover)}' +
   '.dshOneTree_drawerRow .dshOneTree_title{flex:1;margin:0}' +
-  // 抽屉行的动作**常显**（不像主树那样悬停才出）：抽屉里本来就只有两个动作，藏起来
-  // 反而要多一步悬停；行悬停时时间让位给动作。
-  '.dshOneTree_drawerActions{flex:none;align-items:center;gap:2px;display:inline-flex}' +
+  // 抽屉会话行的动作（#144：用户实测「每行行尾直接列出还原与归档」，此前是「还原」文字按钮
+  // 加一枚 ⋯、归档藏在二级菜单里）——**两枚图标按钮常显**：
+  // - **几何取侧栏行尾动作按钮那一档**（标准档：16×16 / 圆角 4px，官方
+  //   `.YDXeBa_iconButton{width:16px;height:16px;border-radius:4px}`，也是主树
+  //   `.dshOneTree_rowIconButton` 的那一档）；行内图标按 16 档渲染（`IconXxx16`），与主树行内
+  //   图标同一处置（那一族图标本来就画在 16 的格子里）。
+  // - **两枚之间的间距 12px** 取官方行尾动作组自己那一格（`.YDXeBa_rowActions
+  //   {gap:12px}`，主树 `.dshOneTree_rowActions` 用的就是它）。
+  // - **归档按错误色**标出来（终点动作）：token 与入口行那枚「清空」同一个
+  //   （`--dsw-alias-state-error-primary`；官方同族用法见 dsh-client-ui-workspace 的
+  //   `bhn1Oq_renameError{color:var(--dsw-alias-state-error-primary)}`）。
+  // **常显而不是悬停才出**：抽屉里每一行只有这两枚，藏起来反而要多一步悬停；行悬停时
+  // 时间仍让位（沿用旧规则：把那一格让给标题）。
+  '.dshOneTree_drawerActions{flex:none;align-items:center;gap:12px;display:inline-flex}' +
   '.dshOneTree_drawerRow:hover .dshOneTree_time,.dshOneTree_drawerRow.dshOneTree_menuOpen .dshOneTree_time{display:none}' +
-  '.dshOneTree_drawerRestore{cursor:pointer;height:20px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:4px;flex:none;align-items:center;gap:4px;padding:0 4px;font-family:inherit;font-size:var(--dsh-one-density-meta-font-size,12px);display:inline-flex}' +
-  '.dshOneTree_drawerRestore:hover:not(:disabled){color:var(--dsw-alias-label-primary)}' +
-  '.dshOneTree_drawerRestore:disabled{cursor:default;opacity:.45}' +
+  '.dshOneTree_drawerAction{cursor:pointer;width:16px;height:16px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}' +
+  '.dshOneTree_drawerAction:hover:not(:disabled){color:var(--dsw-alias-label-primary)}' +
+  '.dshOneTree_drawerAction:disabled{cursor:default;opacity:.45}' +
+  '.dshOneTree_drawerActionDanger:not(:disabled){color:var(--dsw-alias-state-error-primary)}' +
   '.dshOneTree_drawerStatus{color:var(--dsw-alias-label-tertiary);padding:10px 8px;font-size:var(--dsh-one-density-meta-font-size,12px)}' +
   // 归档确认弹窗的明细（按工作区树形列）：块头 + 行。整套取紧凑档（#127）：块头 12px 字号、
   // 明细行 = 紧凑档的分组标题配方（上下内边距 4px + 文字行高 18px = 26px 一行），缩进 16px

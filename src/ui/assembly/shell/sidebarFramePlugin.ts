@@ -224,12 +224,11 @@ export const DENSITY_PROFILE: Readonly<Record<string, { official: string; vscode
   // 「7px 纵向内边距 + 标题行高 20px + 7px」撑出 34px，不随宿主密度变。这里原本有一条
   // `footer-row-height`（官方同座位条目 `Nqubda_badge{height:42px}` / VS Code 档 26px），
   // 随之一并退场——树侧不再消费它，留着会让「键集两边一致」这条契约断掉。
-  // 抽屉里「按工作区分块」的块头高度：官方列表里的分组块头是 ui-model-selection 的
-  // `_7KE1Ra_groupTitle{padding:5px 8px 3px;font-size:12px;line-height:18px}`，总高
-  // 5+18+3=26px（上下内边距 + 行高）；我们那行是定高一行的，取它的总高。VS Code 档取
-  // **紧凑档的分组标题盒 24px**（官方 compact 档 `._label_1nxmc_124{padding:4px 7px}` +
-  // `line-height:16px` = 4+16+4）。
-  'drawer-block-header-height': { official: '26px', vscode: '24px' },
+  // 抽屉里「按工作区分块」的块头高度**不再走这张表**（#144）：块头按用户要求与侧栏工作区行
+  // 收敛成同一套折叠语言，高度改吃**行族那个键** `row-height`（标准档 = 官方 34px，两档同值），
+  // 所以这里原本那条 `drawer-block-header-height`（官方同族件 ui-model-selection 的
+  // `_7KE1Ra_groupTitle{padding:5px 8px 3px;line-height:18px}` 总高 26px / VS Code 档紧凑档
+  // 分组标题盒 24px）随之一并退场——树侧不再消费它，留着会让「键集两边一致」这条契约断掉。
   // 行圆角（#113 新增，唯一进这张表的圆角）：官方侧栏行是 8px
   // （`YDXeBa_projectRow,YDXeBa_sessionRow{border-radius:8px}`）。**#134 起 VS Code 档 =
   // 官方原值**（行家族取标准档，紧凑档那个 5px 不再用于行）。这个键留着而不是写死 8px：

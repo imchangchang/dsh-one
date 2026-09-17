@@ -61,6 +61,12 @@ export function fakeHostScript(
     //（#108 用它验「批量动作失败时失败项留在勾选里、红字报出来」——真宿主也可能
     // 因为磁盘/权限写不进去，这条就是那个情形的可复现版本）。
     failStateWrite: null,
+    // 另一个注入点：置成某个状态键名后，对该键的 state.write **先按住不回执**
+    //（套件随后调 host.releaseHeld() 放行）——#144 用它把「有动作在飞（busy）」的那一刻
+    // 钉住，验 busy 时抽屉行尾两枚动作都禁用。与 failStateWrite 是两回事：那个回失败，
+    // 这个只是慢（真宿主在磁盘忙的时候也是这个表现）。
+    holdStateWrite: null,
+    held: [],
     sessionTabsOpened: [],
     // #121 宿主面板：假宿主不做真的面板（那是真宿主的事），只回答侧栏树问的那句
     // 「这条会话现在开在对话面板里吗」，并记录「树请宿主把面板亮到哪个会话」。
@@ -96,6 +102,15 @@ export function fakeHostScript(
     else message.error = payload
     setTimeout(function () { resume(message) }, 0)
   }
+  // 放行被 holdStateWrite 按住的那几条 state.write（#144：套件读够 busy 态之后调它）。
+  var releaseHeld = function () {
+    var queued = host.held.splice(0)
+    queued.forEach(function (message) {
+      host.stateStore[message.args.key] = message.args.value
+      result(message.id, true, {})
+    })
+  }
+  host.releaseHeld = releaseHeld
   var gitShow = function (args) {
     var hash = args && typeof args.hash === "string" ? args.hash : ""
     if (hash.replace(/^0+$/, "") === "") return { sha: hash, found: false }
@@ -146,6 +161,12 @@ export function fakeHostScript(
       // 注入的写失败（见 host.failStateWrite）：动作侧会如实报错，界面据此报红字。
       if (host.failStateWrite === writeKey) {
         result(message.id, false, { code: "lab-injected-write-failure", message: "lab host: injected state.write failure for " + writeKey })
+        return
+      }
+      // 注入的按住（见 host.holdStateWrite）：先不回执，套件调 releaseHeld() 才放行——
+      // 「有动作在飞」的那一刻因此可以被钉住读界面（#144）。
+      if (host.holdStateWrite === writeKey) {
+        host.held.push(message)
         return
       }
       host.stateStore[writeKey] = message.args.value
