@@ -1364,11 +1364,41 @@ export function SessionRow({
   })
 }
 
-/** 搜索结果行（官方 `SearchResultItem`）：标题 + 工作区 + 内容片段。 */
+/**
+ * 搜索命中的高亮（#152）：把 text 里**第一处**命中词（大小写不敏感）包成
+ * `<mark class="dshOneTree_searchMark">`，其余部分原样返回（标题 / 工作区名 / 片段三处共用）。
+ *
+ * ## 为什么照旧侧栏这一版，而不是「跟官方一致」
+ *
+ * 官方搜索结果是**没有**高亮的：combo 里 `@deepseek-ai/dsh-client-ui-workspace` 的
+ * `SearchResultItem` 把 `title` / `workspace` / `snippet` 三个字符串**原样**当文本子节点渲染，
+ * 官方 `Rows.module.css` 里也没有任何高亮类或 `<mark>` 规则（0.1.6-alpha.1 实测，整个 combo
+ * 里没有一处 `<mark`）。官方没有可对齐的形态，就按**旧侧栏的处置**补：`sessionsWebview.ts`
+ * 的 `highlightText`（`indexOf` 定位、**只标第一处**、大小写不敏感）——`<mark>` 正是这个标签的
+ * 语义（「因另一处上下文而相关」），读屏软件也认得，所以照旧沿用它。
+ *
+ * 只标第一处是旧侧栏的既有行为：一段文字里同一个词出现多次时，只有第一处变色。这条与
+ * 「大小写不敏感」一起由 F-49 钉住。
+ */
+function highlightMatches(text: string, query: string): unknown[] {
+  const needle = query.trim().toLowerCase()
+  const index = needle === '' ? -1 : text.toLowerCase().indexOf(needle)
+  if (index < 0) return [text]
+  const head = text.slice(0, index)
+  const tail = text.slice(index + needle.length)
+  return [
+    ...(head === '' ? [] : [head]),
+    h('mark', { key: 'hit', className: 'dshOneTree_searchMark' }, text.slice(index, index + needle.length)),
+    ...(tail === '' ? [] : [tail]),
+  ]
+}
+
+/** 搜索结果行（官方 `SearchResultItem`）：标题 + 工作区 + 内容片段（#152 起三处都标高亮）。 */
 export function SearchResultRow({
   node,
   workspaceLabel,
   snippet,
+  query,
   selectMode,
   selected,
   pinned,
@@ -1380,6 +1410,8 @@ export function SearchResultRow({
   node: SessionNode
   workspaceLabel: string
   snippet?: string
+  /** #152：当前查询串（已 trim），标题 / 工作区名 / 片段三处按它标高亮。 */
+  query: string
   /**
    * #108（C8）：选择态下的搜索结果行同样可勾选——点行 = 勾选，勾选资格与树里的会话行
    * 同一份判定（`canRecycle`）。搜索态是「在全部会话里找」，与分组视图是两个视图，
@@ -1437,7 +1469,7 @@ export function SearchResultRow({
             h(
               'span',
               { key: 'title', className: `dshOneTree_searchRowTitle${unread ? ' dshOneTree_unread' : ''}` },
-              displayTitle(node, tr),
+              ...highlightMatches(displayTitle(node, tr), query),
             ),
             // 同样补上活跃定时任务标记（官方 `SearchResultItem` 的 `search: true` 变体）。
             node.hasActiveSchedule ? h(ActiveScheduleIndicator, { key: 'schedule', tr, search: true }) : null,
@@ -1447,10 +1479,14 @@ export function SearchResultRow({
           key: 'meta',
           className: 'dshOneTree_searchRowMeta',
           children: [
-            h('span', { key: 'ws', className: 'dshOneTree_searchRowWorkspace' }, workspaceLabel || tr('group.ungrouped')),
+            h(
+              'span',
+              { key: 'ws', className: 'dshOneTree_searchRowWorkspace' },
+              ...highlightMatches(workspaceLabel || tr('group.ungrouped'), query),
+            ),
             snippet === undefined || snippet === ''
               ? null
-              : h('span', { key: 'snip', className: 'dshOneTree_searchRowSnippet' }, snippet),
+              : h('span', { key: 'snip', className: 'dshOneTree_searchRowSnippet' }, ...highlightMatches(snippet, query)),
           ],
         }),
       ],

@@ -511,6 +511,13 @@ export const CSS =
   '.dshOneTree_searchRowWorkspace,.dshOneTree_searchRowSnippet{text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:17px;overflow:hidden}' +
   '.dshOneTree_searchRowWorkspace{max-width:40%;color:var(--dsw-alias-label-tertiary);flex:none}' +
   '.dshOneTree_searchRowSnippet{min-width:0;color:var(--dsw-alias-label-secondary);flex:1}' +
+  // 搜索命中的高亮（#152，标记由 `rows.ts` 的 `highlightMatches` 产出）。官方没有这一层
+  // （证据与理由写在那个函数上），照旧侧栏那一版：加粗 + 变色、**无底色**（用户要的就是
+  // 「加底色不好看」，旧侧栏 `sessionsView.ts` 那条规则也写着 `background:none`）。
+  // 颜色取官方「业务主色」这一枚 token——它就是我们侧栏里那个蓝（官方 `_folderActive` 用的
+  // 同一枚，与旧侧栏那枚 VS Code 蓝同色系：浅色 #4176e6 / 深色 #679efe），字重沿用侧栏里
+  // 已有的 600 档（与未读行的加粗同一档），两者都不新造值。
+  '.dshOneTree_searchMark{font-weight:600;color:var(--dsw-alias-state-business-primary);background:none}' +
   '.dshOneTree_hoverContent{flex-direction:column;gap:8px;display:flex}' +
   '.dshOneTree_hoverTitle{color:#fff;overflow-wrap:break-word;font-size:14px;line-height:20px}' +
   '.dshOneTree_hoverPath{color:#cfd3d6;word-break:break-all;font-size:12px;line-height:16px}' +
