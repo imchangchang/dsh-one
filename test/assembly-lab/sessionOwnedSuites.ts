@@ -37,7 +37,7 @@ import * as path from 'node:path'
 import { emit, installEventStreamInjector, openTreePage, waitForEventStream, withoutKnownNoise, type Check, type OpenedPage } from './harness.ts'
 import { LAB_TREES, type LabTreeRoute } from './labServer.ts'
 // 期望文案从插件自己的词典读（不硬编码）：被测的就是「树上飘的是哪一句」。
-import { ZH } from '../../src/ui/assembly/shell/workspaceTree/locale.ts'
+import { EN, ZH } from '../../src/ui/assembly/shell/workspaceTree/locale.ts'
 // 只取类型（编译后不留 import，运行期没有环）：套件接口定义在 suites.ts 里。
 import type { LabSuite } from './suites.ts'
 
@@ -78,7 +78,7 @@ async function shot(page: OpenedPage['page'], file: string): Promise<string> {
 }
 
 export const SESSION_OWNED_SUITE: LabSuite = {
-  id: 'F-44',
+  id: 'F-47',
   phase: 'new-feature',
   name: 'SESSION-OWNED-ELSEWHERE',
   expect:
@@ -120,7 +120,14 @@ export const SESSION_OWNED_SUITE: LabSuite = {
     const message = ownedMessage(target)
     injector.push(emit('api-session/error', [target, message]))
     const text = await waitForFlash(opened.page, 8_000)
-    check.eq('① 会话被另一个 dsh 占用时树上飘出提示（文案 = 插件词典那一句）', text, ZH['session.ownedElsewhere'])
+    // 页面语言随环境（日常实例是 zh；空的隔离网关会起来 en），两种语言的取值都从插件
+    // 词典里读——这一条验的是「飘的是插件词典那一句」，不是哪一国语言。
+    const expected = [ZH['session.ownedElsewhere'], EN['session.ownedElsewhere']]
+    check.ok(
+      '① 会话被另一个 dsh 占用时树上飘出提示（文案 = 插件词典那一句）',
+      text === expected[0] || text === expected[1],
+      `actual=${JSON.stringify(text)} expected=${JSON.stringify(expected)}`,
+    )
     check.fact(`注入的帧：api-session/error ${message.slice(0, 120)}…`)
     screenshots.push(await shot(opened.page, path.join(ctx.shots, 'session-owned-flash.png')))
 

@@ -524,7 +524,7 @@ export async function launchBrowser(headless = true): Promise<Browser> {
  * 官方转发事件流在 mux 上的端点名（`dsh-api-gateway` 客户端的一个常量）。
  *
  * 这一段夹具（注入器 + 等就绪 + 帧构造）原来长在 F-43（`pendingDotSuites.ts`）里，
- * #145 的 F-44 要用同一条通道投另一种帧（`api-session/error`），所以搬进 harness——
+ * #145 的 F-47 要用同一条通道投另一种帧（`api-session/error`），所以搬进 harness——
  * 两个套件共用一份，免得两处各写一遍代理再各自漂移。
  */
 const EVENT_STREAM_ENDPOINT = '$events'
