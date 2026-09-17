@@ -376,6 +376,8 @@ function themePresetJs(theme: 'dark' | 'light'): string {
  * （② 那一轮已经过去、③ 的属性观察看不到文档外的节点）——同一个任务里写完两个属性的
  * 帧（插件先建节点再插进去的写法）不受影响。三者都记在 #185 / #196 的报告里。
  */
+// 注：本函数返回的是**内嵌进页面的脚本正文**，里面的注释一律英文——
+// 外层文件的注释剥离器看不到字符串内部的中文，会触发 check-i18n 的兜底扫描。
 function srcdocNonceJs(cspNonce: string): string {
   return `(() => {
   const NONCE = ${JSON.stringify(cspNonce)}
@@ -389,11 +391,13 @@ function srcdocNonceJs(cspNonce: string): string {
   const stamped = (html) => (typeof html === "string" && html.indexOf("<script") !== -1)
     ? html.replace(/<script(?![^>]*\\snonce\\s*=)([^>]*)>/gi, (tag, rest) => '<script nonce="' + NONCE + '"' + rest + '>')
     : html
-  // 摘掉本函数打上去的那一段（帧从隔离档改成同源档时要把 srcdoc 还原成插件写的那一份）。
-  // 打的形状就是 ' nonce="' + NONCE + '"'，所以按它切开再拼回去是逐字还原。
+  // Strip the stamp this function added: a frame that moves from the isolated tier to the
+  // same-origin tier must get the plugin's own srcdoc back. The stamp is exactly
+  // ' nonce="' + NONCE + '"', so splitting on it and re-joining restores the original verbatim.
   const unstamped = (html) => (typeof html === "string") ? html.split(' nonce="' + NONCE + '"').join("") : html
   const setAttribute = Element.prototype.setAttribute
-  // 现在这两个属性下该是哪一份 srcdoc？值一样就不写，免得白白多载入一次。
+  // Which srcdoc belongs under the current pair of attributes? Skip the write when the value
+  // is already right — writing it again would reload the frame for nothing.
   const reconcile = (frame) => {
     const value = frame.getAttribute("srcdoc")
     if (typeof value !== "string") return
@@ -427,8 +431,8 @@ function srcdocNonceJs(cspNonce: string): string {
       set(value) { writeSrcdoc(this, value) },
     })
   }
-  // 帧挂在文档里时的沙箱改动都由这条属性观察再复核一次（令牌表操作、removeAttribute、
-  // 隔了任务才写的那一档都覆盖得到）。
+  // Sandbox changes on a frame already in the document are re-checked by this attribute
+  // observer (token-list writes, removeAttribute, and writes deferred by a task).
   const root = document.documentElement
   if (typeof MutationObserver === "function" && root !== null && root !== undefined) {
     new MutationObserver((records) => {
