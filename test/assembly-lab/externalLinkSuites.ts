@@ -202,7 +202,7 @@ export const EXTERNAL_LINK_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '外链锚点的捕获阶段兜底：插件那种 stopPropagation 的锚点在 VS Code 侧点得开，不接管的锚点一格不动（EXTERNAL-LINK 套件）',
   expect:
-    '三棵树各装一层捕获阶段的文档级点击兜底（三棵共用一个实现）。① 与插件同形的锚点（`target="_blank"` + 冒泡阶段 `stopPropagation`）→ 恰好一次宿主 `vscode.openExternal`、URL 逐字相等、页面没导航也没开新页；② 官方 MarkdownText 那一类没 stopPropagation 的锚点 → 同样恰好一次（不与 VS Code 自己那层拦截叠加成双开）；③ `javascript:` / `file:` / `data:` / 相对路径 / 页内锚点一次调用都不发，页内锚点照常跳、相对路径仍归 VS Code 那层管；④ chat / sidebar / settings 三棵树各跑一遍（插件的界面在设置树里，另拿真插件锚点点一次）；⑤ 回归：官方那类锚点行为不变、零 CSP 违规、零 pageerror。',
+    '三棵树各装一层捕获阶段的文档级点击兜底（三棵共用一个实现）。① 与插件同形的锚点（`target="_blank"` + 冒泡阶段 `stopPropagation`）→ 恰好一次宿主 `vscode.openExternal`、URL 逐字相等、页面没导航也没开新页；② 官方 MarkdownText 那一类没 stopPropagation 的锚点 → 同样恰好一次（不与 VS Code 自己那层拦截叠加成双开）；③ `javascript:` / `file:` / `data:` / 相对路径 / 页内锚点一次调用都不发——相对路径仍由 VS Code 那层接管、页内锚点仍走那层自己的 hash 处置（都不被当外链开）；④ chat / sidebar / settings 三棵树各跑一遍（插件的界面在设置树里，另拿真插件锚点点一次）；⑤ 回归：官方那类锚点行为不变、零 CSP 违规、零 pageerror。没有宿主的页面上兜底按判据不装。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
 
@@ -245,6 +245,11 @@ export const EXTERNAL_LINK_SUITE: LabSuite = {
       const mail = await clickFixture(settings.page, 'lab-mail')
       check.fact(`白名单含 mailto：mailto 锚点发出的宿主调用 ${JSON.stringify(mail.opened)}`)
       check.eq('白名单含 mailto：mailto 锚点同样交给宿主打开一次', mail.opened, ['mailto:lab@example.com'])
+      check.eq(
+        'VS Code 侧只走能力桥，没有顺手走页面 window.open（一次点击一个出口）',
+        (await hostFacts(settings.page)).openedByWindow,
+        [],
+      )
 
       // ⑤ 控制台：做到这里为止（还没点下面那三种非白名单锚点）零 CSP 违规 / 零 error /
       // 零 pageerror——**顺序是有意的**：点 `javascript:` 锚点会由浏览器自己报一条 CSP 违规
