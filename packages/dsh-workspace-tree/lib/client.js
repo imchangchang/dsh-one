@@ -3947,15 +3947,23 @@ function SessionRow({
 }
 function highlightMatches(text, query) {
   const needle = query.trim().toLowerCase();
-  const index = needle === "" ? -1 : text.toLowerCase().indexOf(needle);
-  if (index < 0) return [text];
-  const head = text.slice(0, index);
-  const tail = text.slice(index + needle.length);
-  return [
-    ...head === "" ? [] : [head],
-    (0, import_react9.createElement)("mark", { key: "hit", className: "dshOneTree_searchMark" }, text.slice(index, index + needle.length)),
-    ...tail === "" ? [] : [tail]
-  ];
+  if (needle === "") return [text];
+  const haystack = text.toLowerCase();
+  if (haystack.length !== text.length) return [text];
+  const parts = [];
+  let cursor = 0;
+  for (; ; ) {
+    const index = haystack.indexOf(needle, cursor);
+    if (index < 0) break;
+    if (index > cursor) parts.push(text.slice(cursor, index));
+    parts.push(
+      (0, import_react9.createElement)("mark", { key: `hit-${String(index)}`, className: "dshOneTree_searchMark" }, text.slice(index, index + needle.length))
+    );
+    cursor = index + needle.length;
+  }
+  if (parts.length === 0) return [text];
+  if (cursor < text.length) parts.push(text.slice(cursor));
+  return parts;
 }
 function SearchResultRow({
   node,
