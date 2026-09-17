@@ -103,6 +103,8 @@ export const ZH: Record<string, string> = {
   'search.results.aria': '\u641c\u7d22\u7ed3\u679c',
   'search.pending': '\u6b63\u5728\u641c\u7d22\u4f1a\u8bdd\u5386\u53f2\u2026',
   'search.unavailable': '\u5185\u5bb9\u641c\u7d22\u6682\u4e0d\u53ef\u7528\uff0c\u4ec5\u663e\u793a\u540d\u79f0\u5339\u914d\u3002',
+  // #184：两条官方等待交互钩子都不在时的那行可见事实（正常情况下不出现）。
+  'pending.unavailable': '\u7B49\u5F85\u4EA4\u4E92\u4E0D\u53EF\u7528\uFF1A\u5F53\u524D dsh \u7248\u672C\u6CA1\u6709\u5B98\u65B9\u7684\u4F1A\u8BDD\u72B6\u6001\u94A9\u5B50\uFF08sessionStatus / sessionPendingInteraction\uFF09\u3002',
   'search.noMatches': '\u65e0\u5339\u914d\u4f1a\u8bdd',
   'search.hasMore': '\u4ec5\u663e\u793a\u524d {n} \u6761\u7ed3\u679c\uff0c\u8bf7\u7f29\u5c0f\u641c\u7d22\u8303\u56f4\u3002',
   rename: '\u91cd\u547d\u540d',
@@ -322,6 +324,8 @@ export const EN: Record<string, string> = {
   'search.results.aria': 'Search results',
   'search.pending': 'Searching session history…',
   'search.unavailable': 'Content search is temporarily unavailable. Showing name matches.',
+  // #184：两条官方等待交互钩子都不在时的那行可见事实（正常情况下不出现）。
+  'pending.unavailable': 'Waiting status unavailable: this dsh version has no official session status hook (sessionStatus / sessionPendingInteraction).',
   'search.noMatches': 'No matching sessions',
   'search.hasMore': 'Showing the first {n} results. Narrow your search.',
   rename: 'Rename',

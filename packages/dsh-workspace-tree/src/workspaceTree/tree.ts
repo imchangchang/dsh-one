@@ -1,6 +1,7 @@
 /** 树主组件（官方 WorkspaceBrowser 的同构复刻）：组合上面各件 + 状态与订阅。 */
 import { createElement as h, useEffect, useMemo, useRef, useState } from 'react'
 import { IconCloseFill14, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
+import { NO_PENDING, pendingSourceOf } from '../../../../src/pure/sessionPendingSource.ts'
 import { currentWorkspaceFirst, deriveFlat, deriveGroups, deriveRecycleGroups, groupSessionNodes, indexSubagentDescendants, owningGroupKey, sessionNode, UNGROUPED_KEY, visibleRecycleIds, withoutPanelOpenCompleted, workspaceActivityCounts, type ActivityCounts, type GroupNode, type SessionNode } from '../../../../src/pure/workspaceTreeView.ts'
 import { formatFileMention } from '../../../../src/pure/fileReference.ts'
 import { formatSessionMention } from '../../../../src/pure/sessionMention.ts'
@@ -104,7 +105,6 @@ export function WorkspaceTree(props: TreeProps): unknown {
     t,
     useSessions,
     useWorkspaces,
-    useSessionPendingInteraction,
     open: openSession,
     startSession,
     renameSession,
@@ -151,7 +151,25 @@ export function WorkspaceTree(props: TreeProps): unknown {
   const workspaces = useWorkspaces((state) => state.items)
   const workspacePhase = useWorkspaces((state) => state.phase)
   const archivedSessionIds = useWorkspaces((state) => state.archivedSessionIds)
-  const pending = useSessionPendingInteraction((state) => state)
+  /**
+   * 官方会话等待态（#184）：两代各一条 root 钩子——0.1.6-alpha.2 起是 `sessionStatus`
+   * （会话状态表，等待态在 `status.pendingInteraction` 那一格），此前是
+   * `sessionPendingInteraction`（快照本身就是等待态表）。挑哪一条、怎么投影，全部在
+   * `pure/sessionPendingSource.ts` 里（单一事实源，上游探针也读它那份名字表）。
+   *
+   * **必须先在调用之前分叉**：官方框架只下发在场的那条钩子，缺的那条 props 上是
+   * `undefined`，直接调用会抛错并让整棵树的槽位条目崩掉（不是「点不亮」那么轻）。
+   * 两条都不在（`pendingSource === null`）时按空表渲染，并在列表上方给一行可见的事实。
+   *
+   * 钩子在不在场是**这一页启动时就有的事实**（官方 `provideRoot` 只在启动时下发一次，
+   * 不会中途换名字），所以这里的「有则调用」不会在两个渲染之间改变调用顺序。
+   */
+  const pendingSource = pendingSourceOf(props)
+  const pendingSnapshot = pendingSource === null ? null : pendingSource.read(props)
+  const pending = useMemo(
+    () => (pendingSource === null || pendingSnapshot === null ? NO_PENDING : pendingSource.project(pendingSnapshot)),
+    [pendingSource, pendingSnapshot],
+  )
 
   // 视图态（当前过滤的分组 / 展开集合 / 抽屉与标签组各自的收起集合）住官方客户端惯例的
   // localStorage，初值在挂载时读一次；此后每次变更都写回（见下面的写回 effect）。
@@ -1527,7 +1545,20 @@ export function WorkspaceTree(props: TreeProps): unknown {
 
   return h(
     'div',
-    { className: 'dshOneTree_root', ref: rootRef, 'data-shell': 'dsh-one-tree', 'data-dshone-tree': 'root' },
+    {
+      className: 'dshOneTree_root',
+      ref: rootRef,
+      'data-shell': 'dsh-one-tree',
+      'data-dshone-tree': 'root',
+      /**
+       * 这一页实际取到的是哪一代官方等待态钩子（观测点，取值 = 钩子名或 `none`）。
+       *
+       * 为什么把这件事写在 DOM 上：等待态取不到时页面上的表现只是「没有黄点」，与
+       * 「今天没有等待中的会话」长得一模一样——浏览器验证据此断言「按官方名字取到了」
+       * 而不是「什么都没发生」（#184 的常驻断言之一，见 test/assembly-lab/pendingDotSuites.ts）。
+       */
+      'data-dshone-tree-pending-source': pendingSource?.hook ?? 'none',
+    },
     // 顶部工具栏（#99 B 段；#135 起**一行五件**）：行首是分组过滤胶囊（原来自己在列表区
     // 占一行），右边依次是官方搜索栏（#132 起默认折叠，点开才展开）+ 折叠/展开全部 +
     // 添加工作区 + 设置齿轮 + 多选入口（#131 起搜索栏之后只有这四件，视图选项已退役）。
@@ -1565,6 +1596,26 @@ export function WorkspaceTree(props: TreeProps): unknown {
         onManage: () => setManageGroupsOpen(true),
       },
     }),
+    /**
+     * 两条官方等待态钩子都不在场时的那行可见事实（#184）。
+     *
+     * 为什么必须有这一行：取不到钩子时页面上原本什么都不会说——等待态的黄点本来就不是
+     * 每条会话都有，所以「点不亮」与「今天没有等待中的会话」在界面上分不出来，用户与
+     * 我们都无从发现取用路径已经断了。这行字把「取不到」变成看得见的事实（正常情况下
+     * 永远不渲染；官方在两代之间换名字时由这一行当场报出来）。
+     */
+    pendingSource === null
+      ? h(
+          'div',
+          {
+            className: 'dshOneTree_noticeLine',
+            key: 'pending-unavailable',
+            role: 'status',
+            'data-dshone-tree': 'pending-unavailable',
+          },
+          tr('pending.unavailable'),
+        )
+      : null,
     h(
       'div',
       { className: 'dshOneTree_listArea' },

@@ -460,7 +460,9 @@ export const CSS =
   '.dshOneTree_groupSection>*+*{margin-top:var(--dsh-one-density-row-gap,2px)}' +
   '.dshOneTree_groupSection{position:relative}' +
   '.dshOneTree_groupSection+.dshOneTree_groupSection{margin-top:var(--dsh-one-density-group-gap,4px)}' +
-  '.dshOneTree_searchStatus,.dshOneTree_searchWarning{color:var(--dsw-alias-label-tertiary);padding:10px 12px;font-size:12px;line-height:18px}' +
+  // #184 的「等待交互不可用」那行事实与搜索区那些状态行同一外形（同一档字号与内边距，
+  // 只是它落在列表上方）：几何逐字沿用这条既有规则，不另立数值。
+  '.dshOneTree_searchStatus,.dshOneTree_searchWarning,.dshOneTree_noticeLine{color:var(--dsw-alias-label-tertiary);padding:10px 12px;font-size:12px;line-height:18px}' +
   '.dshOneTree_searchWarning{color:var(--dsw-alias-label-secondary)}' +
   '.dshOneTree_empty{color:var(--dsw-alias-label-tertiary);padding:16px 12px;font-size:13px}' +
   // 空态/加载态是一小块竖排区域（#110）：一行说明 + 可选的第二行 + 可选的入口按钮，
