@@ -502,6 +502,14 @@ export const SCALE_SUITE: LabSuite = {
             [...new Set(first.map((item) => item[prop] ?? ''))].join(','),
           )
         }
+      } else {
+        // #195：这一段是**条件断言**——两份菜单都开得出来时才跑。条件不成立时整段消失
+        // （报告里连「没跑到」都看不到），所以这里必须留一条事实行，让这一轮的覆盖情况
+        // 在报告里可读（口径与其它套件一致：跑到几条就说几条，没跑到的写明为什么）。
+        check.fact(
+          `这一轮只开出 ${String(menus.length)} 份菜单（两份菜单的密度一致性那 ${String(Object.keys(compactItem).length)} 条没跑到）` +
+            '——两份菜单里至少有一份的触发器不在场（分组胶囊 / 会话行 ⋯ 都要页面上有对应内容才出），逐份的在场情况见上面那几行事实',
+        )
       }
 
       check.eq('档位表套件全程零 pageerror', withoutKnownNoise(opened.capture.pageErrors).real, [])
