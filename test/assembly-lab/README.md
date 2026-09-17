@@ -48,6 +48,29 @@ npm run verify:lab -- --headed --keep   # 开有界面的浏览器，跑完留�
 环境变量：`LAB_GATEWAY`（网关地址）、`LAB_TOKEN`（token）、`LAB_PORT`（实验室端口，
 缺省 3179，`0` = 随机）。全部参数见 `node test/assembly-lab/verify.ts --help`。
 
+### 自己起网关时必须给独立的 `DSH_HOME`（硬规矩）
+
+跑实验室要用的网关，**优先连用户已经在跑的那个**（缺省 3080，只读）。只有当需要「零数据 /
+不受用户数据影响」的环境时，才自己起——而**自己起的那一个必须带独立的 `DSH_HOME`**：
+
+```bash
+TMP=$(mktemp -d /tmp/dsh-lab-home.XXXXXX)
+DSH_HOME=$TMP dsh web --host 127.0.0.1 --port <挑一个没占用的> --no-open
+# 跑完按 PID 收掉自己的那一个，并删掉 $TMP
+```
+
+**为什么不带 `DSH_HOME` 就是错的**：不带就等于**和用户共用同一份会话库**（`~/.dsh`）。dsh 的会话
+日志是**单写者、跨进程**——实验室每跑一轮都会真的打开会话、把它们**占住写句柄**，于是用户在
+VS Code 里点同一条会话就会撞上「该会话正被另一个 dsh 占用」（#145 加的提示；2026-09-17 实测过
+一次，机器上同时挂着 6 个残留网关，最长的活了 2 小时 26 分）。这一条同时是「只读」的延伸：
+**不占用户的资源**与「不写用户的数据」同等重要。
+
+其它三条纪律（都来自实撞）：
+
+- **按 PID 收网关**，别用 `pkill -f "dsh web"`：那会连用户自己的实例一起打断（实测发生过）。
+- 收干净再走：跑完 `lsof -nP -iTCP:<你的端口> -sTCP:LISTEN` 确认没监听，临时 `DSH_HOME` 目录删掉。
+- **别写 `~/.dsh/dsh-owned.json`**（那是扩展与用户实例的登记表）。
+
 chromium 由 devDependency `playwright` 在 `npm ci` 时下载；如果没有（例如装依赖时跳过
 了脚本），先跑一次 `npx playwright install chromium`。
 
