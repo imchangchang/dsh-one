@@ -33,7 +33,7 @@ npm run build      # 打出 dist/ 与 packages/*/lib/
 | `npm run build` | `node build.mjs`：esbuild 把 `src/extension.ts` 打成单文件 `dist/extension.js`（cjs、target node22、`vscode` external、带 sourcemap），同时打出自有插件包的产物 `packages/*/lib/` 与装配用的 `dist/assembly/plugins/`。有 warning 会以非零码退出。产物都不入库，见上一节。 |
 | `npm run typecheck` | `tsc --noEmit`。注意 import 都带 `.ts` 后缀（`allowImportingTsExtensions` + `verbatimModuleSyntax`），新增 import 要遵守。 |
 | `npm test` | 先 `npm run build`（产物不入库，见上一节），再 `node --test test/*.test.ts`，只覆盖 `src/pure/`。改 pure 模块必须跑。 |
-| `npm run verify:lab` | 先 `npm run build`，再用 Playwright 跑装配的**浏览器验证**（harness 在 `test/assembly-lab/`）：四棵树在真实 dsh 网关（只读）上零槽位崩溃/零缺失契约、三树冒烟渲染、关键交互、侧栏树与官方外观逐项对齐、宿主能力口语义。需要本机有在跑的 dsh 网关（缺省 3080，token 读 `~/.dsh/dsh-owned.json`）；产物在 `test/assembly-lab/out/`（gitignored）。改装配相关代码后必跑，细节见 `test/assembly-lab/README.md`。 |
+| `npm run verify:lab` | 先 `npm run build`，再用 Playwright 跑装配的**浏览器验证**（harness 在 `test/assembly-lab/`）：实验室**自己起一台隔离实例**（临时 `DSH_HOME`、随机端口、经官方 RPC 播种真工作区与会话、跑完按 PID 收掉），整轮对着它跑——四棵树零槽位崩溃/零缺失契约、三树冒烟渲染、关键交互、侧栏树与官方外观逐项对齐、宿主能力口语义。**不需要本机有在跑的 dsh 网关**（用户日常那台只被只读探测两次）；要连外部实例用 `--gateway <url>`（那时按只读对待）。产物在 `test/assembly-lab/out/`（gitignored）。改装配相关代码后必跑，细节见 `test/assembly-lab/README.md`。 |
 | `npm run verify:clean-profile` | 干净 profile 门禁（#165）：在临时目录里起一个全新 `DSH_HOME`、把 `packages/` 下的自有插件包装进 profile、再起一个独立端口的 dsh，然后用装配实验室那套装配页逐棵树打开，核对「干净 profile 上装配页能起来」（不读 `~/.dsh/dsh-owned.json`、不碰你正在跑的实例，跑完按 PID 收掉）。细节与为什么要单列一条见 `test/assembly-lab/README.md`。 |
 | `npm run verify:install-guide` | 用 Playwright 跑**宿主侧那两页**的冒烟（harness 在 `test/install-guide/`）：安装引导 tab（按钮/下拉含选中态与外链/命令随平台更换/复制成功与失败反馈/分段切换）与侧栏状态页（未安装/启动中/未运行/启动失败/装配失败各自画成什么样、按钮发什么消息），页面都由真实宿主代码渲染（`vscode` 顶上假实现），明暗两态各跑一遍并留截图。不需要网关（这两页都不参与装配树）；`SMOKE_LOCALE=zh-cn` 用真中文译文渲染，产物在 `test/install-guide/out/`（gitignored），细节见 `test/install-guide/README.md`。状态页跟随服务状态变化（宿主侧订阅）由 `npm test` 的 `test/sidebarStatusPage.test.ts` 覆盖。 |
 | `npm run package` | 先 build，再 `vsce package` 打出 `.vsix`（`.vscodeignore` 排除了 src/test/node_modules 等，VSIX 里只有 dist + 清单 + 图标等）。 |
@@ -60,7 +60,7 @@ npm run build      # 打出 dist/ 与 packages/*/lib/
 `src/pure/` 里的 bug 修法：先在 `test/` 用 `node --test` 复现成一条**失败**测试，修码期间**不许碰测试文件**，修完让测试转绿。这样 bug 固化进回归，治标也治本。
 
 - 这条**只对 `src/pure/`（可被 `node --test` 覆盖的那层）成立**。
-- **UI bug 不适用**：渲染/布局/交互单测测不到。改为：**装配相关的 UI 断言写进浏览器验证套件**（`test/assembly-lab/`，跑 `npm run verify:lab`——页面由仓库真实模块构建、数据面是真实网关只读、宿主是假宿主，快且可复跑，是常驻防线）；**宿主侧普通页面**（安装引导 tab、侧栏状态页）的 UI 断言写进 `test/install-guide/`（跑 `npm run verify:install-guide`，同样用 Playwright，不需要网关）；宿主行为（webview CSP/剪贴板/原生菜单等）与需要人眼的观感核对走 VS Code 验证（`scripts/dev-ui-test.sh`）或 `test/sandbox/` 沙盒（见 `test/sandbox/README.md` 的「验收口径」）。合入验收 = dev-finish 产出的测试报告（人审，见 `worktree-dev-flow` skill 流程 5），对功能有疑问才人工开窗 `dev-ui-test`。
+- **UI bug 不适用**：渲染/布局/交互单测测不到。改为：**装配相关的 UI 断言写进浏览器验证套件**（`test/assembly-lab/`，跑 `npm run verify:lab`——页面由仓库真实模块构建、数据面是实验室自起的隔离实例（临时 `DSH_HOME`，跑完收掉）、宿主是假宿主，快且可复跑，是常驻防线）；**宿主侧普通页面**（安装引导 tab、侧栏状态页）的 UI 断言写进 `test/install-guide/`（跑 `npm run verify:install-guide`，同样用 Playwright，不需要网关）；宿主行为（webview CSP/剪贴板/原生菜单等）与需要人眼的观感核对走 VS Code 验证（`scripts/dev-ui-test.sh`）或 `test/sandbox/` 沙盒（见 `test/sandbox/README.md` 的「验收口径」）。合入验收 = dev-finish 产出的测试报告（人审，见 `worktree-dev-flow` skill 流程 5），对功能有疑问才人工开窗 `dev-ui-test`。
 
 ## 手动模拟异常场景
 
@@ -104,6 +104,36 @@ npm run build      # 打出 dist/ 与 packages/*/lib/
 - 日志末尾有 `deactivating`、其后又是一份新 pid 的文件 → 那次是**宿主重启**（重载 / 退出），面板是被宿主带走的；
 - 只有 `chat panel replaced`、没有 `deactivating` → 是**我们**换了单例（例如侧栏点了另一个会话），不是宿主；
 - 有 `disposed … reason=other` 但整份文件里没有 `deactivating` → 用户点了关闭，或者宿主是崩的（崩了不会调 deactivate）。
+
+## 人工验收：实验室的默认跑法不碰你的机器（#177）
+
+`npm run verify:lab` 零参数现在**自己起一台隔离实例**（临时 `DSH_HOME` + 随机端口 + 播种真数据），
+跑完按 PID 收掉。它不许碰你的 `~/.dsh`、不许碰你日常那台实例（缺省 3080）。要人工确认这一条：
+
+1. **跑之前先取两次读数**：
+
+   ```bash
+   ls ~/.dsh                                    # 目录内容与时间戳
+   ls -d /var/folders/*/*/T/dsh-lab-home-* 2>/dev/null   # 临时 DSH_HOME（本机 tmp 目录）
+   lsof -nP -iTCP:3080 -sTCP:LISTEN             # 你日常那台实例，记下 pid
+   ```
+
+2. 跑整轮：`npm run verify:lab`（约十几分钟）。**期望**：报告里的 **R-06** 通过；跑的中途
+   `~/.dsh` 一个字节不动、你的实例 pid 不变（可以另开一个终端反复 `ls -la ~/.dsh` 看）；
+   桌面上**不该**出现访达窗口（原生副作用那一类只观察不点，见 `test/assembly-lab/README.md`）。
+3. **跑完再看一遍**：
+
+   ```bash
+   pgrep -fl "dsh web"          # 期望：只剩你自己那台（3080），没有别的
+   ls -d /var/folders/*/*/T/dsh-lab-home-* 2>/dev/null   # 期望：空
+   ls ~/.dsh/dsh-owned.json     # 期望：没被动过（那文件是扩展记 spawn/adopt 实例用的）
+   ```
+
+4. **Ctrl-C 也要收干净**：再跑一次，中途按 Ctrl-C（退出码应是 130），然后重复第 3 步——
+   期望一样干净。报告里 R-06 会把「隔离实例按 PID 收掉 / 端口释放 / 临时目录删掉」逐条列出来。
+5. **人工排查连外部实例**（可选）：`npm run verify:lab -- --gateway http://127.0.0.1:3080`
+   （手工起的实例再加 `--token <token>`）。那时**不自起实例、不播种**、按**只读**对待；
+   想让它长期开着给人点页面就 `--headed --keep`（浏览器窗口会开在你桌面上，看完自己关）。
 
 ## 人工验收：面板在重载 / 切窗口之后还在（#169）
 
