@@ -1698,9 +1698,10 @@ export const SKELETON_SUITE: LabSuite = {
     })
     const { page } = opened
     try {
-      // 密度档先对齐到官方兜底值（与 F-04 同一处置）：VS Code 档比官方档紧，而「搜索
-      // 栏是不是官方那套几何」要按官方档量——把树自己声明的官方兜底值内联回 frame，
-      // 页面就回到「没人给偏好」的状态。
+      // 密度档先对齐到官方兜底值（与 F-04 同一处置）：搜索栏 / 图标按钮这些骨架件在 VS Code
+      // 档下比官方档紧，而「搜索栏是不是官方那套几何」要按官方档量——把树自己声明的官方兜底值
+      // 内联回 frame，页面就回到「没人给偏好」的状态。（#134 起**行家族**两个档同值，本套件
+      // 不量行几何，所以这一处对齐只管骨架件。）
       const densityFix = await page.evaluate(() => {
         const treeCss =
           Array.from(document.querySelectorAll('style[data-plugin]'))

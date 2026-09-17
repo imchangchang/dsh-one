@@ -188,7 +188,9 @@ export const DENSITY_PROFILE: Readonly<Record<string, { official: string; vscode
   // `.bhn1Oq_sessionOverflowButton{height:28px}`。它是**行家族一员**（本身就是列表里的一行），
   // #134 起 VS Code 档 = 官方原值 28px。
   'overflow-row-height': { official: '28px', vscode: '28px' },
-  // 图标按钮 / 搜索框：高度对齐紧凑档行高 26px（同一行里的控件与行同高）。
+  // 图标按钮 / 搜索框：高度对齐紧凑档行高 26px——它们住在**骨架区那一行**（顶栏 / 抽屉头）里，
+  // 那一行自己就是紧凑档的 26px，控件比它高会把这一行撑破。（#134 只把行家族放到标准档，
+  // 骨架区没动；这两个键的官方原值 28px 留在表里当兜底。）
   'icon-button-size': { official: '28px', vscode: '26px' },
   'search-height': { official: '28px', vscode: '26px' },
   'search-expanded-height': { official: '30px', vscode: '26px' },
