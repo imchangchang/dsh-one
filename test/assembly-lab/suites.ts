@@ -46,6 +46,7 @@ import { RECYCLE_ENTRY_ALIGN_SUITE } from './recycleEntryAlignSuites.ts'
 import { ROW_ACTIVITY_SUITE } from './rowActivitySuites.ts'
 import { COLLAPSE_ALL_ICON_WEIGHT_SUITE } from './collapseAllIconWeightSuites.ts'
 import { GROUP_MEMBERS_SUITE } from './groupMembersSuites.ts'
+import { TOOLBAR_SINGLE_ROW_SUITE } from './toolbarSingleRowSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
@@ -522,9 +523,11 @@ const PARITY_PAIRS: ReadonlyArray<{ suffix: string; props: readonly string[]; ge
   // 而宽度正是被文本撑出来的。所以这一组只比高度（20px 行高）与样式，不比宽度。
   { suffix: 'time', props: ['fontSize', 'lineHeight'], geometry: 'height' },
   { suffix: 'slot', props: ['width', 'height'] },
-  // 列表容器只比宽度：自有树在它上面多了一条分组过滤条（#81 功能 1），容器因此
-  // 矮一行——那是**功能带来的**差异，不是外观偏差；宽度、内边距、滚动条槽这些
-  // 样式契约仍逐项比对。
+  // 列表容器只比宽度：两侧的可用高度本来就不一样——自有树在列表之上还有顶栏那一行
+  // （#135 起它里面除分节头还住着分组过滤胶囊与四枚工具控件）、选择态时还会插一条操作条
+  // （#108），两侧的行数与折叠态也不一致；宽度、内边距、滚动条槽这些样式契约仍逐项比对。
+  // （#135 之前这条例外写的成因是「过滤条让容器矮一行」——过滤条并进顶栏那一行之后那句话
+  // 不再成立，但「容器高矮不可比」这件事本身没变。）
   { suffix: 'list', props: ['paddingBottom', 'paddingLeft', 'marginLeft', 'marginRight', 'scrollbarGutter'], geometry: 'width' },
 ]
 
@@ -579,7 +582,7 @@ export const PARITY_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '侧栏树外观与几何对齐官方（PARITY 套件，260/340/500 三档宽度）',
   expect:
-    '同一 frame、同一网关数据、同一宽度下，自有树的原生元素与官方浏览区同名元素（按类名后缀配对）的 computed style（分节头、搜索栏两态、图标按钮、分组行、会话行、标题、时间、图标位、列表容器）与几何矩形逐项相等；数值不硬编码——官方改版两边跟着变，不相等才报。**搜索栏（#132 起两态）**：两侧默认都是折叠态，所以先在默认的折叠态下比一遍（28px 圆胶囊那一支），再把两侧各自点开、同处展开态后进主循环（30px / 10px 圆角那一支）——两态都覆盖，不是只比一态。四组例外都写明了理由：**列表容器只比宽度**（自有树多一条分组过滤条，容器矮一行是功能带来的）、**相对时间只比高度**（#109 的 E7 把当前工作区那一组排到最前，官方页仍按注册顺序，两侧取到的可能是不同会话的相对时间，而宽度正是被文本撑出来的）、**搜索栏只比样式不比矩形**（自有树顶栏比官方多几枚图标，可用宽度本来就不同）、**两侧都没产生某元素时该组跳过**（例如当前会话是空白会话时没有相对时间可量；一侧有另一侧没有仍判失败）。**密度档（#85）的处置**：密度是有意的差异（菜单一侧的 VS Code 档比官方档紧），所以对齐断言先把自有页的密度变量按它自己声明的官方兜底值对齐（「没人给偏好时 = 官方档」正是这套变量承诺的语义），并同时钉住「VS Code 档真的更紧」与「对齐后 = 官方基准」两条。**#134 起还多一条更强的口径**：行家族（工作区行 / 会话行）本来就是官方标准档，所以**不用对齐密度变量**就该与官方基准逐项相等（行高 / 圆角 / 左右内边距四项）——这条把「行回到官方几何」钉在真页面上，也让 PARITY 的对照从「对齐后才可比」收紧成「行这一族直接可比」。',
+    '同一 frame、同一网关数据、同一宽度下，自有树的原生元素与官方浏览区同名元素（按类名后缀配对）的 computed style（分节头、搜索栏两态、图标按钮、分组行、会话行、标题、时间、图标位、列表容器）与几何矩形逐项相等；数值不硬编码——官方改版两边跟着变，不相等才报。**搜索栏（#132 起两态）**：两侧默认都是折叠态，所以先在默认的折叠态下比一遍（28px 圆胶囊那一支），再把两侧各自点开、同处展开态后进主循环（30px / 10px 圆角那一支）——两态都覆盖，不是只比一态。四组例外都写明了理由：**列表容器只比宽度**（两侧可用高度本来就不同：自有树在列表之上还有顶栏那一行与选择态操作条，行数与折叠态也不一致）、**相对时间只比高度**（#109 的 E7 把当前工作区那一组排到最前，官方页仍按注册顺序，两侧取到的可能是不同会话的相对时间，而宽度正是被文本撑出来的）、**搜索栏只比样式不比矩形**（自有树顶栏比官方多几枚图标，可用宽度本来就不同）、**两侧都没产生某元素时该组跳过**（例如当前会话是空白会话时没有相对时间可量；一侧有另一侧没有仍判失败）。**密度档（#85）的处置**：密度是有意的差异（菜单一侧的 VS Code 档比官方档紧），所以对齐断言先把自有页的密度变量按它自己声明的官方兜底值对齐（「没人给偏好时 = 官方档」正是这套变量承诺的语义），并同时钉住「VS Code 档真的更紧」与「对齐后 = 官方基准」两条。**#134 起还多一条更强的口径**：行家族（工作区行 / 会话行）本来就是官方标准档，所以**不用对齐密度变量**就该与官方基准逐项相等（行高 / 圆角 / 左右内边距四项）——这条把「行回到官方几何」钉在真页面上，也让 PARITY 的对照从「对齐后才可比」收紧成「行这一族直接可比」。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const own = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 380, height: 900 })
@@ -1691,9 +1694,9 @@ export const MULTIOPEN_SUITE: LabSuite = {
 export const SKELETON_SUITE: LabSuite = {
   id: 'F-12',
   phase: 'new-feature',
-  name: '侧栏骨架四区（#99）：顶栏四项 + 官方搜索栏两态 + 单胶囊分组条 + 底部回收站入口行（SIDEBAR-SKELETON 套件）',
+  name: '侧栏骨架四区（#99 立、#135 起顶栏那一行是「胶囊 + 四项」）：官方搜索栏两态 + 单胶囊分组条 + 底部回收站入口行（SIDEBAR-SKELETON 套件）',
   expect:
-    '#99 定的四区骨架在真实装配页上成立：① 顶栏一行里搜索栏（#132 起是**两态**——初始收起态 28px 圆胶囊 + 放大镜、点开后展开态 30px 高 / 10px 圆角 / .5px 实线边框且有输入框与清除钮，Esc 收起并清空）、折叠展开全部、添加工作区、设置齿轮四件都在，且折叠全部真的收起整棵树；② 添加工作区是两项菜单（选已有文件夹 / 创建新工作区目录），第二项经宿主能力口发出 `vscode.workspaceCreate`；③ 设置齿轮经宿主能力口发出 `vscode.openSettings`（假宿主只记录，真宿主开设置页），同时官方 `sidebar.settings` 那一行不再渲染；④ 分组过滤条是单胶囊 + 成员计数 + ▾，下拉含「全部工作区 / 各组 / 新建分组… / 管理分组…」，管理分组对话框列出全部组；⑤ 回收站入口行在官方 `sidebar.footer.action` 座位里、与官方 cordis-panel 条目并存、不在自有浏览区 DOM 内，点它开现有抽屉。全程零 pageerror。',
+    '#99 定的四区骨架在真实装配页上成立：① 顶栏那一行（#135 起**五行并一行**：行首是分组过滤胶囊，右边依次是搜索栏、折叠展开全部、添加工作区、设置齿轮）——搜索栏 #132 起是**两态**（初始收起态 28px 圆胶囊 + 放大镜、点开后展开态 30px 高 / 10px 圆角 / .5px 实线边框且有输入框与清除钮，Esc 收起并清空）、四枚工具控件都在，胶囊与它们**同在这一行里**（几何关系由 F-39 判），且折叠全部真的收起整棵树；② 添加工作区是两项菜单（选已有文件夹 / 创建新工作区目录），第二项经宿主能力口发出 `vscode.workspaceCreate`；③ 设置齿轮经宿主能力口发出 `vscode.openSettings`（假宿主只记录，真宿主开设置页），同时官方 `sidebar.settings` 那一行不再渲染；④ 分组过滤条是单胶囊 + 成员计数 + ▾（#135 起它住在顶栏那一行里、不在列表区），下拉含「全部工作区 / 各组 / 新建分组… / 管理分组…」，管理分组对话框列出全部组；⑤ 回收站入口行在官方 `sidebar.footer.action` 座位里、与官方 cordis-panel 条目并存、不在自有浏览区 DOM 内，点它开现有抽屉。全程零 pageerror。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const groupsState = {
@@ -1900,17 +1903,27 @@ export const SKELETON_SUITE: LabSuite = {
         JSON.stringify(settingsFacts),
       )
 
-      // ---- ④ 单胶囊分组条 ----
+      // ---- ④ 单胶囊分组条（#135 起它是顶栏那一行的行首）----
       const pill = await page.evaluate(() => {
         const anchor = document.querySelector('[data-dshone-tree-action="group-pill"]')
+        const row = document.querySelector('[data-dshone-tree="top-bar"]')
+        const filter = document.querySelector('.dshOneTree_filterBar')
         return {
           found: anchor !== null,
           label: anchor?.textContent ?? '',
           count: anchor?.getAttribute('data-dshone-tree-group-count') ?? '',
           active: anchor?.getAttribute('data-dshone-tree-group') ?? '',
           chips: document.querySelectorAll('[data-dshone-tree-chip]').length,
+          // #135：胶囊与那一行是同一行——它整个落在顶栏那一行的盒子里（几何关系见 F-39）。
+          inTopBar: row !== null && filter !== null && row.contains(filter),
+          inListArea: document.querySelector('.dshOneTree_listArea .dshOneTree_filterBar') !== null,
         }
       })
+      check.ok(
+        '分组过滤条在顶栏那一行里（#135：不再自己在列表区占一行）',
+        pill.inTopBar && !pill.inListArea,
+        JSON.stringify({ inTopBar: pill.inTopBar, inListArea: pill.inListArea }),
+      )
       check.ok('分组过滤条是一枚胶囊（旧的那排 chip 已不在）', pill.found && pill.chips === 0, JSON.stringify(pill))
       check.ok('胶囊带成员计数与「全部工作区」初值', pill.label.includes('全部工作区') && Number(pill.count) > 0 && pill.active === 'all', JSON.stringify(pill))
       await openPillMenu(page)
@@ -2059,6 +2072,8 @@ const ROW_FAMILY_SAME: Readonly<Record<string, readonly string[]>> = {
   回收站入口主区: ['paddingLeft', 'paddingRight'],
   // #125 起分组过滤条的左内缩也吃「行内容基准」（里面的胶囊要与列表行的内容左缘同一条竖线），
   // 而这一项 #134 起两档同值（官方原值 8px）——所以它跟着行族一起判「两边同值」。
+  // #135 起它并进顶栏那一行、还多了一手 `margin-left`（-1 × 骨架基线）把自己拉到容器左缘，
+  // 但**这一项仍是行内容基准**（`margin` 那一手是补骨架基线的差），所以这一条照旧成立。
   分组过滤条: ['paddingLeft'],
 }
 
@@ -3633,7 +3648,7 @@ export const MULTI_SELECT_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '侧栏多选与批量（#108）：入口 API + 组头三态全选 + 分组条下方的操作条 + 批量两动作 + 失败留选中（MULTI-SELECT 套件）',
   expect:
-    '真实装配页（真网关只读 + 假宿主）：① **入口 API**——选择态只有一个入口（`selectionEntrySignal.enter()`），顶部工具栏那一枚就是它（本套件每一次「进选择态」都点这一枚 = 每一次都在走这个 API）；② **组头三态全选**——进选择态后每个工作区组头出一枚三态框，`none → some/all` 随勾选翻转，点一下把本组**够格**的成员一次勾上、再点一下取消；**组内有置顶会话时最满只能 some**（框里画短横线而不是对勾），悬停给出原因；收起着的工作区也能一次勾满（成员按整组数，不看折叠态）；③ **资格**——置顶行不可勾选（灰框 + 原因 + 点了不切换），运行中/未读/待交互可勾；④ **操作条位置**——分组过滤条在选择态下**不收起**，操作条插在它下方（文档顺序可证），条上是「已选 N 项 + 移入回收站 + 归档 + 取消」；⑤ **批量两个动作分开**——「移入回收站」立即执行、不开弹窗、飘一条回执、动作完退出选择态、只写本地集合；「归档」开同一个确认弹窗（按工作区列明细 + 写明跳过数），Esc 取消则什么都不发生；⑥ **失败不静默**——注入一次 state.write 失败后批量移入，失败项**留在勾选里**、动作条不消失、红字写明确条数；⑦ **飘提示**——出现后约 2.2 秒自己消失；⑧ **搜索结果行可勾选**（C8）——搜索态下点结果行 = 勾选，资格与树里的行同一份判定；⑨ 选择态下会话行的时间 / ⋯ 菜单 / 右键菜单 / 悬停卡都让位。全程零 pageerror，且**从不点归档确认**。',
+    '真实装配页（真网关只读 + 假宿主）：① **入口 API**——选择态只有一个入口（`selectionEntrySignal.enter()`），顶部工具栏那一枚就是它（本套件每一次「进选择态」都点这一枚 = 每一次都在走这个 API）；② **组头三态全选**——进选择态后每个工作区组头出一枚三态框，`none → some/all` 随勾选翻转，点一下把本组**够格**的成员一次勾上、再点一下取消；**组内有置顶会话时最满只能 some**（框里画短横线而不是对勾），悬停给出原因；收起着的工作区也能一次勾满（成员按整组数，不看折叠态）；③ **资格**——置顶行不可勾选（灰框 + 原因 + 点了不切换），运行中/未读/待交互可勾；④ **操作条位置**——分组过滤条在选择态下**不收起**（#135 起它住在顶栏那一行里），操作条排在它之后（文档顺序可证），条上是「已选 N 项 + 移入回收站 + 归档 + 取消」；⑤ **批量两个动作分开**——「移入回收站」立即执行、不开弹窗、飘一条回执、动作完退出选择态、只写本地集合；「归档」开同一个确认弹窗（按工作区列明细 + 写明跳过数），Esc 取消则什么都不发生；⑥ **失败不静默**——注入一次 state.write 失败后批量移入，失败项**留在勾选里**、动作条不消失、红字写明确条数；⑦ **飘提示**——出现后约 2.2 秒自己消失；⑧ **搜索结果行可勾选**（C8）——搜索态下点结果行 = 勾选，资格与树里的行同一份判定；⑨ 选择态下会话行的时间 / ⋯ 菜单 / 右键菜单 / 悬停卡都让位。全程零 pageerror，且**从不点归档确认**。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const selectButton = '[data-dshone-tree-action="select-mode"]'
@@ -3728,7 +3743,9 @@ export const MULTI_SELECT_SUITE: LabSuite = {
           return (rel & Node.DOCUMENT_POSITION_FOLLOWING) !== 0 ? 1 : -1
         }
         return {
-          inArea: area !== null && filter !== null && area.contains(filter) && bar !== null && area.contains(bar),
+          inArea: bar !== null && area !== null && area.contains(bar),
+          // #135：分组过滤条已并进顶栏那一行，不再住在列表区——它仍在场、只是换了位置。
+          inTopBar: filter !== null && document.querySelector('[data-dshone-tree="top-bar"]')?.contains(filter) === true,
           filterBeforeBar: position(filter, bar),
           barBeforeList: position(bar, list),
           // 分组过滤条在选择态下仍在（#108 改掉了「选择态收起过滤条」）。
@@ -3736,9 +3753,13 @@ export const MULTI_SELECT_SUITE: LabSuite = {
         }
       })
       check.fact(`选择态的条序：${JSON.stringify(order)}`)
-      check.ok('分组过滤条与操作条都在列表区里', order.inArea)
-      check.ok('分组过滤条在选择态下**不收起**（#108 起它常驻）', order.filterVisible)
-      check.ok('操作条插在分组过滤条**下方**（文档顺序）', order.filterBeforeBar === 1, JSON.stringify(order))
+      check.ok('选择态动作条在列表区里', order.inArea)
+      check.ok(
+        '分组过滤条在选择态下**不收起**（#108 起它常驻；#135 起它住在顶栏那一行里）',
+        order.filterVisible && order.inTopBar,
+        JSON.stringify(order),
+      )
+      check.ok('操作条排在分组过滤条**之后**（文档顺序：顶栏那一行在前、操作条在后）', order.filterBeforeBar === 1, JSON.stringify(order))
       check.ok('操作条在会话列表**上方**', order.barBeforeList === 1, JSON.stringify(order))
 
       // ---- ② 组头三态：none →（点一下）some（组内有置顶） ----
@@ -6048,4 +6069,7 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // #139 管理分组里的成员清单（F-41：F-01…F-40 与 R-06 已占，按「从未占用的继续」顺延；
   // 套件本体在 groupMembersSuites.ts，同为独立文件，少一处合入热点）。
   GROUP_MEMBERS_SUITE,
+  // #135 顶栏合并成一行（F-42：F-01…F-41 与 R-06 已占，按「从未占用的继续」顺延；
+  // 套件本体在 toolbarSingleRowSuites.ts，同为独立文件，少一处合入热点）。
+  TOOLBAR_SINGLE_ROW_SUITE,
 ]

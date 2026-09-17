@@ -239,10 +239,12 @@ export const VIEW_OPTIONS_RETIRED_SUITE: LabSuite = {
       const markers = await readMarkers(page)
       check.fact(`顶栏动作序列：${JSON.stringify(markers.topBarActions)}；其余几件：${JSON.stringify(markers.others)}`)
       check.eq('① 全页没有视图选项入口（按自有标记断言）', markers.viewOptions, 0)
+      // #135：分组过滤胶囊并进了这一行（行首），所以这一行的动作序列在原来四件前面多一枚
+      // `group-pill`——正是「两行并一行」这件事的正面断言（顺序 = 胶囊 → 搜索 → 三件工具 → 多选）。
       check.eq(
-        '① 顶栏那一行的动作恰好是搜索 + 折叠/展开全部 + 添加工作区 + 多选入口（设置齿轮视宿主能力，可能缺席）',
+        '① 顶栏那一行的动作恰好是分组胶囊 + 搜索 + 折叠/展开全部 + 添加工作区 + 多选入口（设置齿轮视宿主能力，可能缺席）',
         markers.topBarActions.filter((name) => name !== 'settings'),
-        ['search', 'collapse-all', 'add-workspace', 'select-mode'],
+        ['group-pill', 'search', 'collapse-all', 'add-workspace', 'select-mode'],
       )
       check.eq('① 顶栏与分组过滤条的文案里不含任何一个退役词', markers.retiredTexts, [])
       check.ok('④ 搜索入口（放大镜 / 展开后的输入框那一个槽）仍在', markers.others.searchBox, JSON.stringify(markers.others))

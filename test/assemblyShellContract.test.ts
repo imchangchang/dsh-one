@@ -171,10 +171,13 @@ test('密度档扩散（#104）：四区新键各挂各的规则，且每项 VS 
       // 过滤条、入口行、抽屉列表的**左**内缩改成「行内容基准」（`row-padding-inline`），因为
       // 那三处的内容是行家族（行自己带行内边距），容器再加一道会把整列推右一格。
       // **#137 起入口行也退出这份名单**：那一行整套按旧侧栏规格取定值（右侧固定 8px），
-      // 不再读这一项；过滤条那一侧只剩左内缩、而左内缩改吃「行内容基准」，所以它也不在
-      // 这份名单里。左缘对齐的断言在装配实验室的 F-35 里按几何矩形判，不在这一条
-      // （这一条只管键挂到了哪些规则上）。
-      rules: ['dshOneTree_sectionHeader', 'dshOneTree_drawerHeader', 'dshOneTree_drawerList'],
+      // 不再读这一项。
+      // **#135 起过滤条又回到这份名单**：它从列表区搬进顶栏那一行（行首那一件），左内缩要
+      // 拆成两半——先用 `margin-left` 把自己从那一行的骨架基线拉到容器左缘（-1 × 这一项），
+      // 再用 `padding-left` 铺出行内容基准。所以它现在**消费**这一项，只是消费在 `margin` 上
+      // （挂在 `.dshOneTree_filterBar` 的规则里，下面按规则名核得到）。左缘对齐的断言在装配
+      // 实验室的 F-35 / F-39 里按几何矩形判，不在这一条（这一条只管键挂到了哪些规则上）。
+      rules: ['dshOneTree_sectionHeader', 'dshOneTree_drawerHeader', 'dshOneTree_drawerList', 'dshOneTree_filterBar'],
     },
     {
       key: 'section-gap',

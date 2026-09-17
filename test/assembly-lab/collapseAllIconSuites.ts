@@ -76,6 +76,11 @@ interface BarFacts {
   searchStatus: string
   /** 当前页面上所有官方 tooltip 的文案（`role="tooltip"`）。 */
   tooltips: string[]
+  /** 那一行里动作组的让位状态（#135）：自有标记 + 这一枚的 computed 可见性/指针。 */
+  actionsMarker: string
+  actionsWidth: number
+  buttonVisibility: string
+  buttonPointerEvents: string
 }
 
 /** 读一次这一枚按钮 + 树的两三个计数（一次 evaluate 拿全，省往返）。 */
@@ -121,6 +126,11 @@ async function barFacts(page: OpenedPage['page']): Promise<BarFacts> {
         searchResults: document.querySelectorAll('[data-dshone-tree="search"] [data-dshone-tree-row]').length,
         searchStatus: document.querySelector('.dshOneTree_searchStatus')?.textContent ?? '',
         tooltips: Array.from(document.querySelectorAll('[role="tooltip"]')).map((element) => element.textContent ?? ''),
+        actionsMarker: document.querySelector('[data-dshone-tree="top-bar-actions"]')?.getAttribute('data-dshone-tree-visible') ?? '',
+        actionsWidth:
+          Math.round((document.querySelector('[data-dshone-tree="top-bar-actions"]')?.getBoundingClientRect().width ?? -1) * 10) / 10,
+        buttonVisibility: button === null ? '' : getComputedStyle(button).visibility,
+        buttonPointerEvents: button === null ? '' : getComputedStyle(button).pointerEvents,
       }
     },
     [BUTTON, ICON, SIDING_ICONS] as const,
@@ -154,7 +164,7 @@ export const COLLAPSE_ALL_ICON_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '顶栏「折叠 / 展开全部」的方框加减号图标（#118，COLLAPSE-ALL-ICON 套件）',
   expect:
-    '顶栏那一枚的图标与态映射（真网关**只读** + 假宿主 + 真装配页）：① **图标按标记与渲染指纹核**——图标位带 `data-dshone-tree-icon="collapse-all"`，值随态是 `minus` / `plus`；渲染出的是 16 号视框（`0 0 16 16`、宽高 16、两条 path、两态共用的方框那一条逐字等于插件里的 `COLLAPSE_ALL_BOX`），**不再有一丝 chevron**（按钮子树里没有 14 号视框的 svg，path 数也从 1 变 2）；两态各自的 `path@d` 与插件数据 `COLLAPSE_ALL_GLYPHS[minus|plus]` 逐条相同，方框那一笔两态相同、中间那一笔两态不同；尺寸与同一行其它图标按钮一致（都是 16，按钮 26×26、图标居中）。② **提示随态翻转**：`aria-label` 与官方 Tooltip 的文案两态分别是「折叠所有工作区」与「展开所有工作区」（取插件 zh 词典比对，不硬编码），且与图标值、`data-dshone-tree-collapsed` 四者同源。③ **点击语义不变**：当前有展开着的分组时点一下 = 折叠全部（可见工作区行全部 `aria-expanded="false"`、可见会话行归零），此时图标变 `plus`、提示变「展开所有工作区」；再点一下 = 展开全部（原先有会话的工作区行重新展开、会话行回来）；两次点击之间工作区行的**行数不变**（只动展开态，不动行集合）。④ **搜索态恒为折叠全部**：先把树折到全收起（此刻图标是 `plus`），再点开顶栏那枚放大镜（#132：搜索栏默认收起）在搜索框里敲字——搜索态下（结果行或搜索状态原文在场）图标立刻回到 `minus`、提示回到「折叠所有工作区」，点它发的也是折叠；Esc 清空搜索后回到全收起态、图标又是 `plus`（搜索态这一条不污染持久状态）。全程零 pageerror，只点这一枚按钮与搜索框，不写网关。',
+    '顶栏那一枚的图标与态映射（真网关**只读** + 假宿主 + 真装配页）：① **图标按标记与渲染指纹核**——图标位带 `data-dshone-tree-icon="collapse-all"`，值随态是 `minus` / `plus`；渲染出的是 16 号视框（`0 0 16 16`、宽高 16、两条 path、两态共用的方框那一条逐字等于插件里的 `COLLAPSE_ALL_BOX`），**不再有一丝 chevron**（按钮子树里没有 14 号视框的 svg，path 数也从 1 变 2）；两态各自的 `path@d` 与插件数据 `COLLAPSE_ALL_GLYPHS[minus|plus]` 逐条相同，方框那一笔两态相同、中间那一笔两态不同；尺寸与同一行其它图标按钮一致（都是 16，按钮 26×26、图标居中）。② **提示随态翻转**：`aria-label` 与官方 Tooltip 的文案两态分别是「折叠所有工作区」与「展开所有工作区」（取插件 zh 词典比对，不硬编码），且与图标值、`data-dshone-tree-collapsed` 四者同源。③ **点击语义不变**：当前有展开着的分组时点一下 = 折叠全部（可见工作区行全部 `aria-expanded="false"`、可见会话行归零），此时图标变 `plus`、提示变「展开所有工作区」；再点一下 = 展开全部（原先有会话的工作区行重新展开、会话行回来）；两次点击之间工作区行的**行数不变**（只动展开态，不动行集合）。④ **搜索态恒为折叠全部**：先把树折到全收起（此刻图标是 `plus`），再点开顶栏那枚放大镜（#132：搜索栏默认收起）在搜索框里敲字——搜索态下（结果行或搜索状态原文在场）图标立刻回到 `minus`、提示回到「折叠所有工作区」，这一刻**动作组按 #135 的让位规则收成零宽**（自有标记 `data-dshone-tree-visible=false`、这一枚 computed `visibility:hidden` 且 `pointer-events:none`、宽度 ≤ 1px），所以「点了它发的是折叠」这一条在搜索态下已无对象可点（#135 之前它还在场）；套件的处置是**把让位本身钉住**（让位是形态的一部分），而「点它 = 折叠全部」的点击语义仍由 ③ 在搜索态之外判；Esc 清空搜索后回到全收起态、图标又是 `plus`、动作组重新可见（搜索态这一条不污染持久状态）。全程零 pageerror，只点这一枚按钮与搜索框，不写网关。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const shot = async (page: OpenedPage['page'], name: string): Promise<string> => {
@@ -296,16 +306,29 @@ export const COLLAPSE_ALL_ICON_SUITE: LabSuite = {
         [searching.glyph, searching.collapsedAttr, searching.ariaLabel],
         ['minus', 'false', collapseLabel],
       )
-      await page.click(BUTTON)
-      await page.waitForTimeout(300)
-      const afterSearchClick = await barFacts(page)
-      check.eq('搜索态下点它是「折叠全部」（图标与提示不翻）', [afterSearchClick.glyph, afterSearchClick.ariaLabel], [
-        'minus',
-        collapseLabel,
-      ])
-      // Esc 清空搜索框——它挂在搜索输入框的 keydown 上，而刚才那一下点击把焦点挪到了
-      // 按钮上，所以先点回输入框再按 Esc（走的是用户真实路径，不是直接清 React 状态）。
-      // 输入框此刻在场（有查询 = 展开态，#132 的收起态下它不在），点它只是把焦点拿回来。
+      // #135：搜索展开时动作组让位（收成零宽、不可见、不接指针），所以这一刻**点不到**它。
+      // 原来那条「搜索态下点它发的也是折叠」随之退场——换成把**让位本身**钉住（那是形态的
+      // 一部分）：自有标记 false + computed `visibility:hidden` + `pointer-events:none`
+      // + 盒子宽 ≤ 1px；点击语义（点它 = 折叠全部）由上面 ③ 在搜索态之外判过一遍。
+      check.eq(
+        '搜索态下动作组让位（自有标记 false）',
+        searching.actionsMarker,
+        'false',
+      )
+      check.ok(
+        '搜索态下这一枚不可见、不接指针、收成零宽（#135 的让位规则）',
+        searching.buttonVisibility === 'hidden' &&
+          searching.buttonPointerEvents === 'none' &&
+          searching.actionsWidth <= 1,
+        JSON.stringify({
+          visibility: searching.buttonVisibility,
+          pointerEvents: searching.buttonPointerEvents,
+          width: searching.actionsWidth,
+        }),
+      )
+      // Esc 清空搜索框——它挂在搜索输入框的 keydown 上，所以先点一下输入框把焦点放过去，
+      // 再按 Esc（走的是用户真实路径，不是直接清 React 状态）。输入框此刻在场（有查询 =
+      // 展开态，#132 的收起态下它不在）。
       await page.click('[data-dshone-tree="search-input"]')
       await page.waitForTimeout(150)
       await page.keyboard.press('Escape')
@@ -315,6 +338,11 @@ export const COLLAPSE_ALL_ICON_SUITE: LabSuite = {
         'Esc 清空搜索后回到树：工作区行数不变（搜索没动行集合）',
         afterSearch.workspaceRows,
         rowCountBeforeSearch,
+      )
+      check.eq(
+        'Esc 后动作组重新可见（让位结束、自有标记回到 true）',
+        afterSearch.actionsMarker,
+        'true',
       )
       check.eq(
         'Esc 后「全收起」这个状态本身还在（图标回到 plus）',
