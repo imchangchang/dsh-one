@@ -1,7 +1,7 @@
 {
   "title": "DSH One 任务验收报告：状态栏 dsh 更新检查 / 升级（#86）+ 点击开动作面板（#90）",
   "branch": "agent/dsh-update-check",
-  "commit": "7dc3161",
+  "commit": "0f2b1dc",
   "environment": {
     "mode": "自动化证据（node --test 单测 + 真实 npm registry 网络查询 + 本机真实 npm dry-run）",
     "dsh": "0.1.6-alpha.1（本机 nvm 全局安装）",
@@ -10,7 +10,7 @@
     "platform": "darwin/arm64",
     "date": "2026-09-16T00:00:00Z"
   },
-  "coverageNote": "本报告覆盖：检查更新的网络与判定链路、升级命令的拼装与被真实 npm 接受、动作清单（面板与气泡同源）、气泡一行一个的布局、tooltip 文案渲染、既有行为回归。不在范围内（需人工开窗 dev-ui-test.sh 或沙盒实测）：VS Code 原生交互——点击状态栏弹出 QuickPick 后逐行点击、悬停气泡的实际观感与折行、系统通知文案、集成终端里真正执行安装；本机 docker/OrbStack 守护进程未运行，code-server 沙盒起不来。真模型输出与 Windows/Linux 平台专项同样不在本报告范围。",
+  "coverageNote": "本报告覆盖：检查更新的网络与判定链路、升级命令的拼装与被真实 npm 接受、动作清单（面板与气泡同源）、气泡一行一个与窄宽口径、tooltip 文案渲染、既有行为回归。**悬停气泡的实际观感已由用户开窗实测确认**（#90 的一行一个：截图见 F-09）。仍未覆盖（需人工开窗 dev-ui-test.sh 或沙盒实测）：点击状态栏后弹出的QuickPick 面板逐项交互、系统通知文案、集成终端里真正执行安装；本机 docker/OrbStack 守护进程未运行，code-server 沙盒起不来。真模型输出与 Windows/Linux 平台专项同样不在本报告范围。",
   "items": [
     {
       "id": "F-01",
@@ -85,13 +85,34 @@
       "notes": "逐条核对：① 运行中 = 'Running — http://127.0.0.1:3080 · dsh v0.1.5-rc.1' ✓；② adopted 追加 'Reused from another window' ✓；③ external + update 判定追加 'External instance · A newer dsh is available: v0.1.5-rc.2' ✓；④ version='unknown' 时摘要里没有 'dsh v' ✓；⑤ stopped/starting/dshNotFound/通用出错/认证防护五态文案逐一断言 ✓。新增两个短键（复用自另一窗口 / 外部实例）已进中英两份 bundle。"
     },
     {
+      "id": "F-09",
+      "phase": "new-feature",
+      "name": "悬停气泡在真实 VS Code 窗口里一行一个（用户开窗实测）",
+      "expect": "开窗悬停状态栏那一项：气泡里每个动作各占一行（打开浏览器 / 检查更新 / 重启外部实例 / 停止外部实例 / 显示日志），没有任何一处被拦腰折行；标题区显示网址与 dsh 版本。",
+      "result": "pass",
+      "screenshots": [
+        "/Users/cgeng/.dsh/attachments/v1/objects/43/4392a86a572702cc06e249f588da04b7ccf5a2f62ce43cbcc5e0f0814df2ccf3",
+        "/Users/cgeng/.dsh/attachments/v1/objects/05/05395ad90a0a3a36864049ddae2279589a17c69e23334007090c59acdf246396"
+      ],
+      "notes": "用户在自己桌面的隔离 VS Code 窗口（dev-ui-test.sh，worktree dsh-update-check）实测并给了两张截图。逐条核对：① 五个动作各占一行、间距均匀，未出现拦腰折行 ✓（对照改动前那张截图里 Show Logs 被折成两行 ✗→✓）；② 标题区显示 **DSH One** — http://127.0.0.1:3080 与 dsh v0.1.6-alpha.1 ✓；③ 复用实例（adopted）状态下管理动作是 Restart/Stop External Instance，没有自管 Restart/Stop Service ✓；④ 截图还暴露两个此前未知的事实：气泡被长说明撑到约 500px（VS Code 宽度上限，由内容决定）→ 已开 #136 修；MarkdownString 里的单个 \\n 不换行（标题+URL+版本被拼在同一行）→ 因此控宽只能用空行分段，见 F-10。"
+    },
+    {
+      "id": "F-10",
+      "phase": "new-feature",
+      "name": "气泡改窄：短句分段 + 最长段可见文字 ≤ 48 字符的守卫断言",
+      "expect": "气泡里每一段可见文字不超过 48 个字符（链接只按「图标 + 标签」计宽），标题、版本、更新提示、说明各自成段；这样气泡宽度由最长的短句决定，不再被长说明撑到 VS Code 的宽度上限。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "逐条核对：① 新增单测「气泡宽度：每段可见文字 ≤ 48 字符」覆盖 9 种状态 × 3 种更新判定（无判定 / update / ahead），全部通过 ✓；② 长说明已改写：复用实例 = This dsh was started in another window. + Stop / restart asks for confirmation.；外部实例 = External dsh instance (token connected). + 同上一句；认证防护态标题 = Port {0} is taken by another dsh，说明拆成三句短句；启动中 = The first start may take a while. + It prepares profiles and dependencies. ✓；③ 标题行与版本行、更新提示行各自成段（旧实现用单个 \\n，实测不换行）✓；④ 被替换的 4 个长句键已从两份 bundle 删除，确认无其他调用点（sessionsWebview 仍在用的「首次启动可能较慢」长句键保留）✓；⑤ 估算宽度：最长段 44 字符 ≈ 240px，相对改动前的约 500px 明显收窄——实际观感待用户再次开窗确认（本次未覆盖）。"
+    },
+    {
       "id": "R-01",
       "phase": "regression",
       "name": "全量单测",
       "expect": "`npm test` 全绿：既有用例（状态栏 tooltip 逐态文案、semver、会话/侧栏逻辑等）不因本次改动失败。",
       "result": "pass",
       "screenshots": [],
-      "notes": "npm test 输出：tests 655 / suites 0 / pass 655 / fail 0 / cancelled 0 / skipped 0。相对改动前 628 项，新增 27 项（dshUpdate 15 + statusActions 11 + tooltip 布局 2 - 调整 1）。存量 statusTooltip 用例中只有精确串比对那一条按新布局改写，其余（含 adopted/external/防护态的逐条 includes 断言）原样通过。"
+      "notes": "npm test 输出：tests 657 / suites 0 / pass 657 / fail 0 / cancelled 0 / skipped 0。相对改动前 628 项，新增 29 项（dshUpdate 15 + statusActions 11 + tooltip 布局/窄宽 3）。存量 statusTooltip 用例中只有精确串比对那一条按新布局改写，其余（含 adopted/external/防护态的逐条 includes 断言）原样通过。"
     },
     {
       "id": "R-02",
@@ -118,7 +139,7 @@
       "expect": "本次改动不碰 dsh 进程管理、loopback 代理、装配树与 block list：新增/修改只落在状态栏交互（tooltip、动作表、面板命令）、更新检查模块与文案。",
       "result": "pass",
       "screenshots": [],
-      "notes": "核对改动清单：新增 src/pure/dshUpdate.ts、src/server/dshUpdate.ts、src/pure/statusActions.ts 与三个对应测试；修改 src/pure/statusTooltip.ts（动作行改由 statusActions 渲染）、src/ui/statusbar.ts（点击命令换成 statusPanel、构造传 DshUpdate）、src/extension.ts（两条更新命令 + statusPanel 命令 + 激活后一次静默检查）、package.json / nls / l10n / 两份 README / CHANGELOG。src/server/manager.ts、src/server/locateDsh.ts、src/ui/assembly/** 均未改动（locateDsh 只被调用）。既有状态栏五态文案不变；动作集合与顺序除「运行中新增更新入口」「启动中新增两个入口」外与原样一致，且 adopted/外部实例不出现自管重启/停止的既有约束仍由单测把住。"
+      "notes": "核对改动清单：新增 src/pure/dshUpdate.ts、src/server/dshUpdate.ts、src/pure/statusActions.ts 与三个对应测试；修改 src/pure/statusTooltip.ts（动作行改由 statusActions 渲染、长说明拆短句）、src/ui/statusbar.ts（点击命令换成 statusPanel、构造传 DshUpdate）、src/extension.ts（两条更新命令 + statusPanel 命令 + 激活后一次静默检查）、package.json / nls / l10n / 两份 README / CHANGELOG。src/server/manager.ts、src/server/locateDsh.ts、src/ui/assembly/** 均未改动（locateDsh 只被调用）。既有状态栏五态文案不变；动作集合与顺序除「运行中新增更新入口」「启动中新增两个入口」外与原样一致，且 adopted/外部实例不出现自管重启/停止的既有约束仍由单测把住。"
     }
   ]
 }
