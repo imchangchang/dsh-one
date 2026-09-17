@@ -82,8 +82,8 @@ export const IDENTIFIERS = [
     pkg: '@deepseek-ai/dsh-client-ui-sidebar',
     file: 'lib/client.js',
     pattern: /"toggle\.collapse"\s*:\s*"收起侧边栏"/,
-    why: '侧栏 frame 按 aria-label 文案藏掉官方折叠钮（官方类名带哈希，只能认文案）；文案改了那条 CSS 静默失配',
-    where: 'src/ui/assembly/shell/sidebarLayoutPlugin.ts:277（CSS 里的中文那条）',
+    why: '#178 C8 起我们不再按文案认这枚钮：它在 logoRow 里，logoRow 隐藏时它跟着隐藏（此前那两条按 aria-label 藏的规则从写下起就没生效过——中文词典原文是「收起侧边栏」）。这两条留作官方文案的记录，哪天要重新按文案认件时照着核对',
+    where: 'src/ui/assembly/shell/sidebarLayoutPlugin.ts（`[class*="logoRow"]` 那条规则，也就是这两条文案如今不参与的地方）',
   },
   {
     id: 'sidebar-toggle.en',
@@ -91,8 +91,8 @@ export const IDENTIFIERS = [
     pkg: '@deepseek-ai/dsh-client-ui-sidebar',
     file: 'lib/client.js',
     pattern: /"toggle\.collapse"\s*:\s*"Collapse sidebar"/,
-    why: '同上（英文那条今日仍是有效规则，中文那条按 #96 第一节实测已对不上我们写的文案）',
-    where: 'src/ui/assembly/shell/sidebarLayoutPlugin.ts:277（CSS 里的英文那条）',
+    why: '同上（#178 C8 之后两条都不再参与认件）',
+    where: 'src/ui/assembly/shell/sidebarLayoutPlugin.ts（同上）',
   },
   {
     id: 'entry-id.session-log-download',
@@ -109,8 +109,8 @@ export const IDENTIFIERS = [
     pkg: '@deepseek-ai/dsh-client-ui-theme',
     file: 'lib/client.js',
     pattern: /\bid:\s*"appearance"/,
-    why: '官方外观行（三态方块）今天靠 DOM 结构藏；改按 id 遮蔽（#96 第五节第 1 条）后，id 改名会让遮蔽静默落空，官方行冒回设置页',
-    where: 'src/ui/assembly/shell/settingsLayoutPlugin.ts:98（按 `:has(button[aria-pressed])` 藏它）',
+    why: '我们按条目 id 遮蔽它（#178 C10+C11 起：同 id + priority −1 注册空件，官方那条仍在注册表里但不进渲染位）；id 改名会让遮蔽静默落空，官方外观行冒回设置页',
+    where: 'src/ui/assembly/shell/settingsLayoutPlugin.ts（ctx.slots.register({ name: "settings.general.item", id: "appearance", priority: -1 }, Nothing)）',
   },
   {
     id: 'entry-id.open-document',
@@ -118,8 +118,8 @@ export const IDENTIFIERS = [
     pkg: '@deepseek-ai/dsh-client-ui-settings-general',
     file: 'lib/client.js',
     pattern: /\bid:\s*"open-document"/,
-    why: '同上（今天按 DOM 结构藏，未来按 id 遮蔽）',
-    where: 'src/ui/assembly/shell/settingsLayoutPlugin.ts:98（`settings.action` 里只留自有动作）',
+    why: '同上（#178 C10+C11 起按 id 遮蔽；我们自有那条的 id 是 open-document-vscode，走 VS Code 编辑器）',
+    where: 'src/ui/assembly/shell/settingsLayoutPlugin.ts（ctx.slots.register({ name: "settings.action", id: "open-document", priority: -1 }, Nothing)）',
   },
   {
     id: 'entry-id.cordis-panel',
