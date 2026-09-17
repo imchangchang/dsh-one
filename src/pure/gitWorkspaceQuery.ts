@@ -17,7 +17,6 @@
  *   未命中也缓存（避免每次都把整片仓库重扫一遍）。
  */
 import * as path from 'node:path'
-import type { CommitInfoResult } from './chatContract.ts'
 import { commitNotFound } from './gitShow.ts'
 import { runGitShow, type GitCommitInfo, type GitShowOptions } from './gitShowCommand.ts'
 import { discoverGitRepos, type RepoDiscoveryOptions, type RepoDiscoveryResult } from './gitRepoDiscovery.ts'
