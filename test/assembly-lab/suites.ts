@@ -2082,7 +2082,7 @@ export const SKELETON_SUITE: LabSuite = {
         barExpanded?.search.opacity === '1' && barExpanded?.search.tabIndex === 0,
         JSON.stringify(barExpanded?.search),
       )
-      check.ok('搜索框用官方词典的占位文案', (barExpanded?.search.placeholder ?? '').includes('搜索会话'), String(barExpanded?.search.placeholder))
+      check.ok('搜索框用官方词典的占位文案', hasText(barExpanded?.search.placeholder, '搜索会话…'), String(barExpanded?.search.placeholder))
 
       // 搜索走官方 `sessions.search`（结果区文案也是官方那套键）：敲一个几乎不可能
       // 命中的串，官方路径必然给出「无匹配 / 内容搜索不可用」之一。
@@ -2098,14 +2098,15 @@ export const SKELETON_SUITE: LabSuite = {
         }))
       const searchDeadline = Date.now() + 6000
       let searchState = await readSearchState()
-      while (hasText(searchState.status, '正在搜索') && Date.now() < searchDeadline) {
+      while (hasText(searchState.status, '正在搜索会话历史…') && Date.now() < searchDeadline) {
         await page.waitForTimeout(250)
         searchState = await readSearchState()
       }
       check.fact(`搜索态：结果行=${String(searchState.results)} 状态文案=${JSON.stringify(searchState.status)}`)
       check.ok(
         '搜索走官方那套结果/降级文案（无匹配 · 内容搜索不可用）',
-        searchState.results === 0 && (hasText(searchState.status, '无匹配') || hasText(searchState.status, '内容搜索')),
+        searchState.results === 0 &&
+          (hasText(searchState.status, '无匹配会话') || hasText(searchState.status, '内容搜索暂不可用，仅显示名称匹配。')),
         JSON.stringify(searchState),
       )
       // #132：Esc 这一路 = 收起 + 清空（两件事都要有断言——只收起不清空会留着结果区）。
@@ -2128,7 +2129,7 @@ export const SKELETON_SUITE: LabSuite = {
         text: document.querySelector('[data-dshone-tree-item="workspace-pick"]')?.textContent ?? '',
       }))
       check.ok('添加工作区是两项菜单（选已有文件夹 / 创建新工作区目录）', addItems.pick && addItems.create, JSON.stringify(addItems))
-      check.ok('菜单项文案是「选择已有文件夹…」', hasText(addItems.text, '选择已有文件夹'), addItems.text)
+      check.ok('菜单项文案是「选择已有文件夹…」', hasText(addItems.text, '选择已有文件夹…'), addItems.text)
       await page.click('[data-dshone-tree-item="workspace-create"]')
       await page.waitForTimeout(400)
       const createCalls = await page.evaluate(() => {
@@ -4032,7 +4033,7 @@ export const MULTI_SELECT_SUITE: LabSuite = {
       check.eq('none 态：框上 aria-checked = false、没有短横线', `${String(atNone?.aria)}/${String(atNone?.dash)}`, 'false/false')
       check.ok(
         '组内有置顶 → 框上写明原因（悬停提示说的是置顶挡住的条数）',
-        (atNone?.tip ?? '').includes('置顶') && (atNone?.tip ?? '').includes('1'),
+        hasText(atNone?.tip, '组内有 1 个置顶会话不能被勾选，所以这一组选不满'),
         JSON.stringify(atNone?.tip),
       )
       const eligibleInFixture = fixtureRows.filter((row) => row.id !== pinnedTarget)
@@ -4192,9 +4193,13 @@ export const MULTI_SELECT_SUITE: LabSuite = {
       const failed = await selectionFacts(page)
       check.fact(`注入写失败后的动作条：${JSON.stringify(failed)}`)
       check.ok('失败：动作条不消失', failed.bar)
-      check.ok('失败：红字写明没移成的条数（不静默）', hasText(failed.error, '没能移入回收站') && failed.error.includes(String(pickOrder.length)), JSON.stringify(failed.error))
+      check.ok(
+        '失败：红字写明没移成的条数（不静默）',
+        hasText(failed.error, `${String(pickOrder.length)} 个会话没能移入回收站`),
+        JSON.stringify(failed.error),
+      )
       check.eq('失败：失败项留在选中里（勾选一条不少）', failed.checked.length, pickOrder.length)
-      check.ok('失败：飘提示也报了同一件事', hasText(failed.flash, '没能移入回收站'), JSON.stringify(failed.flash))
+      check.ok('失败：飘提示也报了同一件事', hasText(failed.flash, `${String(pickOrder.length)} 个会话没能移入回收站`), JSON.stringify(failed.flash))
       check.eq('失败：什么都没写进宿主（数据一个字节没动）', await hostRecycleBin(page), null)
       screenshots.push(await shot(ctx, page, 'multi-select-move-failed'))
       await page.evaluate(() => {
@@ -4210,7 +4215,11 @@ export const MULTI_SELECT_SUITE: LabSuite = {
       check.fact(`批量移入后：动作条在=${String(moved.bar)} 飘提示=${JSON.stringify(moved.flash)} 本地集合=${JSON.stringify((movedState?.sessionIds ?? []).map((id) => id.slice(0, 11)))}`)
       check.eq('「移入回收站」立即执行：不开归档确认弹窗', await contentCount(page, '[data-dshone-tree-action="archive-confirm"]'), 0)
       check.eq('批量移入：选中的都进了本地集合（按勾选顺序）', movedState?.sessionIds ?? [], pickOrder.map((entry) => entry.id))
-      check.ok('批量移入：飘一条回执', hasText(moved.flash, '回收站'), JSON.stringify(moved.flash))
+      check.ok(
+        '批量移入：飘一条回执',
+        hasText(moved.flash, `已移入回收站（${String(pickOrder.length)} 个会话）`),
+        JSON.stringify(moved.flash),
+      )
       check.eq('批量移入：动作完退出选择态（动作条消失）', moved.bar, false)
       screenshots.push(await shot(ctx, page, 'multi-select-batch-moved'))
 
@@ -4544,7 +4553,8 @@ export const SIDEBAR_EMPTY_FEEDBACK_SUITE: LabSuite = {
       check.ok('选中没有成员工作区的分组 → 出专属空态', groupEmpty.found, JSON.stringify(groupEmpty))
       check.ok(
         '空态文案写明「这个分组里还没有工作区」与下一步去哪',
-        hasText(groupEmpty.text, '该分组还没有工作区') && hasText(groupEmpty.text, '管理分组'),
+        hasText(groupEmpty.text, '该分组还没有工作区。先在「管理分组…」里给工作区打标。') &&
+          hasText(groupEmpty.text, '管理分组…'),
         groupEmpty.text,
       )
       check.ok('空态带「管理分组…」入口按钮', hasText(groupEmpty.action, '管理分组'), groupEmpty.action)
@@ -4717,12 +4727,16 @@ export const SIDEBAR_EMPTY_FEEDBACK_SUITE: LabSuite = {
       check.fact(
         `搜索夹具：结果行=${String(search.results)} 上限提示=${JSON.stringify(search.more)} 状态行=${JSON.stringify(search.status)}（夹具回执调用 ${String(stats.searchCalls)} 次）`,
       )
-      check.ok('搜索回执带 hasMore 时出上限提示（官方 search.hasMore 键）', hasText(search.more, '仅显示前') && hasText(search.more, '条结果'), search.more)
-      // 判据：上限提示里那个数要按官方 `search.hasMore` 那句文案渲染出来（zh / en 两份都认）。
+      // 判据：上限提示要用官方 `search.hasMore` 那句文案、并把上限条数代进去（zh / en 两份都认）。
       const moreNumber = /(\d+)/.exec(search.more)?.[1] ?? ''
       check.ok(
+        '搜索回执带 hasMore 时出上限提示（官方 search.hasMore 键）',
+        moreNumber !== '' && hasText(search.more, `仅显示前 ${moreNumber} 条结果，请缩小搜索范围。`),
+        search.more,
+      )
+      check.ok(
         '提示里带上限条数（数值来自官方 searchResultLimit）',
-        moreNumber !== '' && hasText(search.more, `仅显示前 ${moreNumber} 条结果`) && Number(moreNumber) > 0,
+        moreNumber !== '' && Number(moreNumber) > 0,
         search.more,
       )
       check.ok('夹具那条结果按真会话渲染（行在）', search.results >= 1, String(search.results))
@@ -5122,7 +5136,7 @@ export const SIDEBAR_MENUS_SUITE: LabSuite = {
           : '标签组能力缺席（#107 未落地）：按 #109 的口径「没有分组就不显示该项」，「移到分组…」不出现，其余九项齐备',
       )
       check.eq('会话行菜单的项序与截图一致（十项；标签组未落地时九项 + 缺的正是「移到分组…」）', sessionMarkers, expectedSessionItems)
-      check.eq('标题行是「会话: {label}」', sessionMenu.title, `会话: ${sessionTitle}`)
+      check.eqTexts('标题行是「会话: {label}」', [sessionMenu.title], [`会话: ${sessionTitle}`])
       check.eq('菜单里没有分隔线', sessionMenu.separators, 0)
       screenshots.push(await shot(ctx, page, 'menus-session'))
 
@@ -5229,7 +5243,7 @@ export const SIDEBAR_MENUS_SUITE: LabSuite = {
         /^@\[[^\]]+\]\(dsh-session:[A-Za-z0-9_-]+\)$/.test(clipboard),
         clipboard.slice(0, 120),
       )
-      check.ok('「复制引用」给了一条飘提示', (copyFlash ?? '').includes('复制'), String(copyFlash))
+      check.ok('「复制引用」给了一条飘提示', hasText(copyFlash, '已复制会话引用'), String(copyFlash))
 
       // ---- ③ 置顶：就地翻转 + 写宿主状态（点两次回到原状） ----
       await openSessionMenu(page, sessionId)

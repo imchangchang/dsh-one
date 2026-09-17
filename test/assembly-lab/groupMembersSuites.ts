@@ -738,13 +738,16 @@ export const GROUP_MEMBERS_SUITE: LabSuite = {
       check.eq('⑦ 改名与删除的取消都没有改到分组状态', JSON.stringify(await hostGroups(page)), beforeRegression)
 
       await openManage(page)
+      // 认「确认钮」按**位置**不按文字：它在 `.dshOneTree_manageCreate` 那一格里（输入框的同排、
+      // 唯一一枚按钮）。按文字认会在英文页面上选不到（按钮文案是词典给的 `New group`），
+      // 于是 disabled 落回 true、把「合法名字可以建」判成红——那是判据在吃页面语言。
       const createForm = async (): Promise<{ error: string; disabled: boolean }> =>
         page.evaluate(() => {
           const dialog = document.querySelector('[role="dialog"]')
-          const confirm = Array.from(dialog?.querySelectorAll('button') ?? []).find((button) => (button.textContent ?? '') === '新建分组')
+          const confirm = dialog?.querySelector('.dshOneTree_manageCreate button')
           return {
             error: dialog?.querySelector('.dshOneTree_renameError')?.textContent ?? '',
-            disabled: (confirm as HTMLButtonElement | undefined)?.disabled ?? true,
+            disabled: (confirm as HTMLButtonElement | null)?.disabled ?? true,
           }
         })
       await page.fill('[data-dshone-tree="group-manage-input"]', '   ')

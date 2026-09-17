@@ -44,30 +44,49 @@ export function texts(zhText: string): string[] {
   for (const [key, template] of Object.entries(ZH)) {
     if (template === zhText) return [zhText, EN[key] ?? zhText]
   }
-  // 带占位的那几条（`已选 {n} 项`）：从实测文案里把参数抓出来，再用同一批参数渲染 en，
-  // 这样「数字跟着走」这件事不会被写成固定值。
+  // 带占位的那几条：把模板按占位切成字面量段，逐段试「截断到第 i 段」（i = 0,1,2… 个占位）。
+  // 这样 `仅显示前 20 条结果` 与只写了前半句的 `仅显示前` 都能对上同一条词典文案，
+  // 并渲染出 en 那一份（`Showing the first 20 results` / `Showing the first`）。
+  // 逐段要求**整段对上**（不是随便 startsWith），免得像早先那样配到隔壁那条上。
+  const escape = (part: string): string => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   for (const [key, template] of Object.entries(ZH)) {
-    const names = [...template.matchAll(/\{(\w+)\}/g)].map((match) => match[1] as string)
-    if (names.length === 0) continue
-    const pattern = `^${template
-      .split(/\{\w+\}/g)
-      .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-      .join('(.+?)')}$`
-    const match = new RegExp(pattern, 'u').exec(zhText)
-    if (match === null) continue
-    const values = Object.fromEntries(names.map((name, index) => [name, match[index + 1] ?? '']))
-    const english = (EN[key] ?? template).replace(/\{(\w+)\}/g, (all, name: string) => values[name] ?? all)
-    return [zhText, english]
-  }
-  // 只给了词典条目的**前缀**（例如判「菜单标题是『工作区: 某某』」时只写 '工作区:'）：
-  // 取那一条的前缀，zh / en 各一份。
-  for (const [key, template] of Object.entries(ZH)) {
-    if (!template.startsWith(zhText)) continue
-    const rest = template.slice(zhText.length)
-    if (!/^\s*\{\w+\}/.test(rest)) continue
     const english = EN[key]
     if (typeof english !== 'string') continue
-    return [zhText, english.split(/\{\w+\}/)[0] ?? english]
+    const zhParts = template.split(/\{(\w+)\}/)
+    const enParts = english.split(/\{(\w+)\}/)
+    if (zhParts.length !== enParts.length) continue
+    // 模板以占位开头（`{n} 个会话没能移入回收站`、`{n} ago` 这类）时的两条护栏：
+    // 首个占位**只认数字**，而且输入必须以数字开头——否则前缀匹配会退化成「随便一段话
+    // 只要以某个尾巴结尾就算命中」（早先实测：`仅显示前` 配到了 `{n} 前` 那条上，
+    // 渲染出「仅显示 ago」）。
+    const leadingNumeric = (zhParts[0] ?? '').length === 0
+    for (let placeholders = 0; placeholders * 2 < zhParts.length; placeholders += 1) {
+      const zhSegments: string[] = []
+      const enSegments: string[] = []
+      for (let index = 0; index <= placeholders; index += 1) {
+        zhSegments.push(zhParts[index * 2] as string)
+        enSegments.push(enParts[index * 2] as string)
+      }
+      if (placeholders === 0) {
+        // 只写了前半句时（`仅显示前` 对 `仅显示前 {n} 条结果…`）连首段末尾的空白一起去掉再比。
+        if (zhSegments[0] === zhText) return [zhText, enSegments[0] as string]
+        if ((zhSegments[0] ?? '').trimEnd() === zhText) {
+          return [zhText, (enSegments[0] ?? '').trimEnd()]
+        }
+        continue
+      }
+      const names: string[] = []
+      for (let index = 1; index <= placeholders; index += 1) names.push(zhParts[index * 2 - 1] as string)
+      if (leadingNumeric && !/^\d/.test(zhText)) continue
+      const wildcard = `(${leadingNumeric ? '\\d+' : '.+?'})`
+      const pattern = `^${zhSegments.map(escape).join(wildcard)}$`
+      const match = new RegExp(pattern, 'u').exec(zhText)
+      if (match === null) continue
+      const values = Object.fromEntries(names.map((name, index) => [name, match[index + 1] ?? '']))
+      const render = (segments: readonly string[]): string =>
+        segments.reduce((acc, segment, index) => acc + (index === 0 ? '' : (values[names[index - 1] as string] ?? '')) + segment, '')
+      return [render(zhSegments), render(enSegments)]
+    }
   }
   // 词典里没有这一条（例如夹具自己起的名字）：原样返回，判据照旧只认这一份。
   return [zhText]

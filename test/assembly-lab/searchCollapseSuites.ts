@@ -218,7 +218,9 @@ async function settleSearch(page: OpenedPage['page']): Promise<void> {
   const deadline = Date.now() + 6_000
   for (;;) {
     const status = await page.evaluate(() => document.querySelector('.dshOneTree_searchStatus')?.textContent ?? '')
-    if (!status.includes('正在搜索') || Date.now() > deadline) return
+    // 「还在搜索」这一态也走词典读（页面语言随环境；`正在搜索` 只是整句的前半截，
+    // 英文页面上按半句判不出来——判定会当场失效、不等就往下走）。
+    if (!hasText(status, '正在搜索会话历史…') || Date.now() > deadline) return
     await page.waitForTimeout(250)
   }
 }
@@ -366,7 +368,8 @@ export const SEARCH_COLLAPSE_SUITE: LabSuite = {
       check.fact(`搜索态：结果行=${String(searching.rows)} 状态文案=${JSON.stringify(searching.status)}`)
       check.ok(
         '展开态下输入照常走官方结果区（无匹配 / 内容搜索不可用）',
-        searching.rows === 0 && (hasText(searching.status, '无匹配') || hasText(searching.status, '内容搜索')),
+        searching.rows === 0 &&
+          (hasText(searching.status, '无匹配会话') || hasText(searching.status, '内容搜索暂不可用，仅显示名称匹配。')),
         JSON.stringify(searching),
       )
       screenshots.push(await shot(ctx, own.page, 'search-collapse-typing'))
