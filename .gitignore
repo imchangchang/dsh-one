@@ -13,7 +13,8 @@ test/sandbox/.build-mock-llm/
 test/sandbox/*.report.html
 # 装配实验室的每次运行产物（ledger / HTML 报告 / 截图）：随时可重新生成，不入库。
 test/assembly-lab/out/
-# 空实例整轮（`--empty`）的产物单独放一处，好与对着日常实例那一轮的报告并排看（#162）。
+# #162 时「空实例整轮」（`--empty`）的产物单独放一处（out-empty/）；#177 起那套跑法就是
+# 默认跑法、`--empty` 已退役，这里只留一条给老目录，免得旧产物突然变成待提交。
 test/assembly-lab/out-empty/
 # 安装引导页浏览器冒烟的产物（台账 / 截图）：同上，随手重跑即可。
 test/install-guide/out/

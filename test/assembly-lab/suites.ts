@@ -71,12 +71,19 @@ import { HTML_PREVIEW_HEIGHT_SUITE } from './htmlPreviewHeightSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
+import type { LabSeed } from './seed.ts'
 
 export interface SuiteContext {
   browser: Browser
   lab: LabServer
   /** 截图输出目录（调用方保证存在）。 */
   shots: string
+  /**
+   * 隔离实例里播种的那份真数据（`seed.ts` 的 `LabSeed`）。**只有默认跑法（自起实例 +
+   * 播种）才有**：`--gateway` 连外部实例时是 undefined，那时套件按既有口径读真数据、
+   * 不认这份账目（要用账目的断言要写成「有账目才判」）。
+   */
+  seed?: LabSeed
 }
 
 export interface LabSuite {
