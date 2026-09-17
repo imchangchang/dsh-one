@@ -2,7 +2,7 @@
 import { createElement as h, useEffect, useMemo, useRef, useState } from 'react'
 import { IconCloseFill14, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 import { NO_PENDING, pendingSourceOf } from '../../../../src/pure/sessionPendingSource.ts'
-import { currentWorkspaceFirst, deriveFlat, deriveGroups, deriveRecycleGroups, groupSessionNodes, indexSubagentDescendants, owningGroupKey, sessionNode, UNGROUPED_KEY, visibleRecycleIds, withoutPanelOpenCompleted, workspaceActivityCounts, type ActivityCounts, type GroupNode, type SessionNode } from '../../../../src/pure/workspaceTreeView.ts'
+import { currentWorkspaceFirst, deriveFlat, deriveGroups, deriveRecycleGroups, groupSessionNodes, indexSubagentDescendants, owningGroupKey, sessionNode, UNGROUPED_KEY, visibleRecycleIds, withCompletedIds, withCurrentSession, withoutPanelOpenCompleted, workspaceActivityCounts, type ActivityCounts, type GroupNode, type SessionNode } from '../../../../src/pure/workspaceTreeView.ts'
 import { formatFileMention } from '../../../../src/pure/fileReference.ts'
 import { formatSessionMention } from '../../../../src/pure/sessionMention.ts'
 import {
@@ -147,7 +147,6 @@ export function WorkspaceTree(props: TreeProps): unknown {
    * 事实）的行为与这条通道不存在时逐字相同，也不多一次重算。
    */
   const openInPanel = usePanelOpenSessions()
-  const list = useMemo(() => withoutPanelOpenCompleted(sessionsState, openInPanel), [sessionsState, openInPanel])
   const workspaces = useWorkspaces((state) => state.items)
   const workspacePhase = useWorkspaces((state) => state.phase)
   const archivedSessionIds = useWorkspaces((state) => state.archivedSessionIds)
@@ -169,6 +168,23 @@ export function WorkspaceTree(props: TreeProps): unknown {
   const pending = useMemo(
     () => (pendingSource === null || pendingSnapshot === null ? NO_PENDING : pendingSource.project(pendingSnapshot)),
     [pendingSource, pendingSnapshot],
+  )
+  /**
+   * 「跑完还没被打开」那枚绿点的来源（#191）：0.1.6-alpha.2 起它在上面那张状态表里
+   * （`completionUnread` 那一格），行上不再有 `completed`；老代给 `null` = 行里自带，
+   * 别动。合并在 `withoutPanelOpenCompleted` **之前**——宿主面板里开着的那条由那条通道
+   * 压掉，顺序反了会把它的结果重新点亮。
+   */
+  const completedIds = useMemo(
+    () => (pendingSource === null || pendingSnapshot === null ? null : pendingSource.completedIds?.(pendingSnapshot) ?? null),
+    [pendingSource, pendingSnapshot],
+  )
+  // 当前会话先归一（#191）：官方 0.1.6-alpha.2 不再在快照里下发 `current`，而树里
+  // 「当前会话所在分组默认展开」「空白会话只留当前那条」两处都按它判——分叉点在
+  // pure/workspaceTreeView.ts 的 withCurrentSession（单一事实源）。
+  const list = useMemo(
+    () => withCurrentSession(withoutPanelOpenCompleted(withCompletedIds(sessionsState, completedIds), openInPanel)),
+    [sessionsState, openInPanel, completedIds],
   )
 
   // 视图态（当前过滤的分组 / 展开集合 / 抽屉与标签组各自的收起集合）住官方客户端惯例的
@@ -463,9 +479,9 @@ export function WorkspaceTree(props: TreeProps): unknown {
    *
    * 两条分支：
    * - 宿主说开着 → 就地改名（#115 的语义原样保留，没有改回「点当前会话 = 打开」）；
-   * - 宿主说没开 → 按打开处理：先走官方 `sessions.open`（官方 web 侧的「打开」就是它；
+   * - 宿主说没开 → 按打开处理：先走官方那条打开入口（官方 web 侧的「打开」就是它；
    *   在 VS Code 侧它顺带清掉手动未读），**再请宿主把面板亮到这个会话**。后一步是必须
-   *   的：这条会话已经是「当前」，`sessions.open` 不会让值变化、选择桥也就不会上报，
+   *   的：这条会话已经是「当前」，再打开它不会让值变化、选择桥也就不会上报，
    *   光靠官方那条路面板永远不出来。
    *
    * **点击那一刻问一次宿主**（而不是挂载时问一次缓存住）：面板可能被用户从对话区那一侧

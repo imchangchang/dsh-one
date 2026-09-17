@@ -63,7 +63,7 @@
  *   `src/pure/sessionPendingSource.ts`，产品侧与新名一起改）。
  *   这几条都是 ui-session / ui-workspace 插件的必然产物（两插件在侧栏树的
  *   保留集里），自有 entry 直接消费，不自己订阅服务。
- * - 动作：全部走官方服务——`sessions.open` / `sessions.create` /
+ * - 动作：全部走官方服务——`uiWorkspace.openSession` / `sessions.create` /
  *   `sessions.binding(id).session.rename` / `sessions.search` /
  *   `uiWorkspace.forkSession` / `uiWorkspace.archiveSession` /
  *   `workspaces.rename` / `workspaces.delete`（出处逐个标在代码处）。
@@ -260,6 +260,14 @@ interface WorkspacesService {
 }
 
 interface UiWorkspaceService {
+  /**
+   * 官方「打开（选中）一条会话」的入口（官方 `dsh-client-ui-workspace` 的
+   * `navigation.d.ts`）。**两代 dsh 都在**，实现随版本自更新：0.1.6-alpha.1 是
+   * `sessions.open(id)` + `layout.selectPanel(null)`，0.1.6-alpha.2 起会话服务把
+   * 「选中」交还给视图所有者，它改成 retain 一条 `mainView` 引用 + 记选中。官方
+   * ui-chat / ui-subagent / ui-workflow-run 也都调它，所以我们跟着走同一个入口。
+   */
+  openSession(sessionId: string): void
   pickDirectory(): Promise<string | null>
   /**
    * 官方归档（官方 `dsh-client-ui-workspace` 的 navigation.d.ts 里就有这条）。
@@ -308,6 +316,35 @@ export function apply(ctx: TreeContext): void {
    */
   const uiWorkspace = (): UiWorkspaceService | undefined =>
     ctx.get('uiWorkspace') as UiWorkspaceService | undefined
+
+  /**
+   * 打开（选中）一条会话——官方那条入口。
+   *
+   * **为什么不再直接调 `sessions.open(id)`**（#191）：那个方法在 dsh 0.1.6-alpha.2 被
+   * **删掉**了（官方把「选中」从会话服务搬到会话视图的所有者身上：`ctx.sessions` 只剩
+   * retain / using / binding 这些引用管理口，类型注释原话 "view selection remains
+   * outside the Controller"）。继续调它的后果是静默的：点击处理器里抛
+   * `sessions.open is not a function`，会话打不开、面板不亮（alpha.2 上实测 F-08 / F-09
+   * 就是这么红的），而装配本身看着照常。
+   *
+   * 官方 `uiWorkspace.openSession` 两代都在、实现随版本自更新（alpha.1 =
+   * `sessions.open(id)` + `layout.selectPanel(null)`；alpha.2 = retain 一条 `mainView`
+   * 引用 + 记选中 + `layout.selectPanel(null)`），官方 ui-chat / ui-subagent /
+   * ui-workflow-run 也走它——所以这里换成同一个入口，**一个分支覆盖两代**，不按版本分叉。
+   * 它依赖的 `layout.selectPanel(null)` 我们的 layout 桩本来就提供（见
+   * `ui/assembly/shell/frameShared.ts` 的 LayoutController，null 一律放行）。
+   *
+   * uiWorkspace 缺席时（理论上不会：官方三棵树都装它）退回老办法，那一支只在 alpha.1 上
+   * 才可能成立。
+   */
+  const openSession = (sessionId: string): void => {
+    const ui = uiWorkspace()
+    if (ui !== undefined) {
+      ui.openSession(sessionId)
+      return
+    }
+    sessions.open(sessionId)
+  }
 
   /**
    * #145：会话被**另一个 dsh 进程**占着写句柄时（官方会话日志是单写者，见
@@ -503,17 +540,17 @@ export function apply(ctx: TreeContext): void {
       loadCurrentFolders: (): Promise<readonly string[]> => caps.currentWorkspaceFolders(),
       // #121 会话行点击的两条（都走宿主能力口，插件不碰宿主 API）：查询某会话是否正开在
       // 宿主面板里（改名判据的真条件），以及请宿主把面板亮到某会话（会话已是 current 时
-      // 官方 sessions.open 不会让它变化、选择桥也就不会上报，必须单独请一次）。
+      // 官方那条打开入口不会让它变化、选择桥也就不会上报，必须单独请一次）。
       // 官方 web 侧：前者恒 false、后者静默空操作——那一端没有「宿主面板」这个概念，
       // 插件的点击逻辑照常跑（一律按打开处理），两端同一份代码。
       isSessionInPanel: (sessionId: string): Promise<boolean> => caps.isSessionInPanel(sessionId),
       openSessionPanel: (sessionId: string): Promise<void> => caps.openSessionPanel(sessionId),
-      // 官方 sessions 服务：选中会话（镜像官方 ui-workspace 的 openSession，
-      // 不调 layout.selectPanel——自有侧栏树没有主面板概念）。
+      // 官方 ui-workspace 的 openSession（我们这一条只是把它包一层打开失败提示；
+      // 为什么必须走官方那条入口见上面 openSession 的注释）。
       // #183：打开之后盯这条会话的官方快照（`watchOpenFailure`）——它被别的 dsh 占着
       // 写句柄时，官方把那条失败落到快照的失败字段上，提示由那里报出。
       open: (sessionId: string): void => {
-        sessions.open(sessionId)
+        openSession(sessionId)
         watchOpenFailure(sessionId)
       },
       // 工作区行的「+」：官方 uiWorkspace.startSession 的语义（它依赖 layout 服务的
@@ -527,7 +564,7 @@ export function apply(ctx: TreeContext): void {
           ? sessions.create({})
           : startSessionIn(workspaceId)
         )
-          .then((id) => sessions.open(id))
+          .then((id) => openSession(id))
           .catch((reason: unknown) => console.warn('[dsh-one] new session failed:', reason))
       },
       // 官方 ui-workspace 的 renameSession：binding → session.rename。
@@ -540,7 +577,7 @@ export function apply(ctx: TreeContext): void {
       // 官方 uiWorkspace.forkSession：sessions.fork(increaseTitle) 后打开子会话。
       // 失败不再静默吞掉（#110）：Promise 交回树组件，由界面给一行可见反馈。
       forkSession: (sessionId: string): Promise<unknown> =>
-        sessions.fork({ sessionId, increaseTitle: true }).then((childId) => sessions.open(childId)),
+        sessions.fork({ sessionId, increaseTitle: true }).then((childId) => openSession(childId)),
       renameWorkspace: (workspaceId: string, title: string): Promise<unknown> => workspaces.rename(workspaceId, title),
       deleteWorkspace: (workspaceId: string): Promise<void> => workspaces.delete(workspaceId),
       // 官方 uiWorkspace.pickDirectory：宿主原生选择器。**为什么直调服务而不是渲染

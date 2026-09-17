@@ -94,3 +94,19 @@ test('探针查的那个取值名，就是投影函数真的读的那一格', ()
   assert.ok(text.includes(`.${newest.field}`), `新版投影要读表里那个名字（${newest.field}）`)
   assert.ok(text.includes('sessionPendingInteraction'), '老版那条路径也要在（原样交出快照）')
 })
+
+test('#191：新版同一条状态表还带「跑完还没被打开」那一格（行上的 completed 已经没了）', () => {
+  const snapshot = new Map<string, { completionUnread?: boolean }>([
+    ['s-done', { completionUnread: true }],
+    ['s-seen', { completionUnread: false }],
+    ['s-running', {}],
+  ])
+  const source = pendingSourceOf({ useSessionStatus: hookOf(snapshot) })
+  assert.ok(source?.completedIds !== undefined, '新版这条路径要给得出这份 id 集合')
+  assert.deepEqual([...(source.completedIds(snapshot) as ReadonlySet<string>)], ['s-done'])
+})
+
+test('#191：老版那条路径不给这份集合（那一代的绿点在会话列表的行上，别动它）', () => {
+  const source = pendingSourceOf({ useSessionPendingInteraction: hookOf(new Map()) })
+  assert.equal(source?.completedIds, undefined)
+})

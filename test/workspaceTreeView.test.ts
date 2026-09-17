@@ -11,6 +11,8 @@ import {
   sessionStatuses,
   sessionVisible,
   showsStatusDot,
+  withCompletedIds,
+  withCurrentSession,
   withoutPanelOpenCompleted,
   workspaceActivityCounts,
   type PendingInteractions,
@@ -495,4 +497,45 @@ test('#112：路径写法差异（尾斜杠 / Windows 大小写）不影响命�
     currentFolders: ['/p/w1', 'c:\\Work\\Demo'],
   })
   assert.deepEqual(groups.map((g) => g.containsCurrent), [true, true])
+})
+
+// #191：会话列表快照里的「当前会话」两代字段的单一分叉点。0.1.6-alpha.1 及以前官方直接
+// 下发 `current`；alpha.2 起没了，官方自己从行上的 `retainedBy.mainView` 推。
+test('withCurrentSession：老版本原样用快照里的 current（不重算、引用不动）', () => {
+  const sessions = list([summary('a'), summary('b', { retainedBy: { mainView: 1 } })], { current: 'a' })
+  assert.equal(withCurrentSession(sessions), sessions)
+})
+
+test('withCurrentSession：新版本按 retainedBy.mainView 推出当前会话（#191 的判据）', () => {
+  const sessions = list([summary('a'), summary('b', { retainedBy: { sidebar: 1 } }), summary('c', { retainedBy: { mainView: 1 } })])
+  const current = withCurrentSession(sessions)
+  assert.equal(current.current, 'c', '主对话区持有（mainView > 0）的那条才算当前')
+  assert.equal(current.ids, sessions.ids, '只补一个字段，别的不动')
+  assert.equal(current.byId, sessions.byId)
+})
+
+test('withCurrentSession：一条都没被主对话区持有时不造字段（与官方 undefined 同义）', () => {
+  const sessions = list([summary('a'), summary('b', { retainedBy: { sidebar: 2 } })])
+  assert.equal(withCurrentSession(sessions).current, undefined)
+  assert.equal(withCurrentSession(sessions), sessions, '没什么可补时原样返回同一份 list')
+})
+
+// #191：0.1.6-alpha.2 把「跑完还没被打开」从会话列表行挪进了官方状态表
+// （`sessionStatus` 的 completionUnread），行上不再有 completed。
+test('withCompletedIds：按官方状态表补绿点的 completed（新代）', () => {
+  const sessions = list([summary('a'), summary('b'), summary('c', { completed: true })])
+  const filled = withCompletedIds(sessions, new Set(['a']))
+  assert.equal(filled.byId['a']?.completed, true, '状态表里说没读过的补上')
+  assert.equal(filled.byId['b']?.completed, undefined, '不在表里的保持原样（undefined 与 false 同义）')
+  assert.equal(filled.byId['c']?.completed, false, '状态表没说的要明确置 false（行里可能还留着旧值）')
+})
+
+test('withCompletedIds：老代给 null 时一个字节不动（那一代的行自带 completed）', () => {
+  const sessions = list([summary('a', { completed: true }), summary('b')])
+  assert.equal(withCompletedIds(sessions, null), sessions, '引用不动，也不重算')
+})
+
+test('withCompletedIds：没有一条要改时原样返回同一份 list', () => {
+  const sessions = list([summary('a', { completed: true }), summary('b')])
+  assert.equal(withCompletedIds(sessions, new Set(['a'])), sessions)
 })

@@ -146,9 +146,9 @@ export interface HostBridgeDeps {
    * 通路（`dshOne.sessionSelected` → `openSessionChat`）完全一样。装配视图提供实现；
    * 缺省无实现 = `unsupported`。
    *
-   * 为什么必须有这一条：会话已经是官方 sessions 服务的「当前」时，`sessions.open`
-   * 不会让它变，选择桥（sessionBridgePlugin）也就不会上报，光靠那条路面板永远不
-   * 出来——用户报的「启动后点当前会话，右边对话区一直不出来」正是这个现场。
+   * 为什么必须有这一条：会话已经是官方那条打开入口的「当前」时，再打开它不会让值变，
+   * 选择桥（sessionBridgePlugin）也就不会上报，光靠那条路面板永远不出来——用户报的
+   * 「启动后点当前会话，右边对话区一直不出来」正是这个现场。
    */
   openSessionPanel?: (sessionId: string) => void
   /**
@@ -338,7 +338,7 @@ export async function runHostCall(
     return null
   }
   // #121：会话行点击的两条——「这个会话开在面板里吗」（改名判据的真条件）与
-  // 「把面板亮到这个会话」（已开面板不会跟着 `sessions.open` 走，得单独请宿主亮一下）。
+  // 「把面板亮到这个会话」（已开面板不会跟着官方那条打开入口走，得单独请宿主亮一下）。
   if (call === 'session.inPanel') {
     const parsed = parseSessionInPanelArgs(args)
     if (isHostCallError(parsed)) return parsed

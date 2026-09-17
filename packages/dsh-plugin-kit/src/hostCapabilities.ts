@@ -16,7 +16,7 @@
  * | `downloadGatewayFile` | 扩展宿主经 loopback 代理取内容 + 弹保存框 | 浏览器原生 `fetch` + `a[download]` |
  * | `openExternal` | 扩展宿主 `vscode.env.openExternal` | 页面原生 `window.open` |
  * | `openSessionInNewTab`（+ `editorTabs`） | 扩展宿主开一个 WebviewPanel（#72 多开） | **无**——官方 web 没有编辑器标签页，能力恒缺席 |
- * | `isSessionInPanel` / `openSessionPanel`（#121） | 扩展宿主按面板↔会话的跟踪如实回答 + 把面板亮到该会话 | **false / 静默空操作**——官方 web 没有「宿主面板」这个概念，那一端的「打开会话」就是官方 `sessions.open` |
+ * | `isSessionInPanel` / `openSessionPanel`（#121） | 扩展宿主按面板↔会话的跟踪如实回答 + 把面板亮到该会话 | **false / 静默空操作**——官方 web 没有「宿主面板」这个概念，那一端的「打开会话」就是官方自己的那条入口 |
  * | `onPanelSessions`（#147） | 扩展宿主先回一条快照（`session.panelSessions`），此后每次面板↔会话映射变化都广播 `dshOne.panelSessions` | **永不推送**（订阅返回一个退订函数、立刻回空集）——官方 web 那一端没有「宿主面板」这件事实，集合恒为空 = 不抑制任何提醒 |
  * | `openSettings`（+ `settingsPage`） | 扩展宿主开/聚焦设置页（设置独立成编辑器页，#70） | **无**——官方 web 的设置是官方底部那一行，没有独立设置页；能力恒缺席，侧栏齿轮在那一端不渲染 |
  * | `createWorkspaceDirectory`（+ `workspaceCreate`） | 扩展宿主建目录并注册（`dshOne.workspace.create` 命令：`~/.dsh/workspaces/<名>`），#176 起把新工作区的 id 与名字带回页面 | **无**——官方 web 的「新建目录」归官方 directory-flow 占用者（见 #99 的说明），能力恒缺席 |
@@ -165,7 +165,7 @@ export interface HostCapabilities {
    * 会话那条通路同一个函数）。
    *
    * **官方 web 侧静默返回**（不是抛 `unavailable`）：那一端没有宿主面板，「打开一个
-   * 会话」就是官方 `sessions.open` 自己那件事，消费方（侧栏树）在那一端本来就会先
+   * 会话」就是官方那条打开入口自己那件事，消费方（侧栏树）在那一端本来就会先
    * 走它；这里再抛错只会让每次点当前会话都在控制台留一行噪音，而那一端本来就无事可做。
    */
   openSessionPanel(sessionId: string): Promise<void>
@@ -436,7 +436,7 @@ export function hostCapabilities(ctx?: CapabilityContext): HostCapabilities {
     },
     // #121：会话行点击的两条。没有桥 = 官方 web 一侧（或页面还没装上桥）：那一端没有
     // 「宿主面板」这个概念，查询如实回 false（= 一律按打开处理），动作静默返回
-    //（那边的「打开」由官方 sessions.open 负责，消费方已经先走过它了）。
+    //（那边的「打开」由官方那条入口负责，消费方已经先走过它了）。
     async isSessionInPanel(sessionId) {
       if (!viaBridge()) return false
       try {
