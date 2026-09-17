@@ -1408,8 +1408,9 @@ export function WorkspaceTree(props: TreeProps): unknown {
   return h(
     'div',
     { className: 'dshOneTree_root', ref: rootRef, 'data-shell': 'dsh-one-tree', 'data-dshone-tree': 'root' },
-    // 顶部工具栏（#99 B 段）：官方搜索栏（展开态）+ 折叠/展开全部 + 添加工作区 + 设置齿轮，
-    // 末尾是多选入口（#131 起那一行只有这四件，视图选项已退役）。见 toolbar.ts 的说明与机制举证。
+    // 顶部工具栏（#99 B 段）：官方搜索栏（#132 起默认折叠，点开才展开）+ 折叠/展开全部
+    // + 添加工作区 + 设置齿轮，末尾是多选入口（#131 起那一行只有这四件，视图选项已退役）。
+    // 见 toolbar.ts 的说明与机制举证。
     h(TopBar, {
       tr,
       query: searchText,
