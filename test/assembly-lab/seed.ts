@@ -63,17 +63,24 @@ interface WorkspaceSpec {
 }
 
 /**
- * 播种清单。**顺序即工作区在树里的顺序**（`workspace/follow` 按注册顺序），特殊状态
- * 一律放最后一棵——活状态计数（运行中 / 等待）是这些会话贡献的，放最后才不会把别人
- * 那棵工作区的读数顶高；归档那条放第一棵、且在该棵里最先建（`session/list` 倒序，
- * 它因此排在清单末尾）。
+ * 播种清单。**数组顺序 = 创建顺序**，而树里看到的是**倒序**（新建的工作区排在最前，
+ * `workspace/follow` 的实测顺序是这样）——所以这里按倒序写，树里读起来才是
+ * `Lab-Alpha → Lab-Beta → Lab-Gamma → Lab-Delta → Lab-States`。
+ *
+ * 两个刻意的位置：
+ * - **特殊状态（运行中 / 等审批 / 等回答）放最后创建的那一棵**（= 树里的最后一行）：
+ *   活状态计数是这些会话贡献的，「取树上第一行当夹具」的那些套件（F-16 / F-31 / F-34 /
+ *    F-39 / F-43 / F-52…）才不会一上手就撞上一条跑着的会话（#177 实测：不放最后时
+ *    F-16 / F-34 / F-39 / F-43 一起红）。
+ * - **归档那条放最先创建的那一棵**：`session/list` 是新建在前的倒序，它因此排在清单
+ *   最后，不会被「取清单里第一条能用的会话」的动作挑中（归档会话在页面上打不开）。
  */
 const WORKSPACE_SPECS: readonly WorkspaceSpec[] = [
-  { title: 'Lab-Alpha', idle: 4, archived: true },
-  { title: 'Lab-Beta', idle: 3 },
-  { title: 'Lab-Gamma', idle: 3 },
+  { title: 'Lab-States', idle: 1, special: ['running', 'approval', 'question'], archived: true },
   { title: 'Lab-Delta', idle: 2 },
-  { title: 'Lab-States', idle: 1, special: ['running', 'approval', 'question'] },
+  { title: 'Lab-Gamma', idle: 3 },
+  { title: 'Lab-Beta', idle: 3 },
+  { title: 'Lab-Alpha', idle: 4 },
 ]
 
 /** 一棵工作区里的会话标题（`<工作区名> task N`；与 `dataset.ts` 那份合成数据同形）。 */
