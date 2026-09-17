@@ -72,6 +72,9 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
    */
   export function IconChevronDownOutline14(props: { size?: number; className?: string }): unknown
   export function IconChevronUpOutline14(props: { size?: number; className?: string }): unknown
+  /** 官方图标件（#172 二级菜单父项右端的指示器，收起态）：名与路径同样取自官方 primitives
+   *  导出表（官方 `index-C04Zg7TP.js` 的 `IconChevronRightOutline14`，默认尺寸 14）。 */
+  export function IconChevronRightOutline14(props: { size?: number; className?: string }): unknown
   /** 官方图标件（#139 成员清单的返回键）：名取自官方 primitives 导出表
    *  （`dsh-web-frontend/dist/assets/index-C04Zg7TP.js` 的 `IconChevronLeftOutline14`）。 */
   export function IconChevronLeftOutline14(props: { size?: number; className?: string }): unknown

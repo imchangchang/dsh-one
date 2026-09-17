@@ -693,6 +693,32 @@ export const CSS =
   '.dshOneTree_menuRow{align-items:center;gap:6px;min-width:0;width:100%;display:flex}' +
   '.dshOneTree_menuRowLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;overflow:hidden}' +
   '.dshOneTree_menuRowCount{color:var(--dsw-alias-label-tertiary);flex:none}' +
+  // 二级菜单父项右端的指示器与它的右端对齐（#172）。用户报的是「箭头太小、且紧贴文字」：
+  // 换之前它是「▸ / ▾」两个**文字字形**（跟着菜单项的 12px 字号走，所以比图标小一圈），
+  // 而且排在文字后面、中间一格空隙都没有。
+  //
+  // 换成官方那两枚 14 档 chevron 之后，位置关系按**官方 `alignEnd` 的语义**定：贴到项的
+  // 内容右缘。为什么这一条只能落在我们自己的 label 里（走第 4 层机制，理由与举证见
+  // `rows.ts` 的 `submenuParent`）：官方 Menu 的项只画「图标槽 + label + 可选勾」三样、
+  // **自己不画指示器**；官方 label 那一格是
+  // `flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap`
+  // （紧凑档 `._itemLabel_1nxmc_174`），它自己就吃满「图标槽右边到项内容右缘」这一段。
+  // 所以父项的 label 撑成一行的 flex、文字那一格可缩、指示器 `margin-left:auto`。
+  //
+  // 稳定性风险（第 4 层机制的代价，写在这里以备官方改版时核对）：这一套依赖官方项的结构
+  // 仍是「图标槽 + label + 勾」——我们的 label 是官方 label 的**子元素**，靠它当一个块级
+  // 容器（`display:flex` 的宽度 = 官方 label 的内容宽）才吃满那一格；官方若把 label 那一格
+  // 换成 inline 排版或加别的兄弟，指示器会落到别处。选择器只用我们自己的类名
+  // （不碰官方哈希），所以改名不影响，结构变了才会。识别方式：F-32（`test/assembly-lab/`）
+  // 在真装配页上量「指示器右缘 = 项的内容右缘」，结构变了它先红。
+  // 文字那一格右内边距留一个项内间隙（紧凑档 `._item_1nxmc_92{gap:6px}`，与菜单里其它
+  // 相邻件的间距同档）：标题长到装不下时文字走省略号，省略号也离指示器一格，不会贴上去。
+  '.dshOneTree_submenuParent{align-items:center;display:flex;min-width:0;width:100%}' +
+  '.dshOneTree_submenuParentLabel{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:6px}' +
+  // 指示器自己：`inline-flex` 让 14×14 的 svg 居中（不然 svg 按基线坐，会被 18px 的行高
+  // 带到偏下），颜色与官方项内图标同源（`._itemIcon_1nxmc_144` 的
+  // `color:var(--dsw-alias-label-tertiary)`，与分组胶囊那枚 ▾ 同一枚 token）。
+  '.dshOneTree_submenuArrow{margin-left:auto;flex:none;color:var(--dsw-alias-label-tertiary);align-items:center;justify-content:center;display:inline-flex}' +
   // 二级菜单（就地展开的子项）的缩进（#126 立、#143 与 #167 各按旧侧栏那条关系重定过一版）。
   // 官方 Menu 的项是一条「图标槽 + 文字 + 勾」的流水线，官方没有「子项缩进 / 层级」这个口
   // （前三层都没有：

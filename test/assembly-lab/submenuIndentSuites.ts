@@ -1,6 +1,7 @@
 /**
- * 二级菜单（就地展开的子项）的缩进（#126 立、#143 收到 0、#167 按旧侧栏那一档取回一位、
- * #171 取那一档的一半）。
+ * 二级菜单（就地展开的子项）的缩进与父项右端的指示器（#126 立、#143 收到 0、#167 按旧侧栏
+ * 那一档取回一位、#171 取那一档的一半；#172 把父项那个 ▸/▾ 文字字形换成官方两枚 14 档 chevron
+ * 并右端对齐项的内容右缘）。
  *
  * 独立成一个文件、不写进 `suites.ts` 的理由与 `driftSuites.ts` / `recycleEntrySuites.ts` /
  * `selectionBarSuites.ts` 同一条：那个文件是本批开发的合入热点，新套件放外面能少一半冲突面。
@@ -8,20 +9,25 @@
  *
  * 期望值**不硬编码**：子项那条左内边距与它带出来的两个关系量都从 `workspaceTree/styles.ts`
  * 的 `SCALE_TIERS.compact` 里读（`rowPaddingInline` / `iconSize` / `rowGap`）——档位表改了值，
- * 本套件跟着走。
+ * 本套件跟着走。指示器那一组也一样：边长取 `iconSize`、与文字的间距取 `rowGap`，只有两枚
+ * 官方 chevron 的**名字与 path 数据**是常量（它们是官方图标件的产物，档位表管不到，出处写在
+ * {@link CHEVRON} 上方）。
  *
- * 断言的口径是**关系不变量**（#126 / #143 / #167 / #171 正文），而不是某个绝对坐标（绝对坐标会随
- * 菜单在屏幕上的位置变）：#171 起子项文字左缘 − 父项文字左缘 = 紧凑档的一个项内边距（7px，
+ * 断言的口径是**关系不变量**（#126 / #143 / #167 / #171 / #172 正文），而不是某个绝对坐标（绝对
+ * 坐标会随菜单在屏幕上的位置变）：#171 起子项文字左缘 − 父项文字左缘 = 紧凑档的一个项内边距（7px，
  * 也就是旧侧栏那一档 14px 的一半），并钉住「不许深过旧侧栏那一档」这条回归。同时钉住三件容易
  * 一起坏掉的观感：子项自己的图标与文字仍然相邻（不因为缩进脱开）、所有子项的文字落在同一列
- * （有没有图标都一样）、勾选态 ✓ 与右端 ▸/▾ 的几何不受影响。
+ * （有没有图标都一样）、勾选态 ✓ 的几何不受影响，以及 **#172 的指示器**——官方那两枚（按渲染
+ * 指纹核）、边长落在档位表那一档、**右缘对齐到项的内容右缘**、与文字之间留着一个项内间隙，
+ * 两态（收起/展开）与三档宽度（260/340/500）各判一遍，窄档下再拿一条长标题压力夹具证明
+ * 「该让位的是文字」。
  *
  * 数据面：真实网关**只读** + 假宿主 + 树层注入的分组状态（`groups`）与标签组状态（`tags`）。
  * 归档确认、新建会话这类会写网关的动作一律不碰。
  */
 import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
-import { openTreePage, withoutKnownNoise, type OpenedPage } from './harness.ts'
+import { openTreePage, withoutKnownNoise, type Check, type OpenedPage } from './harness.ts'
 import { LAB_TREES, type LabTreeRoute } from './labServer.ts'
 import { SCALE_TIERS } from '../../src/ui/assembly/shell/workspaceTree/styles.ts'
 // 只取类型（编译后不留 import，运行期没有环）：套件接口定义在 suites.ts 里。
@@ -65,6 +71,37 @@ const EXPECTED_INDENT = ROW_PADDING_INLINE
  */
 const SUBMENU_PADDING_INLINE = `${String(ROW_PADDING_INLINE * 2)}px`
 
+/**
+ * 二级菜单父项右端的指示器（#172）：**官方那两枚 14 档 chevron**，名字与路径数据取自官方
+ * primitives 的导出与定义（本机官方前端 `index-C04Zg7TP.js` 里的 `IconChevronRightOutline14` /
+ * `IconChevronDownOutline14`：`width/height` 默认 14、`viewBox="0 0 14 14"`、各一条 path）。
+ *
+ * 路径写在这里当**渲染指纹**用：官方组件渲染出来的 DOM 里只有 svg，认「用的是哪一枚」只能
+ * 比这些字节。改官方版本导致路径变了，这两条先红——那时按官方新路径改这一处即可（图标件本身
+ * 是官方承诺的导出，不会悄悄换形状）。
+ */
+const CHEVRON = {
+  collapsed: {
+    name: 'IconChevronRightOutline14',
+    path:
+      'M5.5 2.15137L5.92383 2.57617L8.65137 5.30273C8.90706 5.55843 9.13382 5.78438 9.29785 5.98828C9.46883 6.20088 9.61756 6.44405 9.66602 6.75C9.69222 6.91565 9.69222 7.08435 9.66602 7.25C9.61756 7.55595 9.46883 7.79912 9.29785 8.01172C9.13382 8.21561 8.90706 8.44157 8.65137 8.69727L5.92383 11.4238L5.5 11.8486L4.65137 11L5.07617 10.5762L7.80273 7.84863C8.07732 7.57405 8.24849 7.40124 8.3623 7.25977C8.46904 7.12709 8.47813 7.07728 8.48047 7.0625C8.48703 7.02105 8.48703 6.97895 8.48047 6.9375C8.47813 6.92272 8.46904 6.87291 8.3623 6.74023C8.24848 6.59876 8.07732 6.42595 7.80273 6.15137L5.07617 3.42383L4.65137 3L5.5 2.15137Z',
+  },
+  expanded: {
+    name: 'IconChevronDownOutline14',
+    path:
+      'M11.8486 5.5L11.4238 5.92383L8.69727 8.65137C8.44157 8.90706 8.21562 9.13382 8.01172 9.29785C7.79912 9.46883 7.55595 9.61756 7.25 9.66602C7.08435 9.69222 6.91565 9.69222 6.75 9.66602C6.44405 9.61756 6.20088 9.46883 5.98828 9.29785C5.78438 9.13382 5.55843 8.90706 5.30273 8.65137L2.57617 5.92383L2.15137 5.5L3 4.65137L3.42383 5.07617L6.15137 7.80273C6.42595 8.07732 6.59876 8.24849 6.74023 8.3623C6.87291 8.46904 6.92272 8.47813 6.9375 8.48047C6.97895 8.48703 7.02105 8.48703 7.0625 8.48047C7.07728 8.47813 7.12709 8.46904 7.25977 8.3623C7.40124 8.24849 7.57405 8.07732 7.84863 7.80273L10.5762 5.07617L11 4.65137L11.8486 5.5Z',
+  },
+} as const
+
+/** 指示器该有的边长 = **菜单项图标那一档**（紧凑档 `iconSize` 14px；期望值从档位表读）。 */
+const INDICATOR_SIZE = Number.parseFloat(SCALE_TIERS.compact.iconSize)
+
+/** 指示器与文字之间至少要留的那一格 = 紧凑档的项内间隙（`SCALE_TIERS.compact.rowGap` 6px）。 */
+const INDICATOR_TEXT_GAP = Number.parseFloat(SCALE_TIERS.compact.rowGap)
+
+/** 右端对齐的容差（±1px，与套件里其它几何关系同一条）。 */
+const ALIGN_TOLERANCE = 1
+
 /** 菜单项的一条几何事实（页面侧一次量完，避免多次 round-trip 之间的抖动）。 */
 interface ItemGeometry {
   marker: string
@@ -90,6 +127,39 @@ interface ItemGeometry {
   paddingLeft: string
   /** 子项归属勾选态（`data-dshone-group-checked`，工作区菜单的子项才带）。 */
   checked: string | null
+  /**
+   * 项的内容右缘 = 官方 label 那一格（`._itemLabel_1nxmc_174`）的右缘（#172）。
+   *
+   * 为什么要它而不是「项盒右缘 − 右内边距」：官方项是一条「图标槽 + label + 可选勾」的
+   * 流水线，带勾时 label 的右缘并不是项的内容右缘（勾占掉一格）。指示器该贴的那条线是
+   * **label 的右缘**，所以直接量 label 那一格（按「button 的子 span 里含我们那个标记 span
+   * 的那一个」认，不认官方哈希类名）。
+   */
+  contentRight: number | null
+}
+
+/** 父项右端指示器的几何与渲染指纹（#172：两个文字字形换成官方那两枚 14 档 chevron）。 */
+interface IndicatorGeometry {
+  left: number
+  right: number
+  width: number
+  height: number
+  /** `data-dshone-tree-icon` 标记（自有契约，写出用的是官方哪一枚）。 */
+  name: string
+  /** 渲染指纹：官方图标渲染出来的 svg（视框 / 画成多大 / 每条形状的 `path@d`）。 */
+  fingerprint: { viewBox: string; width: string; height: string; shapes: string[] } | null
+}
+
+/** 父项文字那一格的几何（#172 量「指示器与文字之间留了多远」用）。 */
+interface ParentTextGeometry {
+  /** 文字**真实**的右缘（Range 取内容盒）。盒子右缘会因为吃满余量而贴在指示器上，量不出间距。 */
+  textRight: number
+  /** 文字那一格的盒子右缘（文字被截断时它就等于指示器的左缘）。 */
+  boxRight: number
+  /** 文字真的在走省略号（滚出来的宽 > 画得下的宽）——该让位的是文字，不是指示器。 */
+  truncating: boolean
+  /** 文字那一格的右内边距（被截断时，省略号与指示器之间的那一格就是它）。 */
+  paddingRight: number
 }
 
 interface SubmenuGeometry {
@@ -97,8 +167,10 @@ interface SubmenuGeometry {
   menuCount: number
   parent: ItemGeometry | null
   children: ItemGeometry[]
-  /** 父项右端那个 ▸/▾ 的几何与文字（量「指示不受影响」用）。 */
-  arrow: { left: number; right: number; width: number; text: string } | null
+  /** 父项右端那个指示器的几何与指纹（量「只换图标、几何不变」与「右端对齐」用）。 */
+  arrow: IndicatorGeometry | null
+  /** 父项文字那一格的几何（量「与文字的距离」用）。 */
+  parentText: ParentTextGeometry | null
 }
 
 /**
@@ -124,6 +196,8 @@ async function submenuGeometry(
       const iconBox = Array.from(button.children).find((child) => child.tagName === 'SPAN' && !child.contains(mark)) ?? null
       const icon = iconBox === null ? null : iconBox.getBoundingClientRect()
       const check = Array.from(button.children).find((child) => child.tagName !== 'SPAN') ?? null
+      // 官方 label 那一格 = button 的子 span 里含我们那个标记 span 的那一个（不认官方哈希类名）。
+      const labelWrap = Array.from(button.children).find((child) => child.tagName === 'SPAN' && child.contains(mark)) ?? null
       return {
         marker: mark.getAttribute('data-dshone-tree-item') ?? '',
         text: (mark.textContent ?? '').trim(),
@@ -139,9 +213,27 @@ async function submenuGeometry(
         indentWrapped: mark.closest('.dshOneTree_submenuItem') !== null,
         paddingLeft: getComputedStyle(button).paddingLeft,
         checked: mark.getAttribute('data-dshone-group-checked'),
+        contentRight: labelWrap === null ? null : labelWrap.getBoundingClientRect().right,
       }
     }
     const parentMark = menu === null ? null : menu.querySelector(`[data-dshone-tree-item="${s.parent}"]`)
+    // 父项文字那一格：真实字末用 Range 取（盒子右缘吃满余量时会贴在指示器上，量不出间距）。
+    const parentLabel = parentMark === null ? null : parentMark.querySelector('.dshOneTree_submenuParentLabel')
+    const parentText =
+      parentLabel === null
+        ? null
+        : (() => {
+            const range = document.createRange()
+            range.selectNodeContents(parentLabel)
+            const textRect = range.getBoundingClientRect()
+            const box = parentLabel.getBoundingClientRect()
+            return {
+              textRight: textRect.width === 0 ? box.right : textRect.right,
+              boxRight: box.right,
+              truncating: parentLabel.scrollWidth > parentLabel.clientWidth + 1,
+              paddingRight: Number.parseFloat(getComputedStyle(parentLabel).paddingRight) || 0,
+            }
+          })()
     const arrowElement = menu === null ? null : menu.querySelector('.dshOneTree_submenuArrow')
     const children =
       menu === null
@@ -154,15 +246,91 @@ async function submenuGeometry(
       menuCount: menus.length,
       parent: read(parentMark),
       children,
+      parentText,
       arrow:
         arrowElement === null
           ? null
           : (() => {
               const box = arrowElement.getBoundingClientRect()
-              return { left: box.left, right: box.right, width: box.width, text: (arrowElement.textContent ?? '').trim() }
+              const svg = arrowElement.querySelector('svg')
+              return {
+                left: box.left,
+                right: box.right,
+                width: box.width,
+                height: box.height,
+                name: arrowElement.getAttribute('data-dshone-tree-icon') ?? '',
+                fingerprint:
+                  svg === null
+                    ? null
+                    : {
+                        viewBox: svg.getAttribute('viewBox') ?? '',
+                        width: svg.getAttribute('width') ?? '',
+                        height: svg.getAttribute('height') ?? '',
+                        shapes: Array.from(svg.querySelectorAll('path,rect,circle')).map((shape) => shape.getAttribute('d') ?? ''),
+                      },
+              }
             })(),
     }
   }, spec)
+}
+
+/**
+ * 判一遍父项右端那个指示器（#172）：用在两态、三档宽度、以及窄档的长标题压力夹具上，判据一处
+ * 定义、多处跑。
+ *
+ * 五条：① 在场且用的是官方那一枚（`data-dshone-tree-icon` 写出的图标名）；② 渲染指纹是官方那枚
+ * 14 号图标（视框 / 画成的尺寸 / 单条 path 且 `path@d` 与官方定义逐字相同）；③ 边长落在档位表的
+ * 菜单项图标那一档；④ **右缘对齐到项的内容右缘**（官方 `alignEnd` 的语义，±1px）；⑤ 与文字之间
+ * 留着至少一个项内间隙（用户报的「紧贴文字」不再成立）。另加一条「指示器整个落在项里」。
+ */
+function checkIndicator(
+  check: Check,
+  where: string,
+  reading: SubmenuGeometry,
+  expected: (typeof CHEVRON)[keyof typeof CHEVRON],
+): void {
+  const { arrow, parent, parentText } = reading
+  const fingerprint = arrow?.fingerprint ?? null
+  check.eq(`${where}：指示器用的是官方那一枚（自有标记写出的图标名）`, arrow?.name ?? '（指示器不在场）', expected.name)
+  check.ok(
+    `${where}：渲染指纹是官方那枚 14 号图标（视框 0 0 14 14、画成 14×14、单条 path 且 path@d 与官方定义逐字相同）`,
+    fingerprint !== null &&
+      fingerprint.viewBox === '0 0 14 14' &&
+      fingerprint.width === '14' &&
+      fingerprint.height === '14' &&
+      fingerprint.shapes.length === 1 &&
+      fingerprint.shapes[0] === expected.path,
+    JSON.stringify(fingerprint),
+  )
+  check.ok(
+    `${where}：指示器边长落在档位表的菜单项图标那一档（${String(INDICATOR_SIZE)}px，±${String(ALIGN_TOLERANCE)}）`,
+    arrow !== null && Math.abs(arrow.width - INDICATOR_SIZE) <= ALIGN_TOLERANCE && Math.abs(arrow.height - INDICATOR_SIZE) <= ALIGN_TOLERANCE,
+    arrow === null ? '指示器不在场' : `宽 ${arrow.width.toFixed(1)} 高 ${arrow.height.toFixed(1)}`,
+  )
+  check.ok(
+    `${where}：指示器右缘对齐到菜单项的内容右缘（官方 alignEnd 的语义，±${String(ALIGN_TOLERANCE)}px）`,
+    arrow !== null && parent !== null && parent.contentRight !== null && Math.abs(arrow.right - parent.contentRight) <= ALIGN_TOLERANCE,
+    `指示器右缘=${arrow?.right.toFixed(1) ?? '无'} 内容右缘=${parent?.contentRight?.toFixed(1) ?? '无'} 项盒右缘=${parent?.itemRight.toFixed(1) ?? '无'}`,
+  )
+  // 「文字的右缘」在两种情形下不是同一个读数：文字装得下时取 Range 量到的**真实字末**（盒子
+  // 右缘会因为吃满余量而贴在指示器上，量不出间距）；文字被截断时 Range 量到的仍是**溢出**出去
+  // 的那一段（比可见的字末更靠右），可见的字末其实是文字那一格的内容右缘——也就是
+  // 「盒子右缘 − 右内边距」（省略号画在那里）。
+  const textEnd =
+    parentText === null ? null : parentText.truncating ? parentText.boxRight - parentText.paddingRight : parentText.textRight
+  check.ok(
+    `${where}：指示器与文字之间留着至少一个项内间隙（${String(INDICATOR_TEXT_GAP)}px）——不再是紧贴文字`,
+    arrow !== null && textEnd !== null && arrow.left - textEnd >= INDICATOR_TEXT_GAP - ALIGN_TOLERANCE,
+    `指示器左缘=${arrow?.left.toFixed(1) ?? '无'} 可见字末=${textEnd?.toFixed(1) ?? '无'}` +
+      `（Range 字末=${parentText?.textRight.toFixed(1) ?? '无'}，文字那一格${parentText?.truncating === true ? '在走省略号' : '没被截'}）`,
+  )
+  check.ok(
+    `${where}：指示器整个落在项里（左缘不越出项盒、右缘不越出项盒）`,
+    arrow !== null && parent !== null && arrow.left >= parent.itemLeft - 0.5 && arrow.right <= parent.itemRight + 0.5,
+    arrow === null || parent === null
+      ? '读数缺'
+      : `指示器=${arrow.left.toFixed(1)}~${arrow.right.toFixed(1)} 项盒=${parent.itemLeft.toFixed(1)}~${parent.itemRight.toFixed(1)}`,
+  )
 }
 
 /** 当前最后一个菜单里顶层项的标记（子项与标题行不算，与 F-19 的口径一致）。 */
@@ -229,6 +397,21 @@ async function openSessionMenu(page: OpenedPage['page'], sessionId: string): Pro
   await page.waitForTimeout(250)
 }
 
+/**
+ * 页面上当前第一条能开 ⋯ 菜单的会话行（#172 的宽度那一段要用）。
+ *
+ * 为什么每次都重新找、不用夹具那一条：这一段的判据与「是哪一条会话」无关，而共享网关上有别的
+ * session 在同时干活（会话可能被挪走 / 归档 / 换分组），盯死起手那一条会在别人动数据时红——
+ * 那是环境噪，不是这一条要判的东西。找不到就退回夹具那一条（真的没有行时它会硬红）。
+ */
+async function anySessionRow(page: OpenedPage['page'], fallback: string): Promise<string> {
+  const found = await page.evaluate(
+    () =>
+      document.querySelector('[data-dshone-tree-row="session"] [data-dshone-tree-action="session-menu"]')?.closest('[data-dshone-tree-row="session"]')?.getAttribute('data-dshone-tree-session') ?? '',
+  )
+  return found === '' ? fallback : found
+}
+
 /** 行右键开同一份菜单（工作区行没有 ⋯ 按钮，只能用右键那一份）。 */
 async function openRowContextMenu(page: OpenedPage['page'], selector: string): Promise<boolean> {
   const row = page.locator(selector)
@@ -240,17 +423,19 @@ async function openRowContextMenu(page: OpenedPage['page'], selector: string): P
 }
 
 /**
- * 二级菜单（就地展开的子项）的缩进（#126 立 / #143 收到 0 / #167 取回一位 / #171 取一半）。
- * 量的是**关系不变量**：子项文字左缘 − 父项文字左缘 = 一个项内边距 7px（±1px；= 旧侧栏实测
- * 那一档 14px 的一半），并钉住「不许深过旧侧栏那一档」这条回归——两个菜单各量一遍；
- * 另钉子项的图标与文字仍相邻、所有子项落在同一列、✓ 与 ▸/▾ 的几何不受影响，
- * 以及「没有标签组时的缺席」与「二级项点击不关菜单、✓ 就地翻转」两条既有行为。
+ * 二级菜单（就地展开的子项）的缩进与父项右端的指示器（#126 立 / #143 收到 0 / #167 取回一位 /
+ * #171 取一半 / #172 换官方 chevron）。量的是**关系不变量**：子项文字左缘 − 父项文字左缘 = 一个项内
+ * 边距 7px（±1px；= 旧侧栏实测那一档 14px 的一半），并钉住「不许深过旧侧栏那一档」这条回归——
+ * 两个菜单各量一遍；另钉子项的图标与文字仍相邻、所有子项落在同一列、✓ 的几何不受影响，以及 #172
+ * 那一组（指示器用的是官方哪一枚、边长落档、右缘对齐项的内容右缘、与文字留着一个项内间隙，
+ * 两态 × 三档宽度 + 窄档长标题），还有「没有标签组时的缺席」与「二级项点击不关菜单、✓ 就地翻转」
+ * 两条既有行为。
  */
 export const SUBMENU_INDENT_SUITE: LabSuite = {
   id: 'F-32',
   phase: 'new-feature',
-  name: '二级菜单的缩进（#126 立 / #143 收到 0 / #167 取回一位 / #171 取一半）：子项文字比父项文字深半个图标槽、且不许深过旧侧栏那一档（会话菜单与工作区菜单同一口径，SUBMENU-INDENT 套件）',
-  expect: `二级菜单（会话菜单的「移到分组…」与工作区菜单的「分组…」就地展开出来的子项）在真实装配页上（真网关**只读** + 假宿主 + 注入的分组状态与标签组状态）量关系不变量，不量绝对坐标：① **会话菜单**：子项文字左缘 − 父项文字左缘 = ${String(EXPECTED_INDENT)}px（±1px）——子项整行的左内边距 = 紧凑档的项内边距（${SCALE_TIERS.compact.rowPaddingInline}）× 2 = ${SUBMENU_PADDING_INLINE}，接着那个空图标槽与项内间隙（${SCALE_TIERS.compact.rowGap}）与父项自己那串逐项同值，所以子项文字比父项文字深**半个图标槽**（= 一个项内边距；旧侧栏（正本）同一条关系实测是 +14px = 一个图标槽，#167 取回的是那一档，#171 用户看过仍觉得偏大、取它的一半，读数见 legacy-sidebar 台账；期望值全从 styles.ts 的 SCALE_TIERS 读，不写死）；**回归钉子**：子项文字比父项文字深不超过**旧侧栏那一档**（一个图标槽 ${SCALE_TIERS.compact.iconSize}；#143 之前是深两个图标槽 = 20px，用户报的就是它），并且子项整行的左内边距实测就是档位表那一项的两倍；② **工作区菜单**同一 helper，量同一条关系（含同一枚回归钉子），读数与①一致；③ **没有标签组 / 没有自定义分组时的缺席**——会话菜单的「移到分组…」恒在场（一个组都没有时也渲染，不然新建第一个组没有入口，出处是 tree.ts 里那一节的注释），所以这一侧断的是「标签组那几条子项一条都不出现、只剩两条固定入口（不归入标签组 / 新建标签组）」，而工作区菜单的「分组…」在没有自定义分组时**整项不渲染**；**有**组时父项点一下展开、再点一下收起、菜单两次都还开着（父项行为不变）；④ **二级项点击不关菜单、✓ 就地翻转**（回归）：工作区菜单的子项点一下就勾上（菜单仍开着、文字列一分不动），再点一下取消；会话菜单的子项点完后那一行会搬进对应标签组（行换父节点 → 菜单跟着收起，这是既有行为），重开菜单时该项带官方 ✓、文字仍落在它那个缩进位。另外钉住三件容易被缩进带坏的事：子项的图标槽与文字**仍然相邻**（间距还是紧凑档的 ${SCALE_TIERS.compact.rowGap}，不是把文字推远）、**所有**子项的文字落在同一个缩进位（有没有图标都一样）、父项右端 ▸/▾ 与子项的 ✓ 的几何不受影响（▸→▾ 只是换字形，勾不把文字挤走）。全程零 pageerror，不点任何会写网关的动作。`,
+  name: '二级菜单的缩进与父项指示器（#126 立 / #143 收到 0 / #167 取回一位 / #171 取一半 / #172 换官方两枚 chevron 并右端对齐）：子项文字比父项文字深半个图标槽、不许深过旧侧栏那一档，父项右端的指示器右缘贴到项的内容右缘（会话菜单与工作区菜单同一口径，SUBMENU-INDENT 套件）',
+  expect: `二级菜单（会话菜单的「移到分组…」与工作区菜单的「分组…」就地展开出来的子项）在真实装配页上（真网关**只读** + 假宿主 + 注入的分组状态与标签组状态）量关系不变量，不量绝对坐标：① **会话菜单**：子项文字左缘 − 父项文字左缘 = ${String(EXPECTED_INDENT)}px（±1px）——子项整行的左内边距 = 紧凑档的项内边距（${SCALE_TIERS.compact.rowPaddingInline}）× 2 = ${SUBMENU_PADDING_INLINE}，接着那个空图标槽与项内间隙（${SCALE_TIERS.compact.rowGap}）与父项自己那串逐项同值，所以子项文字比父项文字深**半个图标槽**（= 一个项内边距；旧侧栏（正本）同一条关系实测是 +14px = 一个图标槽，#167 取回的是那一档，#171 用户看过仍觉得偏大、取它的一半，读数见 legacy-sidebar 台账；期望值全从 styles.ts 的 SCALE_TIERS 读，不写死）；**回归钉子**：子项文字比父项文字深不超过**旧侧栏那一档**（一个图标槽 ${SCALE_TIERS.compact.iconSize}；#143 之前是深两个图标槽 = 20px，用户报的就是它），并且子项整行的左内边距实测就是档位表那一项的两倍；② **工作区菜单**同一 helper，量同一条关系（含同一枚回归钉子），读数与①一致；③ **父项右端的指示器（#172）**——收起态是官方的 ${CHEVRON.collapsed.name}、展开态是 ${CHEVRON.expanded.name}：按**渲染指纹**核（视框 \`0 0 14 14\`、画成 14×14、单条 path 且 \`path@d\` 与官方定义逐字相同）+ 自有标记 \`data-dshone-tree-icon\` 写出的图标名；边长落在档位表的**菜单项图标那一档**（紧凑档 \`iconSize\` ${SCALE_TIERS.compact.iconSize}，±1px）；**右缘对齐到菜单项的内容右缘**（官方 \`alignEnd\` 的语义，取「官方 label 那一格的右缘」这条线，±1px）；与文字之间留着**至少一个项内间隙**（紧凑档 ${SCALE_TIERS.compact.rowGap}）——用户报的「箭头太小、且紧贴文字」两条都在这里钉住；两态各判一遍，再在**三档宽度（260 / 340 / 500）**下各判一遍，最后在 260px 上挂一条**长标题压力夹具**（只改页面上那一处文字）：走省略号的是**文字那一格**（\`scrollWidth > clientWidth\`），指示器仍贴那条内容右缘、仍从文字那一格的右缘起算（那一格自带一个项内间隙的右内边距），没有被官方 label 的 \`overflow:hidden\` 切掉；④ **没有标签组 / 没有自定义分组时的缺席**——会话菜单的「移到分组…」恒在场（一个组都没有时也渲染，不然新建第一个组没有入口，出处是 tree.ts 里那一节的注释），所以这一侧断的是「标签组那几条子项一条都不出现、只剩两条固定入口（不归入标签组 / 新建标签组）」，而工作区菜单的「分组…」在没有自定义分组时**整项不渲染**；**有**组时父项点一下展开、再点一下收起、菜单两次都还开着（父项行为不变）；⑤ **二级项点击不关菜单、✓ 就地翻转**（回归）：工作区菜单的子项点一下就勾上（菜单仍开着、文字列一分不动），再点一下取消；会话菜单的子项点完后那一行会搬进对应标签组（行换父节点 → 菜单跟着收起，这是既有行为），重开菜单时该项带官方 ✓、文字仍落在它那个缩进位。另外钉住几件容易被缩进带坏的事：子项的图标槽与文字**仍然相邻**（间距还是紧凑档的 ${SCALE_TIERS.compact.rowGap}，不是把文字推远）、**所有**子项的文字落在同一个缩进位（有没有图标都一样）、父项右端的指示器**只换图标、几何不走位**（收起态与展开态的左右缘与边长一分不动）与子项的 ✓ 的几何不受影响（勾不把文字挤走）。全程零 pageerror，不点任何会写网关的动作。`,
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const shot = async (page: OpenedPage['page'], name: string): Promise<string> => {
@@ -444,17 +629,21 @@ export const SUBMENU_INDENT_SUITE: LabSuite = {
           JSON.stringify(expanded.children.map((child) => (child.iconRight === null || child.iconLeft === null ? '无' : (child.iconRight - child.iconLeft).toFixed(1)))),
         )
       }
-      // 右端 ▸ → ▾：只换字形，几何不走位（用户报的那一处「平」不能顺手把指示也动了）。
+      // 右端指示器的两态：#172 起收起态是官方右向 chevron、展开态是官方下向 chevron，
+      // **只换图标、几何不走位**（用户报的是「太小、紧贴文字」，位置与尺寸都不该被顺手带跑）。
       check.ok(
-        '「移到分组…」的展开指示从 ▸ 翻成 ▾，位置与宽度没变',
+        '「移到分组…」的展开指示只换图标、几何不走位（收起 = 右向 chevron、展开 = 下向 chevron）',
         collapsedArrow !== null &&
           expanded.arrow !== null &&
-          collapsedArrow.text === '\u25b8' &&
-          expanded.arrow.text === '\u25be' &&
+          collapsedArrow.name === CHEVRON.collapsed.name &&
+          expanded.arrow.name === CHEVRON.expanded.name &&
           Math.abs(collapsedArrow.left - expanded.arrow.left) <= 0.5 &&
-          Math.abs(collapsedArrow.width - expanded.arrow.width) <= 0.5,
+          Math.abs(collapsedArrow.width - expanded.arrow.width) <= 0.5 &&
+          Math.abs(collapsedArrow.height - expanded.arrow.height) <= 0.5,
         `展开前=${JSON.stringify(collapsedArrow)} 展开后=${JSON.stringify(expanded.arrow)}`,
       )
+      checkIndicator(check, '收起态（会话菜单）', collapsed, CHEVRON.collapsed)
+      checkIndicator(check, '展开态（会话菜单）', expanded, CHEVRON.expanded)
       check.ok(
         '展开指示仍在项内（没有越出项盒子）',
         parent !== null && expanded.arrow !== null && expanded.arrow.right <= parent.itemRight + 0.5,
@@ -531,10 +720,14 @@ export const SUBMENU_INDENT_SUITE: LabSuite = {
       if (workspaceKey !== '') {
         const openedContextMenu = await openRowContextMenu(page, rowSelector)
         check.ok('工作区行右键开出菜单', openedContextMenu)
+        // #172 的第二处：工作区菜单的「分组…」与上一处是**同一个** `submenuParent`，所以两态
+        // 的指示器判据逐条重跑一遍——一处改、处处生效，两处都得证明。
+        checkIndicator(check, '收起态（工作区菜单）', await submenuGeometry(page, { parent: 'groups', childPrefix: 'workspace-group-item' }), CHEVRON.collapsed)
         await page.click('[data-dshone-tree-item="groups"]')
         await page.waitForTimeout(300)
         const wsExpanded = await submenuGeometry(page, { parent: 'groups', childPrefix: 'workspace-group-item' })
         const wsParent = wsExpanded.parent
+        checkIndicator(check, '展开态（工作区菜单）', wsExpanded, CHEVRON.expanded)
         check.fact(
           `工作区菜单「分组…」展开后：父项文字左缘=${wsParent?.labelLeft.toFixed(1) ?? '无'} 子项=${JSON.stringify(
             wsExpanded.children.map((child) => ({ t: child.text, labelLeft: child.labelLeft.toFixed(1) })),
@@ -614,6 +807,71 @@ export const SUBMENU_INDENT_SUITE: LabSuite = {
         await page.keyboard.press('Escape')
         await page.waitForTimeout(200)
       }
+
+      // ---- #172：两态 × 三档宽度（260 / 340 / 500），外加一段「文字装不下」的让位 ----
+      // 三档宽度是用户实际会遇到的侧栏宽度（260 是用户实测那一档）；指示器的右端对齐关系在每
+      // 一档、每一态都必须成立。
+      const widths = [260, 340, 500] as const
+      for (const width of widths) {
+        await page.setViewportSize({ width, height: 900 })
+        await page.waitForTimeout(300)
+        await expandAllWorkspaces(page)
+        await openSessionMenu(page, await anySessionRow(page, sessionId))
+        const atWidthCollapsed = await submenuGeometry(page, { parent: 'moveToGroup', childPrefix: 'tag:' })
+        checkIndicator(check, `收起态（会话菜单，w=${String(width)}）`, atWidthCollapsed, CHEVRON.collapsed)
+        await page.click('[data-dshone-tree-item="moveToGroup"]')
+        await page.waitForTimeout(300)
+        const atWidthExpanded = await submenuGeometry(page, { parent: 'moveToGroup', childPrefix: 'tag:' })
+        checkIndicator(check, `展开态（会话菜单，w=${String(width)}）`, atWidthExpanded, CHEVRON.expanded)
+        await page.keyboard.press('Escape')
+        await page.waitForTimeout(200)
+      }
+
+      // 「文字装不下」时的让位（本套件最后一段；夹具只往页面上加一条我们自己类名的样式，不动插件
+      // 状态）。父项的文字是固定短文案，真页面里不会长到装不下，所以这里把**文字那一格**压到比
+      // 文字还窄，让「装不下」这个状态真的出现——量的是机制：走省略号的是文字那一格（而不是把
+      // 指示器顶出项盒、或被官方 label 那一格的 `overflow:hidden` 切掉），指示器仍贴那条内容右缘、
+      // 仍从文字那一格的右缘起算（那一格自带一个项内间隙的右内边距）。
+      // 为什么不改成「把文字换成一长串」：菜单面板的宽是按内容撑的（官方紧凑档 min 164 / max 360），
+      // 一长串文字会把面板撑到比 260px 的视口还宽，官方 Menu 的钳位在这种情形下也放不下它
+      // （判据见 F-08 那一节）——那时指示器跑到视口外面，量出来的不是这一条机制的问题。
+      await page.setViewportSize({ width: 260, height: 900 })
+      await page.waitForTimeout(300)
+      await expandAllWorkspaces(page)
+      await openSessionMenu(page, await anySessionRow(page, sessionId))
+      await page.addStyleTag({
+        content: '[data-dshone-tree-item="moveToGroup"] .dshOneTree_submenuParentLabel{max-width:40px}',
+      })
+      await page.waitForTimeout(150)
+      const narrow = await submenuGeometry(page, { parent: 'moveToGroup', childPrefix: 'tag:' })
+      const narrowText = narrow.parentText
+      check.fact(
+        `w=260 文字被压窄时：文字那一格 scrollWidth${narrowText?.truncating === true ? ' >' : ' ≤'} clientWidth、` +
+          `文字右内边距=${narrowText?.paddingRight.toFixed(1) ?? '无'}、指示器左缘=${narrow.arrow?.left.toFixed(1) ?? '无'}、` +
+          `文字那一格右缘=${narrowText?.boxRight.toFixed(1) ?? '无'}、项的内容右缘=${narrow.parent?.contentRight?.toFixed(1) ?? '无'}`,
+      )
+      check.ok(
+        'w=260 文字装不下时走省略号的是文字那一格（滚出来的宽 > 画得下的宽，而不是把指示器顶出项盒）',
+        narrowText !== null && narrowText.truncating,
+        `truncating=${String(narrowText?.truncating ?? false)}`,
+      )
+      check.ok(
+        'w=260 文字装不下时指示器仍不压文字（它从文字那一格的右缘起算，文字那一格自带一个项内间隙的右内边距）',
+        narrow.arrow !== null &&
+          narrowText !== null &&
+          narrow.arrow.left >= narrowText.boxRight - 0.5 &&
+          narrowText.paddingRight >= INDICATOR_TEXT_GAP - 0.5,
+        `指示器左缘=${narrow.arrow?.left.toFixed(1) ?? '无'} 文字那格右缘=${narrowText?.boxRight.toFixed(1) ?? '无'} 右内边距=${narrowText?.paddingRight.toFixed(1) ?? '无'}`,
+      )
+      check.ok(
+        'w=260 文字装不下时指示器整个仍在视口里、仍在项内',
+        narrow.arrow !== null && narrow.parent !== null && narrow.arrow.right <= narrow.parent.itemRight + 0.5 && narrow.arrow.right <= 260,
+        `指示器右缘=${narrow.arrow?.right.toFixed(1) ?? '无'} 项盒右缘=${narrow.parent?.itemRight.toFixed(1) ?? '无'}`,
+      )
+      checkIndicator(check, '收起态（会话菜单，w=260，文字装不下）', narrow, CHEVRON.collapsed)
+      screenshots.push(await shot(page, 'submenu-indicator-narrow-squeezed'))
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(200)
 
       check.eq('二级菜单缩进套件全程零 pageerror', withoutKnownNoise(opened.capture.pageErrors).real, [])
     } finally {
