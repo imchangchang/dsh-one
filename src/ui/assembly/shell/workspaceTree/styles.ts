@@ -131,7 +131,18 @@
 //   对齐；搜索框还要补回官方 `searchExpanded` 自己那 2px 左外突，算式与理由写在它那条规则
 //   上方。**通栏容器**（列表 / 抽屉列表 / 回收站入口行）左内缩归 0，靠里面的行自己带
 //   `row-padding-inline`——行的底色因此从容器左缘铺到头（#125 的「出血不受影响」）。
-//   右侧不受这条管：容器与控件的右内缩仍取骨架基线 `section-padding-inline`。
+//   右侧单独一条（**#142 顶栏那一行**就是右侧的基准件）：容器与控件的右内缩取骨架基线
+//   `section-padding-inline`，顶栏那一行例外——它的内容右缘按下面的「横向右缘基准」收。
+// - **横向右缘基准**（#142，用户实测「工具图标与展开后的搜索框都顶到侧栏右缘」）：顶栏那一行
+//   的内容右缘要落在**行内容右缘**那条竖线上（= 工作区行的行盒右缘 − 行的 `padding-right`，
+//   也就是行尾时间 / 角标结束的那条线；与上面「横向左缘基准」同一条口径的右侧对称版）。
+//   它不是档位表里的某一项，而是**四个结构量的和**（每一项都能在这一行与列表的几何里量到）：
+//   ① 这一行自己的 **4px 出血**（下面 `margin-right:-4px` 的官方原值，盒子因此伸到内容列之外）；
+//   ② 列表的 **右外边距** `--dsh-session-list-scrollbar-offset`（行盒由它往左退一格）；
+//   ③ 列表给滚动条留的**车道** `--dsh-session-list-scrollbar-width`（`scrollbar-gutter:stable`）；
+//   ④ 行的**右内边距** `--dsh-one-density-row-padding-inline`（行的内容从那里再退一格）。
+//   四项相加就是「那一行的盒子右缘」到「行内容右缘」的距离，所以随侧栏几何走、不写死像素
+//   （算式的推导与依赖写在 `.dshOneTree_sectionHeader` 那条规则上方）。
 // - **纵向留白**（分节头下边距 `section-header-gap`、块与块之间 `group-gap`）→ **标准档的
 //   4px**（#119：纵向取官方节奏、横向取紧凑档——紧凑档没有「块与块之间」的纵向刻度，那个
 //   2px 是菜单项彼此相接的分隔线外边距；理由写在 sidebarFramePlugin.ts 文件头）。
@@ -336,7 +347,23 @@ export const CSS =
   // `margin-left:auto`，所以行内空处都落在中间、胶囊贴左、搜索与四枚工具贴右
   //（官方分节头也是 `justify-content:flex-end`，搜索槽同样靠 auto 外边距靠右）。
   // 高度仍是「这一行里一个控件的高度」（紧凑档 26px），搜索展开态的 30px 也装得下。
-  '.dshOneTree_sectionHeader{box-sizing:border-box;height:var(--dsh-one-density-section-header-height,36px);color:var(--dsw-alias-label-tertiary);border-radius:12px;flex:none;justify-content:flex-end;align-items:center;gap:var(--dsh-one-density-section-gap,4px);margin-bottom:var(--dsh-one-density-section-header-gap,4px);padding-left:var(--dsh-one-density-section-padding-inline,4px);display:flex;overflow:hidden;margin-top:2px;margin-right:-4px}' +
+  //
+  // #142：`padding-right` 把这一行的**内容**往左收，收到「行内容右缘」那条竖线上（用户实测
+  // 「工具图标与展开后的搜索框都顶到侧栏右缘」）。四项相加就是这条竖线到这一行盒子右缘的
+  // 距离，逐项都有出处（也在页面上量得到）：
+  //   ① `4px` = 这一行自己的右出血（下面 `margin-right:-4px` 的官方原值）；
+  //   ② `--dsh-session-list-scrollbar-offset` = 列表自己的右外边距（列表的 `margin-right`）；
+  //   ③ `--dsh-session-list-scrollbar-width` = 列表给滚动条留的车道（`scrollbar-gutter:stable`；
+  //      滚动条真的占宽时这一格就实占，是行盒右缘往左退的第二格）；
+  //   ④ `--dsh-one-density-row-padding-inline` = 行的右内边距（行内容从那里再退一格）。
+  // 所以收起态最右一枚工具图标、展开态那只搜索框都会落在行尾文字（时间 / 角标）结束的那条线上；
+  // 展开态还差官方 `searchExpanded` 自带的那 2px 外突与行内间隙的差（F-42 早有这一条）。
+  // 为什么不写成一个档位值：档位表里没有哪个量等于这个和（行内边距只是其中一项），硬凑一个值
+  // 会让这条关系在别的密度档 / 别的列表几何下断掉。**这条算式按 shell 当前的右缘配置推导**
+  //（`.dshOneTree_root` 的 `--dsh-session-list-edge-inset` 是 0：root 不给右内缩，列表容器用
+  // 负外边距抵消它、内容铺到容器右缘）；哪天 shell 改那一项，这一条要跟着复核，装配实验室的
+  // F-44 会先红（它按几何矩形判这条关系，不看算式）。
+  '.dshOneTree_sectionHeader{box-sizing:border-box;height:var(--dsh-one-density-section-header-height,36px);color:var(--dsw-alias-label-tertiary);border-radius:12px;flex:none;justify-content:flex-end;align-items:center;gap:var(--dsh-one-density-section-gap,4px);margin-bottom:var(--dsh-one-density-section-header-gap,4px);padding-left:var(--dsh-one-density-section-padding-inline,4px);padding-right:calc(4px + var(--dsh-session-list-scrollbar-offset) + var(--dsh-session-list-scrollbar-width) + var(--dsh-one-density-row-padding-inline,8px));display:flex;overflow:hidden;margin-top:2px;margin-right:-4px}' +
   // 搜索栏（#132：官方那套 UI 的**两态都在**，默认折叠——平时是一枚 28px 圆放大镜，
   // 点开才展开成输入框 + 清除钮）——search / searchSlot / searchButton / searchInput /
   // clearButton 五个类名与几何逐字对应官方 css-module（含两个 Expanded 变体），

@@ -48,6 +48,7 @@ import { COLLAPSE_ALL_ICON_WEIGHT_SUITE } from './collapseAllIconWeightSuites.ts
 import { GROUP_MEMBERS_SUITE } from './groupMembersSuites.ts'
 import { TOOLBAR_SINGLE_ROW_SUITE } from './toolbarSingleRowSuites.ts'
 import { PENDING_DOT_SUITE } from './pendingDotSuites.ts'
+import { TOPBAR_RIGHT_INSET_SUITE } from './topbarRightInsetSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
@@ -6076,4 +6077,8 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // #140 会话等待态的状态点（F-43：F-01…F-42 与 R-06 已占，按「从未占用的继续」顺延；
   // 套件本体在 pendingDotSuites.ts，同上为独立文件，少一处合入热点）。
   PENDING_DOT_SUITE,
+  // #142 顶栏那一行右侧收进一档（F-44：F-01…F-43 与 R-06 已占，按「从未占用的继续」
+  // 取当时最小的未占用号；套件本体在 topbarRightInsetSuites.ts，同为独立文件，
+  // 少一处合入热点）。
+  TOPBAR_RIGHT_INSET_SUITE,
 ]
