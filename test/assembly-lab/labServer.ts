@@ -32,7 +32,7 @@ import { assemblyPageHtml } from '../../src/ui/assembly/pageHtml.ts'
 import { cookieHeader, exchangeToken, startAssemblyMirror, type AssemblyMirror } from '../../src/server/assemblyMirror.ts'
 import { registerVersion } from '../../src/server/serverAuth.ts'
 import { defaultOwnedPath, readOwnedRecord } from '../../src/server/ownedRecord.ts'
-import { extractBootWire, extractFrontendAssets, filterWire, WORKSPACE_TREE_PLUGIN_ID } from '../../src/ui/assembly/wireFilter.ts'
+import { extractBootWire, extractFrontendAssets, filterWire, WORKSPACE_TREE_PLUGIN_ID, type BootWire } from '../../src/ui/assembly/wireFilter.ts'
 import { ASSEMBLY_TREES, CHAT_TREE, SETTINGS_TREE, SIDEBAR_TREE, type AssemblyTree } from '../../src/ui/assembly/trees.ts'
 import { compare as compareSemver, parse as parseSemver } from '../../src/pure/semver.ts'
 import type { LogSink } from '../../src/log.ts'
@@ -147,6 +147,11 @@ export interface LabServer {
    * 用途：F-11 WIRE-LIVENESS（#91）。
    */
   gatewayPluginIds(): Promise<ReadonlySet<string>>
+  /**
+   * 当天网关下发的官方 wire 原文（取一次后缓存）——F-11 的口径用例要在**真实清单**
+   * 上合成「官方把插件切成两批」的形状（#165），只拿 id 集合合成不出来。
+   */
+  gatewayWire(): Promise<BootWire>
   dispose(): void
 }
 
@@ -209,12 +214,14 @@ export async function startLabServer(options: LabServerOptions): Promise<LabServ
     return gatewayHtml
   }
 
-  /** 官方 wire 的插件 id（见 LabServer.gatewayPluginIds 的说明）。 */
-  let gatewayIds: Promise<ReadonlySet<string>> | undefined
-  const gatewayPluginIds = (): Promise<ReadonlySet<string>> => {
-    gatewayIds ??= gatewayIndex().then((html) => new Set(extractBootWire(html).entries.map((entry) => entry.id)))
-    return gatewayIds
+  /** 官方 wire（见 LabServer.gatewayWire / gatewayPluginIds 的说明）。 */
+  let gatewayWireCache: Promise<BootWire> | undefined
+  const gatewayWire = (): Promise<BootWire> => {
+    gatewayWireCache ??= gatewayIndex().then((html) => extractBootWire(html))
+    return gatewayWireCache
   }
+  const gatewayPluginIds = (): Promise<ReadonlySet<string>> =>
+    gatewayWire().then((wire) => new Set(wire.entries.map((entry) => entry.id)))
 
   const mirror: AssemblyMirror = await startAssemblyMirror(() => gateway, log, {
     pluginsDir: options.pluginsDir,
@@ -354,6 +361,7 @@ export async function startLabServer(options: LabServerOptions): Promise<LabServ
     ...(dshVersion === undefined ? {} : { dshVersion }),
     trees: LAB_TREES,
     gatewayPluginIds,
+    gatewayWire,
     dispose: () => {
       server.close()
       // 同 assemblyMirror：`close()` 不管已建立的连接，显式断掉，别把端口和

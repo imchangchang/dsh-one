@@ -104,6 +104,26 @@ F-01 主体里那三条还没有）；F-41 / F-49 等按 #162 的普查结论处
 
 **CI 里不跑这个套件**（它需要本机跑着一个真网关），它是开发/合入前的本机第一道验证。
 
+### 干净 profile 门禁（`npm run verify:clean-profile`，#165）
+
+上面那条连的是**你机器上那台日常网关**（插件几十个、会话上千）。还有一条**自起实例**的门禁，
+验的是另一种环境：在临时目录里开一个全新的 `DSH_HOME`，按 `docs/plugin-packages.md` 的方式把
+`packages/` 下的自有插件包装进 profile，再起一个独立端口的 dsh，然后用本实验室这套装配页
+（`labServer.ts` 的 `startLabServer` + `wireFilter` + `assemblyMirror`）逐棵树打开，核对
+「干净 profile 上装配页能起来」。它不读 `~/.dsh/dsh-owned.json`、不碰你正在跑的那台实例，
+跑完按 PID 收掉自己起的进程。
+
+**为什么要单列一条**：干净 profile 与日常实例差两件要命的事——① 把自有插件包装进 profile 之后
+插件总数多五个，官方按 combo URL 的长度上限把插件清单**切成两批**（实测 2026-09-17：日常实例
+一批 55 条，装了自有插件包之后 59 + 1 两批，第二个批里正是 `directory-picker-native`），
+过滤只看第一批时会误判成「清单对不上」而整页打不开；② 网关清单里已经有同 id 的自有插件时，
+装配侧再叠一份本地 bundle 会让客户端抛 `duplicate graph entry`。两件都只在「干净 profile +
+装了自己的包」这个组合上出现，日常实例上照不出来。门禁先断言**前提**（wire 真的被切成两批），
+前提没了会红——免得这条门禁哪天变成空的。
+
+已知阻断项写在脚本的 `KNOWN_BLOCKERS` 里（每条带 issue 号与报错签名，签名不符即失败）：
+侧栏树现在还被 #164 挡着（官方 `ui-model-selection` 等 `ui-commands` 的 `commandUi`）。
+
 **不在本实验室覆盖内的两页**：安装引导 tab 与侧栏状态页（`src/ui/installGuide.ts`、
 `src/ui/sidebarStatusPage.ts`）是宿主侧普通 HTML——dsh 没装或服务没起来时网关不通，装配页组装不了，
 它们不参与装配树。这两页的冒烟在 `test/install-guide/`（`npm run verify:install-guide`，
@@ -193,7 +213,7 @@ F-01 主体里那三条还没有）；F-41 / F-49 等按 #162 的普查结论处
 | **F-08 MULTIOPEN** | 会话多开（#72）：会话行菜单与行右键都带「在新标签页打开」（右键菜单锚在指针处）、点了发出的会话 id 是那一行的真会话；多开 tab 的启动注入（`__DSH_ONE_BOOT__.sessionId`）真的开到目标会话，同源（共 localStorage）两页各开各自会话、零交叉；注入不存在的 id 时防闪帧遮罩在场 |
 | **F-09 HEADER-UTILITIES** | 对话区会话头 `conversation.session.header.utilities` 座位的**条目集合**（#87）：官方 open-in-app 与自有导出的条目都在且都可见、没有任何条目被自有 CSS 摘掉、官方同 id 的导入条目被 shadow；外加官方宿主路由（`/open-in-app/apps`）按 `location.origin` 与官方内部基址 `http://dsh.internal` 两条寻址方式都可达（页面传输接缝改写落到 loopback） |
 | **F-10 FIBER** | fiber 级契约（#91）：四棵树里**没有任何 cordis scope 进 FAILED**。cordis 插件 fiber 失败**不进浏览器控制台**（官方 client logger 没有 console exporter，#74 首屏实测 console 0 行），所以页面里装一个 fiber 探针（包 `__ModuleLoader__.load` 的 factory、只包 `@deepseek-ai/dsh-client-modules` 的 apply 拿 ctx、监听 `internal/plugin` + `internal/status`，见 `harness.ts` 的 `fiberProbeScript`），按 uid 归账到插件 id。另外钉住探针自己没瞎：接上了事件总线、登记到该树的自有 frame 插件、真观察到状态变化、探针零异常——否则「零失败」是空的 |
-| **F-11 WIRE-LIVENESS** | block list 存活性（#91）：`chat` / `sidebar` / `settings` 三棵树 block list 里**每一项**都要能在当天网关下发的官方 wire 里找到。官方把被 block 的插件改名或并进别的插件时，新 id 不会被剥掉、官方件静默混进树里（`filterWire` 只打 warn 不阻断），这条先红并报出「哪棵树 + 哪个 id + 当天 wire 里含同名词的邻近 id」 |
+| **F-11 WIRE-LIVENESS** | block list 存活性（#91）与分批口径（#165）两部分。**存活性**：`chat` / `sidebar` / `settings` 三棵树 block list 里**每一项**都要能在当天网关下发的官方 wire 里找到。官方把被 block 的插件改名或并进别的插件时，新 id 不会被剥掉、官方件静默混进树里（`filterWire` 只打 warn 不阻断），这条先红并报出「哪棵树 + 哪个 id + 当天 wire 里含同名词的邻近 id」。**分批口径**（#165）：官方按 combo URL 的长度上限把插件清单切成几批，被 block 的条目可能落在**第二批**——把当天真实 wire 里某棵树 block 的某个条目摘出来单独放尾批（干净 profile 的实测形状）后跑过滤，三棵树都必须照旧把它剥干净（entries / 批 / combo URL 三处都不能留）而不是抛「清单对不上」；同时钉住判据没被放宽：某个被 block 的 id 在 wire 里、却不在**任何** application 批里时仍然硬抛（过滤管道够不着它），报错文案点名是哪一种情形 |
 | **F-12 SIDEBAR-SKELETON** | 侧栏骨架四区（#99 立、#135 起顶栏那一行是「胶囊 + 四项」）：顶栏那一行里官方搜索栏**两态**（#132 起初始是收起态的放大镜、点开才是展开态，Esc 收起并清空）、折叠/展开全部、添加工作区两项菜单、设置齿轮（#131 起视图选项那一枚已退役），外加 #135 并进来的分组过滤条（它整个落在那一行的盒子里、不在列表区）、折叠全部真的收起整棵树；「创建新工作区目录」与设置齿轮各自经宿主能力口发出 `vscode.workspaceCreate` / `vscode.openSettings`（假宿主只记录），官方 `sidebar.settings` 那行不再渲染；分组过滤条是单胶囊 + 成员计数 + ▾（下拉四类 + 管理分组对话框）；回收站入口行在官方 `sidebar.footer.action` 座位里、**不在**自有浏览区 DOM 内、点它开现有抽屉 |
 | **F-13 DENSITY-SPREAD** | 密度档扩散（#104，口径按 #134 重写、#144 补一处）：同一页、260/340/500 三档宽度下，把密度变量从宿主给的 VS Code 档切到树自己声明的官方兜底值（= 官方档），顶栏 / 分组过滤条 / 回收站入口行 / 抽屉四区的几何逐项比较。判据分两类：**行家族回标准档的那些测量点两个档同值**（抽屉会话行的高与左右内边距、**抽屉分块块头的高 34px**（#144 起它与侧栏工作区行收敛成同一套折叠语言，高度改吃行族的 `row-height`，`drawer-block-header-height` 这个键随条目退场）与左右内边距、抽屉头与分块块头的左内边距、入口主区的左右内边距——后几处吃的是「行内容基准」），**其余每一项紧凑档严格小于官方原值**（含抽屉头与入口主区的高度：它们自己的行高键仍是紧凑档，没跟着放开）。另核「同值那一类真的量到 ≥ 6 项」「严格更紧那一类仍 ≥ 15 项」（防口径重写把套件改空）、同一区域的紧凑读数在三档宽度下一致（密度随容器、不随宽度）、全程零 pageerror |
 | **F-14 PIN-UNREAD** | 置顶与手动未读（#102）：旧形状（裸 id 数组）的 `pinned` 与规范形状的 `unread` 注进假宿主状态存储后**都被采用**，且只有旧形状那一份被按 `{version:1, sessionIds:[…]}` 写回一次；置顶行在它所在分组里排第一（其余保持官方顺序）；菜单「标为未读 / 标为已读」把行变成绿点 + 标题加粗并写回 `unread` 键；**打开会话即清未读**；运行中（或后代在跑）那一行该项禁用并给出原因；保护规则——置顶行选择态下不可勾选（灰 + 带原因 + 点它不切换）、置顶行的归档项禁用并给置顶原因、未读行的归档项禁用并给未读原因 |

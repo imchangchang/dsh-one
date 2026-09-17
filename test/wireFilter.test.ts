@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   CHAT_BLOCKED_IDS,
+  GIT_CARD_PLUGIN_ID,
   SETTINGS_BLOCKED_IDS,
   SETTINGS_SHELL_PLUGIN_ID,
   SHELL_PLUGIN_ID,
@@ -12,6 +13,7 @@ import {
   extractBootWire,
   extractFrontendAssets,
   filterWire,
+  type BootWire,
 } from '../src/ui/assembly/wireFilter.ts'
 
 /** 迷你网关 HTML 夹具：2 个 blocked + 2 个保留 + 完整四全局注入形态。 */
@@ -167,4 +169,113 @@ test('filterWire（settings 树）：外框+官方侧栏+对话流剥除，frame
     SETTINGS_SHELL_PLUGIN_ID,
     THEME_FOLLOW_PLUGIN_ID,
   ])
+})
+
+// ---------------------------------------------------------------------------
+// #165：官方把 application 阶段切成好几批时的口径
+// ---------------------------------------------------------------------------
+
+/** 一个被 block 的官方插件（干净 profile 上实测就落在第二个 application 批）。 */
+const DIR_PICKER = '@deepseek-ai/dsh-client-ui-directory-picker-native'
+/** 只挡它一条的最小清单（口径测试不牵扯三棵树的真实清单）。 */
+const BLOCK_DIR_PICKER = [{ id: DIR_PICKER, reason: 'fixture' }]
+
+/**
+ * 手搓 wire（口径测试用）：entries 与各批自洽，批数与分批位置可控——
+ * FIXTURE_HTML 是单个 application 批的迷你网关，验不到「跨批」。
+ */
+function wireOf(shape: {
+  entries: readonly string[]
+  batches: ReadonlyArray<{ phase: 'bootstrap' | 'application'; entries: readonly string[] }>
+}): BootWire {
+  const combo = (ids: readonly string[], rev: string): string =>
+    `/plugins/??${ids.map((id) => `${id}/client.js`).join(',')}&rev=${rev}`
+  return {
+    rev: 'rev-root',
+    entries: shape.entries.map((id) => ({ id, url: combo([id], `rev-${id.slice(-4)}`), rev: `rev-${id.slice(-4)}` })),
+    batches: shape.batches.map((batch, index) => ({
+      phase: batch.phase,
+      url: combo(batch.entries, `rev-batch-${String(index)}`),
+      rev: `rev-batch-${String(index)}`,
+      entries: [...batch.entries],
+    })),
+  }
+}
+
+test('filterWire：block 项落在第二个 application 批里也照常剥掉（#165）', () => {
+  // 干净 profile 上实测的形状：一个 bootstrap 批 + 两个 application 批，
+  // 最后一个插件（directory-picker-native）被 URL 长度上限挤进第二批。
+  const wire = wireOf({
+    entries: ['@deepseek-ai/dsh-client-modules', '@deepseek-ai/dsh-client-ui-chat', DIR_PICKER],
+    batches: [
+      { phase: 'bootstrap', entries: ['@deepseek-ai/dsh-client-modules'] },
+      { phase: 'application', entries: ['@deepseek-ai/dsh-client-ui-chat'] },
+      { phase: 'application', entries: [DIR_PICKER] },
+    ],
+  })
+  const warnings: string[] = []
+  const filtered = filterWire(wire, BLOCK_DIR_PICKER, SHELL_PLUGIN_ID, [THEME_FOLLOW_PLUGIN_ID], (line) =>
+    warnings.push(line),
+  )
+  // 修复前这里抛 application batch blocklist entries inconsistent with wire entries
+  assert.deepEqual(warnings, [])
+  assert.equal(filtered.entries.some((e) => e.id === DIR_PICKER), false, 'entries 里应剥掉')
+  // 官方两个 application 批合回一个：保留件都在，被 block 的那条不在（批与 combo URL 都没有）
+  assert.equal(filtered.batches.length, 2)
+  const app = filtered.batches[1]
+  assert.equal(app.phase, 'application')
+  assert.equal(app.rev, 'rev-batch-1', 'rev 沿用第一个 application 批')
+  assert.deepEqual(app.entries, ['@deepseek-ai/dsh-client-ui-chat', SHELL_PLUGIN_ID, THEME_FOLLOW_PLUGIN_ID])
+  assert.equal(app.url.includes('directory-picker-native'), false, 'combo URL 不得含被 block 的段')
+})
+
+test('filterWire：#165 的两条硬判据没放宽——够不着与自相矛盾各自抛错，文案点名情形', () => {
+  // ① 在 wire 里、却不在任何 application 批（例如官方把它挪进了 bootstrap 批）：
+  //    过滤管道（mirror 剥段）够不着，必须抛错而不能降级成 warn
+  const inBootstrap = wireOf({
+    entries: ['@deepseek-ai/dsh-client-modules', DIR_PICKER],
+    batches: [
+      { phase: 'bootstrap', entries: ['@deepseek-ai/dsh-client-modules', DIR_PICKER] },
+      { phase: 'application', entries: ['@deepseek-ai/dsh-client-modules', DIR_PICKER] },
+    ],
+  })
+  inBootstrap.batches[1].entries = ['@deepseek-ai/dsh-client-modules']
+  assert.throws(
+    () => filterWire(inBootstrap, BLOCK_DIR_PICKER),
+    /in no application batch, so the filter cannot strip them: @deepseek-ai\/dsh-client-ui-directory-picker-native/,
+  )
+  // ② 在批里、却不在 wire.entries：清单与批次自相矛盾（旧口径也抛，别放宽掉）
+  const phantom = wireOf({
+    entries: ['@deepseek-ai/dsh-client-modules'],
+    batches: [
+      { phase: 'bootstrap', entries: ['@deepseek-ai/dsh-client-modules'] },
+      { phase: 'application', entries: ['@deepseek-ai/dsh-client-modules', DIR_PICKER] },
+    ],
+  })
+  assert.throws(
+    () => filterWire(phantom, BLOCK_DIR_PICKER),
+    /in an application batch but absent from the gateway wire entries: @deepseek-ai\/dsh-client-ui-directory-picker-native/,
+  )
+})
+
+test('filterWire：网关清单已含同 id 的自有插件时不重复叠加本地那份（#165）', () => {
+  // 用户把自有插件包装进 profile 之后（docs/plugin-packages.md），网关 wire 里就有
+  // 同名条目；再叠一份本地 bundle 会让客户端抛 duplicate graph entry。
+  const wire = wireOf({
+    entries: ['@deepseek-ai/dsh-client-modules', GIT_CARD_PLUGIN_ID],
+    batches: [
+      { phase: 'bootstrap', entries: ['@deepseek-ai/dsh-client-modules'] },
+      { phase: 'application', entries: ['@deepseek-ai/dsh-client-modules', GIT_CARD_PLUGIN_ID] },
+    ],
+  })
+  const filtered = filterWire(wire, [], SHELL_PLUGIN_ID, [GIT_CARD_PLUGIN_ID, THEME_FOLLOW_PLUGIN_ID])
+  const gitCards = filtered.entries.filter((e) => e.id === GIT_CARD_PLUGIN_ID)
+  assert.equal(gitCards.length, 1, '同 id 只能有一条 entry')
+  assert.match(gitCards[0].url, /^\/plugins\//, '网关已提供时用网关那份，不再指 /plugins-local')
+  assert.equal(filtered.batches[1].entries.filter((id) => id === GIT_CARD_PLUGIN_ID).length, 1)
+  // 网关没有的自有插件照旧叠加本地 bundle
+  const themeFollow = filtered.entries.filter((e) => e.id === THEME_FOLLOW_PLUGIN_ID)
+  assert.equal(themeFollow.length, 1)
+  assert.match(themeFollow[0].url, /^\/plugins-local\//)
+  assert.match(filtered.batches[1].url, /@dsh-one\/vscode-theme-follow\/client\.js/)
 })

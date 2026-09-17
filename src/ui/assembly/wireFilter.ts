@@ -324,6 +324,9 @@ export function extractFrontendAssets(html: string): GatewayAssets {
  * 改指 mirror 的 /plugins-local（mirror 伺服剥掉 blocked 段的官方原 combo，
  * rev 沿用原值)；追加自有 shell entry 与共用插件（默认追加主题跟随插件，
  * 三棵树都装），并入 application 批；bootstrap 批原样不动。
+ *
+ * 官方下发的 application 批可能不止一个（combo URL 有长度上限，官方按图里
+ * 的顺序切段，见 filterWire 内的注释）：这里跨全部批过滤，再把它们合回一个批。
  */
 export function filterWire(
   wire: BootWire,
@@ -336,31 +339,58 @@ export function filterWire(
   const blockedIds = blockedIdsOf(blockList)
   const blocked = new Set(blockedIds)
   const entries = wire.entries.filter((e) => !blocked.has(e.id))
-  // block list 里的条目在网关清单里**不存在**时不该阻断装配（官方把插件合并/
-  // 下线是正常演进，抛错会让面板整个打不开），所以线上这条只报告、不抛错。
-  // 但「不阻断」不等于「没人管」：清单与现实漂移（官方改名 → 我们的过滤静默
-  // 失效 → 官方件混进树里）由浏览器验证的 **F-11 WIRE-LIVENESS** 套件硬断言把关
-  // ——它拿当天网关的 wire 逐棵树核 block list 的每一项，红了就报「哪棵树 + 哪个
-  // id + 可能被改名/换装载方式」（#91）。这条 warn 保留，给人看现场日志用。
-  const presentBlocked = blockedIds.filter((id) => wire.entries.some((e) => e.id === id))
-  if (presentBlocked.length !== blockedIds.length) {
-    const missing = blockedIds.filter((id) => !presentBlocked.includes(id))
-    onWarn?.(
-      `assembly wire: blocklist entries absent from the gateway wire (not filtered, harmless unless renamed upstream): ${missing.join(', ')}`,
-    )
-  }
-  const app = wire.batches.find((b) => b.phase === 'application')
   const bootstrap = wire.batches.find((b) => b.phase === 'bootstrap')
-  if (app === undefined || bootstrap === undefined) {
+  // 官方把 application 阶段按 combo URL 的长度上限（client-modules 的
+  // partitionComboRecords，3KB）切成若干批——批与批之间没有语义差别，都是同一份
+  // 依赖图里的连续一段。所以「有哪些要过滤」必须跨**全部** application 批求并集：
+  // 只看第一批时，插件多一个就把排在最后的 id 挤进第二批，自检会把「落在第二批」
+  // 误判成「清单对不上」而抛错（#165 干净 profile 上整页打不开的根因）。
+  const appBatches = wire.batches.filter((b) => b.phase === 'application')
+  if (appBatches.length === 0 || bootstrap === undefined) {
     throw new Error('assembly wire: missing bootstrap/application batch')
   }
-  const keptIds = app.entries.filter((id) => !blocked.has(id))
-  if (keptIds.length !== app.entries.length - presentBlocked.length) {
-    throw new Error('assembly wire: application batch blocklist entries inconsistent with wire entries')
+  const appEntries = appBatches.flatMap((b) => b.entries)
+  const keptIds = appEntries.filter((id) => !blocked.has(id))
+  // block list 与实际清单的一致性（#165 重写）：判据是**集合关系**，不是首批的条数。
+  // 一个被 block 的 id 落在哪一批都行（只要落在某一批里，mirror 剥段就够得着它）；
+  // 剩下两种对不上仍然硬抛，判据没有放宽——
+  //   ① 在 wire.entries 里、却不在任何 application 批里：过滤管道够不着它（官方
+  //      把它挪进 bootstrap 批或换了装载阶段时是这种），它会被原样下发；
+  //   ② 在某一批 application 里、却不在 wire.entries 里：清单与批次自相矛盾。
+  // 而「网关清单里根本没有这个 id」（官方把插件合并/下线，正常演进）不算不一致，
+  // 也不该阻断装配——抛错会让面板整个打不开，所以那一类只报告（warn）。「不阻断」
+  // 不等于「没人管」：清单与现实漂移（官方改名 → 我们的过滤静默失效 → 官方件混进
+  // 树里）由浏览器验证的 **F-11 WIRE-LIVENESS** 套件硬断言把关——它拿当天网关的
+  // wire 逐棵树核 block list 的每一项，红了就报「哪棵树 + 哪个 id + 可能被改名/
+  // 换装载方式」（#91）。这两条报错与那条 warn 的文案各自点名情形，日志里一眼可分。
+  const blockedInWire = new Set(blockedIds.filter((id) => wire.entries.some((e) => e.id === id)))
+  const blockedInApp = new Set(appEntries.filter((id) => blocked.has(id)))
+  const unfilterable = [...blockedInWire].filter((id) => !blockedInApp.has(id))
+  if (unfilterable.length > 0) {
+    throw new Error(
+      `assembly wire: blocklist entries are in the gateway wire but in no application batch, so the filter cannot strip them: ${unfilterable.join(', ')}`,
+    )
   }
-  const localIds = [shellPluginId, ...extraPluginIds]
+  const phantom = [...blockedInApp].filter((id) => !blockedInWire.has(id))
+  if (phantom.length > 0) {
+    throw new Error(
+      `assembly wire: blocklist entries are in an application batch but absent from the gateway wire entries: ${phantom.join(', ')}`,
+    )
+  }
+  const absent = blockedIds.filter((id) => !blockedInWire.has(id))
+  if (absent.length > 0) {
+    onWarn?.(
+      `assembly wire: blocklist entries absent from the gateway wire (not filtered, harmless unless renamed upstream): ${absent.join(', ')}`,
+    )
+  }
+  // 自有插件本就在网关清单里（用户按 docs/plugin-packages.md 把包装进了 profile）时
+  // 不再叠加本地那份：同一个 id 两条 entry 会让客户端当场抛 duplicate graph entry，
+  // 而两边的 bundle 同源（build.mjs 把包产物拷进 dist/assembly/plugins），取哪一份
+  // 都不改行为（#165 干净 profile 上 chat / sidebar 树打不开的第二个原因）。
+  const localIds = [shellPluginId, ...extraPluginIds].filter((id) => !entries.some((e) => e.id === id))
+  const appRev = appBatches[0].rev
   for (const id of localIds) {
-    entries.push({ id, url: `/plugins-local/??${id}/client.js&rev=${app.rev}`, rev: app.rev })
+    entries.push({ id, url: `/plugins-local/??${id}/client.js&rev=${appRev}`, rev: appRev })
   }
   const comboIds = [...keptIds, ...localIds]
   return {
@@ -370,10 +400,12 @@ export function filterWire(
       bootstrap,
       {
         phase: 'application',
+        // 官方有几个 application 批，这里就合回一个（客户端只按批取它要的那个 bundle，
+        // 合批不改变装载顺序与时机；官方分批的唯一理由是 combo URL 的长度上限）。
         // mirror 的 /plugins-local：combo 含 kept + 本地插件；mirror 拉官方原
         // combo 剥 blocked 段、拼上本地 bundle 后伺服；rev 沿用网关原值（缓存键)。
-        url: `/plugins-local/??${comboIds.map((id) => `${id}/client.js`).join(',')}&rev=${app.rev}`,
-        rev: app.rev,
+        url: `/plugins-local/??${comboIds.map((id) => `${id}/client.js`).join(',')}&rev=${appRev}`,
+        rev: appRev,
         entries: comboIds,
       },
     ],

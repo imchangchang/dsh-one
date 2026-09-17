@@ -24,6 +24,7 @@ import {
 } from './harness.ts'
 import { LAB_TREES, type LabServer, type LabTreeRoute } from './labServer.ts'
 import { ASSEMBLY_TREES, type AssemblyTree } from '../../src/ui/assembly/trees.ts'
+import { filterWire, type BootWire, type BootWireBatch } from '../../src/ui/assembly/wireFilter.ts'
 // 只取类型（编译后不留 import，运行期没有环）：套件接口定义在 suites.ts 里，
 // 它就是本文件的调用方（SUITES 数组末尾追加这两个套件）。
 import type { LabSuite } from './suites.ts'
@@ -148,12 +149,55 @@ function renameHint(id: string, wireIds: ReadonlySet<string>): string {
     : `可能被改名/换装载方式，当天 wire 里含同名词的邻近 id：${candidates.slice(0, 4).join(', ')}`
 }
 
+/**
+ * 合成「官方把 application 阶段切成两批」的形状（#165）。
+ *
+ * 为什么要合成：真实分批取决于 combo URL 的长度上限（官方 client-modules 的
+ * partitionComboRecords，3KB），本机装着多少插件、谁排在最后决定谁被挤进第二批
+ * ——干净 profile 上被挤出去的是 directory-picker-native（#165 现场）。口径要验的
+ * 是「无论被挤出去的是谁，过滤都认」，所以把当天 wire 里**某个被我们 block 的**
+ * 条目摘出来，单独放一个尾批：形状与官方分批一致（两个 application 批、各批
+ * entries 与 URL 名字对得上），只是批 URL 是合成的——这条用例不发起请求，只跑
+ * 过滤逻辑，mirror 那侧由装配页本身（各棵树的 CONTRACT 断言）覆盖。
+ */
+function splitApplicationBatch(wire: BootWire, moved: string): BootWire {
+  const appEntries = wire.batches.filter((batch) => batch.phase === 'application').flatMap((batch) => batch.entries)
+  const rest = appEntries.filter((id) => id !== moved)
+  const comboUrl = (ids: readonly string[], rev: string): string =>
+    `/plugins/??${ids.map((id) => `${id}/client.js`).join(',')}&rev=${rev}`
+  const second: BootWireBatch = {
+    phase: 'application',
+    url: comboUrl([moved], 'synthetic-second'),
+    rev: 'synthetic-second',
+    entries: [moved],
+  }
+  return {
+    rev: wire.rev,
+    entries: wire.entries,
+    batches: [
+      ...wire.batches.filter((batch) => batch.phase === 'bootstrap'),
+      { phase: 'application', url: comboUrl(rest, 'synthetic-first'), rev: 'synthetic-first', entries: rest },
+      second,
+    ],
+  }
+}
+
+/** 把某个 id 从所有 application 批里摘掉、只留在 entries 里（#165 的另一半判据）。 */
+function withoutApplicationBatch(wire: BootWire, moved: string): BootWire {
+  return {
+    ...wire,
+    batches: wire.batches.map((batch) =>
+      batch.phase === 'application' ? { ...batch, entries: batch.entries.filter((id) => id !== moved) } : batch,
+    ),
+  }
+}
+
 export const WIRE_LIVENESS_SUITE: LabSuite = {
   id: 'F-11',
   phase: 'new-feature',
-  name: 'block list 存活性：三棵树 block 的每个官方插件 id 都能在当天网关 wire 里找到（WIRE-LIVENESS 套件）',
+  name: 'block list 存活性（三棵树 block 的每个官方插件 id 都能在当天网关 wire 里找到）+ 分批口径（落在第二个 application 批也照旧剥掉）（WIRE-LIVENESS 套件）',
   expect:
-    '拿**当天网关下发的官方 wire**（实验室各页面的装配来源，`lab.gatewayPluginIds()`）逐棵树核 block list：`chat` / `sidebar` / `settings` 三棵树引用的每个官方插件 id 都必须能在 wire 的 entries 里找到，一条都不能缺。红了就是清单与现实漂移了——官方把某个被 block 的插件**改名或并进别的插件**时，新 id 不会被剥掉，官方件会静默混进树里（`filterWire` 只会打一条 warn，不阻断装配），而这正是最难排查的那种「看着正常、其实多了个不该在的官方件」。失败信息带上「哪棵树 + 哪个 id + 当天 wire 里含同名词的邻近 id（可能改成了谁）」。红了怎么办：按官方 release notes 或官方源码确认它的新装载方式，把这条 block 改成新 id（内容搬进别的插件时通常是**摘除**这条，因为那个 id 已经不存在了），摘除要照 CHAT_FLOW / SETTINGS_PAGES 的写法写明为什么。三棵树都查（`sidebar-official` 对照档与 `sidebar` 同一份 block list，去重后不重复报）。',
+    '两部分。**第一部分（存活性）**：拿**当天网关下发的官方 wire**（实验室各页面的装配来源，`lab.gatewayPluginIds()`）逐棵树核 block list：`chat` / `sidebar` / `settings` 三棵树引用的每个官方插件 id 都必须能在 wire 的 entries 里找到，一条都不能缺。红了就是清单与现实漂移了——官方把某个被 block 的插件**改名或并进别的插件**时，新 id 不会被剥掉，官方件会静默混进树里（`filterWire` 只会打一条 warn，不阻断装配），而这正是最难排查的那种「看着正常、其实多了个不该在的官方件」。失败信息带上「哪棵树 + 哪个 id + 当天 wire 里含同名词的邻近 id（可能改成了谁）」。红了怎么办：按官方 release notes 或官方源码确认它的新装载方式，把这条 block 改成新 id（内容搬进别的插件时通常是**摘除**这条，因为那个 id 已经不存在了），摘除要照 CHAT_FLOW / SETTINGS_PAGES 的写法写明为什么。三棵树都查（`sidebar-official` 对照档与 `sidebar` 同一份 block list，去重后不重复报）。**第二部分（分批口径，#165）**：官方按 combo URL 的长度上限把 application 阶段切成若干批，被 block 的条目可能落在**第二批**——拿当天真实 wire 合成那个形状（把某棵树 block 的某个条目摘出来单独放尾批）后跑过滤，三棵树都必须照旧把它剥掉（entries、批、combo URL 三处都不能留），而不是抛「清单对不上」；同时钉住判据没被放宽：某个被 block 的 id 在 wire 里、却不在**任何** application 批里时仍然硬抛（过滤管道够不着它），报错文案点名是哪一种情形。',
   run: async (ctx, check) => {
     const wireIds = await ctx.lab.gatewayPluginIds()
     check.fact(
@@ -168,6 +212,71 @@ export const WIRE_LIVENESS_SUITE: LabSuite = {
         `${label}：block list 的每一项都能在当天网关 wire 里找到`,
         missing.map((id) => `${id} —— ${renameHint(id, wireIds)}`),
         [],
+      )
+    }
+
+    // 第二部分（#165）：被 block 的条目落在第二个 application 批时，过滤照旧认。
+    const wire = await ctx.lab.gatewayWire()
+    const appBatchCount = wire.batches.filter((batch) => batch.phase === 'application').length
+    check.fact(`当天 wire 的批构成：${wire.batches.map((batch) => `${batch.phase}(${String(batch.entries.length)})`).join(' + ')}`)
+    for (const { label, tree } of AUDITED_TREES) {
+      // 用这棵树**自己** block 的、当天 wire 里真有的那个条目来合成第二批。
+      const moved = tree.blockList.map((entry) => entry.id).find((id) => wireIds.has(id))
+      if (moved === undefined) {
+        check.ok(`${label}：能挑出一个「被 block 且当天 wire 里真有」的条目来合成第二批`, false, '当天 wire 里一条都没命中')
+        continue
+      }
+      const split = splitApplicationBatch(wire, moved)
+      const secondBatch = split.batches[split.batches.length - 1]
+      check.ok(
+        `${label}：合成形状成立（${moved} 落在第二个 application 批，当天真实批数 ${String(appBatchCount)}）`,
+        split.batches.filter((batch) => batch.phase === 'application').length === 2 && secondBatch.entries.join() === moved,
+        `合成分批：${split.batches.map((batch) => `${batch.phase}(${batch.entries.length})`).join(' + ')}`,
+      )
+      const warnings: string[] = []
+      let filtered: BootWire | undefined
+      let thrown = ''
+      try {
+        filtered = filterWire(split, tree.blockList, tree.shellPluginId, tree.extraPluginIds, (line) => warnings.push(line))
+      } catch (err) {
+        thrown = err instanceof Error ? err.message : String(err)
+      }
+      check.eq(`${label}：block 的条目落在第二个批时过滤不抛错（#165 现场是抛 inconsistent）`, thrown, '')
+      if (filtered === undefined) continue
+      const app = filtered.batches.find((batch) => batch.phase === 'application')
+      check.ok(
+        `${label}：落在第二批的那条（${moved}）被剥干净——entries / 批 / combo URL 三处都没有`,
+        !filtered.entries.some((entry) => entry.id === moved) &&
+          app !== undefined &&
+          !app.entries.includes(moved) &&
+          !app.url.includes(moved),
+        `entries 有=${String(filtered.entries.some((entry) => entry.id === moved))} 批有=${String(app?.entries.includes(moved) ?? true)} url 有=${String(app?.url.includes(moved) ?? true)}`,
+      )
+      check.ok(
+        `${label}：第二批里没被 block 的官方件没被连坐丢掉（过滤只摘 block 的段）`,
+        app !== undefined && app.entries.some((id) => wireIds.has(id) && !tree.blockList.some((entry) => entry.id === id)),
+        `合并后的 application 批 ${String(app?.entries.length ?? 0)} 条`,
+      )
+      check.ok(
+        `${label}：落在第二批的那条不该出现在「清单里没有」的报告里（它是真实存在、只是换了批）`,
+        !warnings.some((line) => line.includes(moved)),
+        warnings.join(' | ') || '（无报告）',
+      )
+    }
+    // 判据没放宽：在 wire 里、却不在任何 application 批里时仍然硬抛（文案点名情形）。
+    const unfilterable = AUDITED_TREES[0]
+    const moved = unfilterable.tree.blockList.map((entry) => entry.id).find((id) => wireIds.has(id)) ?? ''
+    if (moved !== '') {
+      let message = ''
+      try {
+        filterWire(withoutApplicationBatch(wire, moved), unfilterable.tree.blockList, unfilterable.tree.shellPluginId, unfilterable.tree.extraPluginIds)
+      } catch (err) {
+        message = err instanceof Error ? err.message : String(err)
+      }
+      check.ok(
+        `${unfilterable.label}：被 block 的条目在 wire 里却不在任何 application 批 → 仍然抛错（判据没放宽）`,
+        message.includes('in no application batch') && message.includes(moved),
+        message === '' ? '没抛错（判据被放宽了）' : message,
       )
     }
     return []
