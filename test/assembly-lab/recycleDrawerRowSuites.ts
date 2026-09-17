@@ -363,7 +363,7 @@ async function installLongTitleFixture(
             id?: string
             sessionId?: string
             blank?: boolean
-            projections?: { values?: { title?: string } }
+            projections?: { asOfSeq?: number; values?: { title?: string } }
           }[]
         }
       }
@@ -371,7 +371,15 @@ async function installLongTitleFixture(
     for (const item of parsed.result?.value?.items ?? []) {
       const id = item.id ?? item.sessionId ?? ''
       if (id === '' || !sessionIds.includes(id)) continue
-      if (item.projections?.values !== undefined) item.projections.values.title = LONG_TITLE
+      if (item.projections?.values !== undefined) {
+        item.projections.values.title = LONG_TITLE
+        // **把 `asOfSeq` 抬到远高于网关的值**：投影值是「按序号取新」的（官方投影存储
+        // `seed`/`apply` 只在序号更大时才覆盖，同一序号不改），而页面的 mux 流常常比这次
+        // `session/list` 回执先到——那一刻真标题已经以网关那个序号落进存储，我们只换值不换
+        // 序号就会被原样忽略（#154 实测：同一台机器上一轮生效、下一轮不生效的抖动就是这个）。
+        // 序号抬大之后，无论谁先到，夹具这份都算更新的那一份。
+        item.projections.asOfSeq = Math.max(item.projections.asOfSeq ?? 0, 0) + 1_000_000
+      }
       item.blank = false
       stats.touched += 1
     }
