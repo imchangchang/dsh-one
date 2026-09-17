@@ -98,6 +98,13 @@ packages/dsh-git-card/
 
 `@dsh-one/vscode-*` 那几件照旧在 `build.mjs` 里就地打成 `dist/assembly/plugins/`。
 
+**产物不入库**（#106）：`packages/*/lib/` 与 `dist/` 都在 `.gitignore` 里，只为本地开发与
+发布包存在。所以「装进 profile」之前先 `npm run build`——`file:` 安装会把包目录原样拷进
+profile，`lib/client.js` 不在时包进了 profile 也不会加载（浏览器侧没有东西可取）。
+`npm run verify:plugins-official` / `verify:clean-profile` / `verify:host-half` 这三条
+npm script 都先挂了一条 `npm run build`；直接 `node scripts/verify-*.mjs` 跑的话，
+脚本开头会检查产物在不在，缺了会指名要你跑 `npm run build`。
+
 ## 装进官方 profile 的步骤
 
 ```bash

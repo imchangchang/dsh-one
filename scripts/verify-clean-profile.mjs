@@ -28,6 +28,7 @@ import * as net from 'node:net'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { chromium } from 'playwright'
+import { assertBuildArtifacts } from './check-build-artifacts.mjs'
 
 const args = process.argv.slice(2)
 const keep = args.includes('--keep')
@@ -96,6 +97,7 @@ async function pluginPackages() {
 }
 
 async function main() {
+  assertBuildArtifacts()
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-clean-profile-'))
   const dshHome = path.join(tmp, 'dsh-home')
   await fs.mkdir(dshHome, { recursive: true })

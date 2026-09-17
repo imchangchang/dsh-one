@@ -164,8 +164,8 @@
   "scripts": {
     "build": "node build.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "node --test test/*.test.ts test/mock-dsh/*.test.ts test/mock-llm/*.test.ts",
-    "verify:host-half": "node scripts/verify-host-half-official.mjs",
+    "test": "npm run build && node --test test/*.test.ts test/mock-dsh/*.test.ts test/mock-llm/*.test.ts",
+    "verify:host-half": "npm run build && node scripts/verify-host-half-official.mjs",
     "verify:plugins-official": "npm run build && node scripts/verify-plugins-official.mjs",
     "verify:clean-profile": "npm run build && node scripts/verify-clean-profile.mjs",
     "verify:lab": "npm run build && node test/assembly-lab/verify.ts",

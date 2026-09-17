@@ -10,13 +10,29 @@
 npm install   # 只有 devDependencies：typescript / esbuild / @vscode/vsce / @types/*
 ```
 
+## 克隆下来先构建一次（构建产物不入库）
+
+仓库里**不带构建产物**。两处产物都由 `npm run build` 从源码打出来，都在 `.gitignore` 里：
+
+- `dist/` —— 扩展自己的 bundle，以及装配用的插件 bundle（`dist/assembly/plugins/`，扩展运行时读的就是这里）；
+- `packages/*/lib/` —— 自有插件包的产物（浏览器侧 `lib/client.js` + 宿主半 `lib/index.js`），扩展运行时**不**读这里，它只在「把包装进 dsh profile」与发布包里才有意义。
+
+为什么这么定：这些是生成文件。入库等于每个并行分支都重建同一份字节，合入时冲突就落在生成文件上——产物文本没法手改，只能取一侧再按合并后的源码重建（#102 rebase 到 #104 之后就是这么收尾的：专门一个提交「重建 dsh-workspace-tree 产物」）。不入库之后，冲突只可能落在源码上。所以按源码走，产物谁需要谁先构建——新克隆或清空产物之后：
+
+```bash
+npm install
+npm run build      # 打出 dist/ 与 packages/*/lib/
+```
+
+**按 npm script 跑的命令会自己兜底**：`npm test` 与 `npm run verify:*` 都先挂一条 `npm run build`，新克隆直接跑不会缺文件。只有直接跑 `node test/xxx.test.ts`、`node scripts/verify-xxx.mjs` 这种绕过 npm script 的方式会遇到缺产物——那几条脚本开头会指名道姓说缺哪些文件、该跑什么（实现在 `scripts/check-build-artifacts.mjs`），不会静默失败。
+
 ## npm scripts
 
 | 命令 | 干什么 |
 | --- | --- |
-| `npm run build` | `node build.mjs`：esbuild 把 `src/extension.ts` 打成单文件 `dist/extension.js`（cjs、target node22、`vscode` external、带 sourcemap）。有 warning 会以非零码退出。 |
+| `npm run build` | `node build.mjs`：esbuild 把 `src/extension.ts` 打成单文件 `dist/extension.js`（cjs、target node22、`vscode` external、带 sourcemap），同时打出自有插件包的产物 `packages/*/lib/` 与装配用的 `dist/assembly/plugins/`。有 warning 会以非零码退出。产物都不入库，见上一节。 |
 | `npm run typecheck` | `tsc --noEmit`。注意 import 都带 `.ts` 后缀（`allowImportingTsExtensions` + `verbatimModuleSyntax`），新增 import 要遵守。 |
-| `npm test` | `node --test test/*.test.ts`，只覆盖 `src/pure/`。改 pure 模块必须跑。 |
+| `npm test` | 先 `npm run build`（产物不入库，见上一节），再 `node --test test/*.test.ts`，只覆盖 `src/pure/`。改 pure 模块必须跑。 |
 | `npm run verify:lab` | 先 `npm run build`，再用 Playwright 跑装配的**浏览器验证**（harness 在 `test/assembly-lab/`）：四棵树在真实 dsh 网关（只读）上零槽位崩溃/零缺失契约、三树冒烟渲染、关键交互、侧栏树与官方外观逐项对齐、宿主能力口语义。需要本机有在跑的 dsh 网关（缺省 3080，token 读 `~/.dsh/dsh-owned.json`）；产物在 `test/assembly-lab/out/`（gitignored）。改装配相关代码后必跑，细节见 `test/assembly-lab/README.md`。 |
 | `npm run verify:clean-profile` | 干净 profile 门禁（#165）：在临时目录里起一个全新 `DSH_HOME`、把 `packages/` 下的自有插件包装进 profile、再起一个独立端口的 dsh，然后用装配实验室那套装配页逐棵树打开，核对「干净 profile 上装配页能起来」（不读 `~/.dsh/dsh-owned.json`、不碰你正在跑的实例，跑完按 PID 收掉）。细节与为什么要单列一条见 `test/assembly-lab/README.md`。 |
 | `npm run verify:install-guide` | 用 Playwright 跑**宿主侧那两页**的冒烟（harness 在 `test/install-guide/`）：安装引导 tab（按钮/下拉含选中态与外链/命令随平台更换/复制成功与失败反馈/分段切换）与侧栏状态页（未安装/启动中/未运行/启动失败/装配失败各自画成什么样、按钮发什么消息），页面都由真实宿主代码渲染（`vscode` 顶上假实现），明暗两态各跑一遍并留截图。不需要网关（这两页都不参与装配树）；`SMOKE_LOCALE=zh-cn` 用真中文译文渲染，产物在 `test/install-guide/out/`（gitignored），细节见 `test/install-guide/README.md`。状态页跟随服务状态变化（宿主侧订阅）由 `npm test` 的 `test/sidebarStatusPage.test.ts` 覆盖。 |

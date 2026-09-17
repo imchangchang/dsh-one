@@ -34,6 +34,7 @@ import * as net from 'node:net'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { chromium } from 'playwright'
+import { assertBuildArtifacts } from './check-build-artifacts.mjs'
 
 const args = process.argv.slice(2)
 const keep = args.includes('--keep')
@@ -98,6 +99,7 @@ async function pluginPackages() {
 let PORT = 0
 
 async function main() {
+  assertBuildArtifacts()
   PORT = portArg >= 0 ? Number(args[portArg + 1]) : await freePort()
   const mockPort = await freePort()
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-plugins-verify-'))

@@ -1,5 +1,10 @@
 node_modules/
 dist/
+# 自有插件包的构建产物：`npm run build` 从 packages/*/src 打出，包自己的 lib/ 只在本地
+# 与发布出去的包里存在。入库等于每个并行分支都重建同一份字节，合入时冲突会落在生成文件
+# 上（#102 rebase 到 #104 就是这么撞的，产物文本没法手改，只能取一侧再按源码重建）。
+# 扩展运行时读的是 dist/assembly/plugins/（同上，不入库），不读这里。
+packages/*/lib/
 *.vsix
 .dev-host/
 .worktrees/
