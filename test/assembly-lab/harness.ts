@@ -137,6 +137,11 @@ export interface OpenOptions {
   stripFrameMarkers?: boolean
   /** 装上 fiber 探针（#91，见 `fiberProbeScript`）：FIBER 套件读它的记录做断言。 */
   fiberProbe?: boolean
+  /**
+   * 装上 VS Code 链接拦截层的替身（#150，见 `vscodeLinkLayerScript`）：F-48 读它的记录
+   * 断言「捕获兜底接管后这一层不再收到同一次点击」（不叠加成双开）。
+   */
+  linkLayer?: boolean
   /** 假宿主的状态存储初值（键 → 值；#82 的迁移/读写断言用）。 */
   state?: Record<string, unknown>
   /**
@@ -179,6 +184,67 @@ export function stripFrameMarkersScript(): string {
     return write.call(this, name, value)
   }
 })()`
+}
+
+/**
+ * VS Code webview 链接拦截层的**替身**（#150）：把 host 在真 webview 里装的那层
+ * 「点锚点就交给宿主打开」的监听在实验室页面上重现一份，供套件观察它到底收到了几次点击。
+ *
+ * 为什么需要替身：这层拦截是**宿主（VS Code）装的**，实验室页面是普通浏览器，跑不出
+ * 真 webview 的多层结构（真 webview = 外层文档 + 内层 iframe，监听挂在内层 window 上）。
+ * 而 #150 要验的两件事都只有它在场才看得见——①「锚点自己 stopPropagation 就再也到不了
+ * 这一层」（真因）；② 我们那层捕获兜底接管之后，这一层**不再收到**同一次点击（不会
+ * 与它叠加成双开）。所以按官方源码逐句抄一份最小替身，把「postMessage 给宿主开链接」
+ * 换成「记一笔」，其余（`isTrusted` 判据、`composedPath` 找锚点、hash 分支、`preventDefault`）
+ * 与官方逐条同形。
+ *
+ * 出处：VS Code `out/vs/workbench/contrib/webview/browser/pre/index.html` 的
+ * `handleInnerClick`（那个文件里它是 `contentWindow.addEventListener('click', handleInnerClick)`，
+ * 即**冒泡阶段**、挂在页面 window 上，因此点击路径上一旦有人 `stopPropagation` 它就收不到）。
+ * 记录读出走 {@link linkLayerFacts}。
+ */
+export function vscodeLinkLayerScript(): string {
+  return `(() => {
+  const record = []
+  globalThis.__LAB_VSCODE_LINK_LAYER__ = { record }
+  window.addEventListener("click", (event) => {
+    if (!event.isTrusted || !event.view || !event.view.document) return
+    const baseElement = event.view.document.querySelector("base")
+    for (const pathElement of event.composedPath()) {
+      const node = pathElement
+      if (node.tagName && String(node.tagName).toLowerCase() === "a" && node.href) {
+        if (node.getAttribute("href") === "#") {
+          event.view.scrollTo(0, 0)
+        } else if (node.hash && (node.getAttribute("href") === node.hash || (baseElement && node.href === baseElement.href + node.hash))) {
+          const fragment = node.hash.slice(1)
+          const decodedFragment = decodeURIComponent(fragment)
+          const scrollTarget = event.view.document.getElementById(fragment) ?? event.view.document.getElementById(decodedFragment)
+          if (scrollTarget) scrollTarget.scrollIntoView()
+          else if (decodedFragment.toLowerCase() === "top") event.view.scrollTo(0, 0)
+        } else {
+          record.push({ kind: "link", href: node.getAttribute("href"), url: node.href.baseVal || node.href })
+        }
+        event.preventDefault()
+        return
+      }
+    }
+  })
+})()`
+}
+
+/** 链接拦截层替身收到的点击（{@link vscodeLinkLayerScript}）。 */
+export interface LinkLayerFacts {
+  /** 每一次「这一层会交给宿主去开」的点击（顺序 = 点击顺序）。 */
+  hits: ReadonlyArray<{ kind: string; href: string | null; url: string }>
+}
+
+/** 读出链接拦截层替身的记录（没装替身时 hits 为空表）。 */
+export async function linkLayerFacts(page: Page): Promise<LinkLayerFacts> {
+  const hits = await page.evaluate(() => {
+    const layer = (globalThis as { __LAB_VSCODE_LINK_LAYER__?: { record: unknown[] } }).__LAB_VSCODE_LINK_LAYER__
+    return (layer?.record ?? []) as { kind: string; href: string | null; url: string }[]
+  })
+  return { hits }
 }
 
 /**
@@ -436,6 +502,9 @@ async function openPageIn(
   // fiber 探针（#91）同理：必须早于页面任何脚本，才包得住 `__ModuleLoader__`
   // 的第一次赋值（facade）。
   if (options.fiberProbe === true) await context.addInitScript({ content: fiberProbeScript() })
+  // 链接拦截层替身（#150）同一条道理：替身要早于页面任何脚本挂上，才对应真 webview
+  // 里「外层文档先于页面内容装好监听」的位置。
+  if (options.linkLayer === true) await context.addInitScript({ content: vscodeLinkLayerScript() })
   const page = await context.newPage()
   const capture = capturePage(page)
   const query = new URLSearchParams()
