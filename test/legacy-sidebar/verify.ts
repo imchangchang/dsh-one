@@ -338,7 +338,18 @@ const STATES: readonly StateSpec[] = [
     driveCurrent: async (page) => {
       await page.locator('[data-dshone-tree-action="select-mode"]').first().click()
       await page.waitForTimeout(300)
-      await page.locator('[data-dshone-tree-action="group-select"]').first().click()
+      // 别默认「第一组一定勾得上」：当天数据里**当前工作区可能一条能勾的会话都没有**
+      //（那一组的组头框是灰的，Playwright 点不动，整轮 harness 会卡在这里超时崩掉——
+      // 2026-09-17 实测：当前工作区 dsh_kb 的组头框 `aria-disabled="true"`）。所以改挑
+      // 第一枚**能点的**组头框：数据健康时它就是原来那枚（第一组），行为一字未变；
+      // 一枚都挑不出来时不点（这一态在现装配侧停在「刚进选择态」的样子，几何按「缺一侧」记，
+      // 与别的缺数据情形同一条口径），并留一条事实说明原因。
+      const box = page.locator('[data-dshone-tree-action="group-select"]:not([aria-disabled="true"])').first()
+      if ((await box.count()) === 0) {
+        fact('多选态：当天数据里没有一组能勾（组头框全灰）——现装配侧不点组头，这一态的几何按「缺一侧」记')
+        return
+      }
+      await box.click()
       await page.waitForTimeout(300)
     },
   },
@@ -517,13 +528,13 @@ const metrics: readonly Metric[] = [
   { id: 'menu-icon-slot', state: 'menu-l1', label: '菜单项图标位', legacy: { selector: '.popover .menu-item .menu-item-icon' }, current: { selector: '[role="menu"] button[role="menuitem"] [class*="_itemIcon"]' }, measure: { kind: 'box' } },
 
   // ---- 菜单二级 ----
-  { id: 'submenu-indent', state: 'menu-l2', label: '二级项相对一级项**图标列**的缩进', legacy: { selector: '.popover .tag-submenu .menu-item .menu-item-icon', minus: '.popover .menu-item .menu-item-icon' }, current: { selector: '[role="menu"] [data-dshone-tree-item^="tag:"]', minus: '[role="menu"] [class*="_itemIcon"]' }, measure: { kind: 'indent' }, note: '基准取**整个菜单第一项**的图标列（不是父项自己的图标列）：这一项量的是「二级项的内容列相对一级项图标列挪了多少」，父子那两条关系量更直接。两侧读数**不完全可比**：旧侧栏这一项取的是子项图标槽里那个 10px 色块（色块在 14px 槽里居中，多出 2px），算出来 = 子项内边距 24 − 第一项内边距 10 + 2 = 16；现装配侧取的是子项的文字 = 子项内边距 14 + 图标槽 14 + 项内间隙 6 − 第一项内边距 7 = 27（#171 起；#167 期间是 34、#143 期间是 20）' },
+  { id: 'submenu-indent', state: 'menu-l2', label: '二级项相对一级项**图标列**的缩进', legacy: { selector: '.popover .tag-submenu .menu-item .menu-item-icon', minus: '.popover .menu-item .menu-item-icon' }, current: { selector: '[role="menu"] [data-dshone-tree-item^="tag:"]', minus: '[role="menu"] [class*="_itemIcon"]' }, measure: { kind: 'indent' }, note: '基准取**整个菜单第一项**的图标列（不是父项自己的图标列）：这一项量的是「二级项的内容列相对一级项图标列挪了多少」，父子那两条关系量更直接。两侧读数**不完全可比**：旧侧栏这一项取的是子项图标槽里那个 10px 色块（色块在 14px 槽里居中，多出 2px），算出来 = 子项内边距 24 − 第一项内边距 10 + 2 = 16；现装配侧取的是子项的文字 = 子项内边距 7 + 图标槽 14 + 项内间隙 6 − 第一项内边距 7 = 20（#174 起；#171 期间是 27、#167 期间是 34、#143 期间是 20）' },
   // #143：二级项与父项的两条关系量（用户报的「缩进太深」看的是第一条）。父项两侧各用自己的
   // 办法定位：旧侧栏取「紧挨着 `.tag-submenu` 容器的那一项」、现装配侧取它自己的项标记；
   // 子项文字两侧都取**标签那一个 span**（旧侧栏是那个没有类名的 span、现装配侧是
   // `.dshOneTree_submenuItem`）——用 Range 取内容盒才是字真的落在哪儿。
-  { id: 'submenu-text-vs-parent-text', state: 'menu-l2', label: '子项文字左缘 − 父项文字左缘', legacy: { selector: '.popover .tag-submenu .menu-item > span:not([class])', minus: '.popover .menu-item:has(+ .tag-submenu) > span:not([class])' }, current: { selector: '[role="menu"] .dshOneTree_submenuItem', minus: '[role="menu"] [data-dshone-tree-item="moveToGroup"]' }, measure: { kind: 'indent' }, note: '这一条就是「子项比父项深多少」：正数 = 比父项深，负数 = 比父项浅，0 = 与父项同列。旧侧栏恒为 14（= 它自己那个图标槽的宽，也就是我们说的「旧侧栏那一档」）；现装配侧 #126 是 20（深两个图标槽，用户报「太深」）、#143 收到 0（用户又觉得「层级没了」）、#167 取回一位、回到与旧侧栏同值的 14，用户看过仍觉得偏大、#171 取那一档的一半 = 7' },
-  { id: 'submenu-text-vs-parent-icon-right', state: 'menu-l2', label: '子项文字左缘 − 父项图标槽右缘', legacy: { selector: '.popover .tag-submenu .menu-item > span:not([class])', minus: '.popover .menu-item:has(+ .tag-submenu) .menu-item-icon' }, current: { selector: '[role="menu"] .dshOneTree_submenuItem', minus: '[role="menu"] button[role="menuitem"]:has([data-dshone-tree-item="moveToGroup"]) [class*="_itemIcon"]' }, measure: { kind: 'textFromBoxRight' }, note: '子项文字相对父项图标槽右缘差多少：差 = 子项自己的图标槽 + 项内间隙 − 那半格缩进。旧侧栏 14 + 8 = 22；现装配侧 #167 起是 14 + 6 = 20，#171 起是 14 + 6 − 7 = 13（#143 期间是 6 = 只剩项内间隙，子项文字压在父项图标槽右侧）' },
+  { id: 'submenu-text-vs-parent-text', state: 'menu-l2', label: '子项文字左缘 − 父项文字左缘', legacy: { selector: '.popover .tag-submenu .menu-item > span:not([class])', minus: '.popover .menu-item:has(+ .tag-submenu) > span:not([class])' }, current: { selector: '[role="menu"] .dshOneTree_submenuItem', minus: '[role="menu"] [data-dshone-tree-item="moveToGroup"]' }, measure: { kind: 'indent' }, note: '这一条就是「子项比父项深多少」：正数 = 比父项深，负数 = 比父项浅，0 = 与父项同列。旧侧栏恒为 14（= 它自己那个图标槽的宽，也就是我们说的「旧侧栏那一档」）；现装配侧 #126 是 20（深两个图标槽，用户报「太深」）、#143 收到 0（用户又觉得「层级没了」）、#167 取回一位、回到与旧侧栏同值的 14，用户看过仍觉得偏大、#171 取那一档的一半 = 7，用户看过还是觉得偏大、#174 收到底 = 0（与父项文字严格对齐，空图标槽保留）' },
+  { id: 'submenu-text-vs-parent-icon-right', state: 'menu-l2', label: '子项文字左缘 − 父项图标槽右缘', legacy: { selector: '.popover .tag-submenu .menu-item > span:not([class])', minus: '.popover .menu-item:has(+ .tag-submenu) .menu-item-icon' }, current: { selector: '[role="menu"] .dshOneTree_submenuItem', minus: '[role="menu"] button[role="menuitem"]:has([data-dshone-tree-item="moveToGroup"]) [class*="_itemIcon"]' }, measure: { kind: 'textFromBoxRight' }, note: '子项文字相对父项图标槽右缘差多少：差 = 子项自己的图标槽 + 项内间隙 − 那格缩进。旧侧栏 14 + 8 = 22；现装配侧 #167 起是 14 + 6 = 20，#171 起是 14 + 6 − 7 = 13，#174 起是 14 + 6 − 0 = 6（#143 期间同样是 6 = 只剩项内间隙，子项文字压在父项图标槽右侧）' },
 
 
   // ---- 标签组 ----
