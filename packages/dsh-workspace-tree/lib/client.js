@@ -770,6 +770,7 @@ var ZH = {
   "group.chip.aria": "\u53EA\u770B\u5206\u7EC4\u201C{name}\u201D",
   "activity.running": "{n} \u4E2A\u4F1A\u8BDD\u8FD0\u884C\u4E2D",
   "activity.waiting": "{n} \u4E2A\u4F1A\u8BDD\u7B49\u5F85\u4EA4\u4E92",
+  "activity.unread": "{n} \u4E2A\u4F1A\u8BDD\u672A\u8BFB",
   "select.enter": "\u6279\u91CF\u9009\u62E9",
   "select.exit": "\u9000\u51FA\u9009\u62E9",
   "select.row.aria": "\u9009\u4E2D\u4F1A\u8BDD\u201C{name}\u201D",
@@ -978,6 +979,7 @@ var EN = {
   "group.chip.aria": "Show only the group \u201C{name}\u201D",
   "activity.running": "{n} running",
   "activity.waiting": "{n} waiting for you",
+  "activity.unread": "{n} unread",
   "select.enter": "Select sessions",
   "select.exit": "Exit selection",
   "select.row.aria": "Select session \u201C{name}\u201D",
@@ -1520,14 +1522,15 @@ function sessionStatuses(node) {
 function showsStatusDot(statuses, completed) {
   return statuses[0]?.state !== "done" || completed;
 }
-function workspaceActivityCounts(list, workspaces, archivedSessionIds, pending, recycled = EMPTY_IDS) {
+function workspaceActivityCounts(list, workspaces, archivedSessionIds, pending, recycled = EMPTY_IDS, unread = EMPTY_IDS) {
   const archived = new Set(archivedSessionIds);
   const counts = /* @__PURE__ */ new Map();
-  const bump = (key, running, waiting) => {
-    if (!running && !waiting) return;
-    const current = counts.get(key) ?? { running: 0, waiting: 0 };
+  const bump = (key, running, waiting, isUnread) => {
+    if (!running && !waiting && !isUnread) return;
+    const current = counts.get(key) ?? { running: 0, waiting: 0, unread: 0 };
     if (waiting) current.waiting += 1;
-    else current.running += 1;
+    else if (running) current.running += 1;
+    else current.unread += 1;
     counts.set(key, current);
   };
   const accounted = /* @__PURE__ */ new Set();
@@ -1538,7 +1541,7 @@ function workspaceActivityCounts(list, workspaces, archivedSessionIds, pending, 
       accounted.add(id);
       if (!sessionVisible(summary, list.current, archived, recycled)) continue;
       const waiting = visiblePendingKind(pending.get(id)?.kind) !== void 0;
-      bump(workspace.workspaceId, summary.running, waiting);
+      bump(workspace.workspaceId, summary.running, waiting, unread.has(id));
     }
   }
   for (const id of list.ids) {
@@ -1546,7 +1549,7 @@ function workspaceActivityCounts(list, workspaces, archivedSessionIds, pending, 
     if (summary === void 0 || accounted.has(id)) continue;
     if (!sessionVisible(summary, list.current, archived, recycled)) continue;
     const waiting = visiblePendingKind(pending.get(id)?.kind) !== void 0;
-    bump(UNGROUPED_KEY, summary.running, waiting);
+    bump(UNGROUPED_KEY, summary.running, waiting, unread.has(id));
   }
   return counts;
 }
@@ -4315,7 +4318,7 @@ function ActivityBadge({ counts, tr }) {
     "span",
     {
       className: "dshOneTree_activity",
-      "data-dshone-tree-activity": `${String(counts.running)}/${String(counts.waiting)}`
+      "data-dshone-tree-activity": `${String(counts.running)}/${String(counts.waiting)}/${String(counts.unread)}`
     },
     counts.running > 0 ? (0, import_react10.createElement)(
       "span",
@@ -4328,6 +4331,12 @@ function ActivityBadge({ counts, tr }) {
       { className: "dshOneTree_activityItem", "data-dshone-tree-waiting": counts.waiting, title: tr("activity.waiting", { n: counts.waiting }) },
       (0, import_react10.createElement)(import_dsh_client_ui_primitives7.StateDot, { state: "warning" }),
       String(counts.waiting)
+    ) : null,
+    counts.unread > 0 ? (0, import_react10.createElement)(
+      "span",
+      { className: "dshOneTree_activityItem", "data-dshone-tree-unread": counts.unread, title: tr("activity.unread", { n: counts.unread }) },
+      (0, import_react10.createElement)(import_dsh_client_ui_primitives7.StateDot, { state: "done" }),
+      String(counts.unread)
     ) : null
   );
 }
@@ -5020,7 +5029,7 @@ function WorkspaceTree(props) {
     currentFolders,
     ...filterActive && activeGroupId !== null ? { workspaceFilter: (workspaceId) => workspaceMatchesGroup(groupsFile, workspaceId, activeGroupId) } : {}
   });
-  const activity = workspaceActivityCounts(list, workspaces, archivedSessionIds, pending, recycled);
+  const activity = workspaceActivityCounts(list, workspaces, archivedSessionIds, pending, recycled, unreadIds);
   const visibleNodes = deriveFlat(list, archivedSessionIds, pending, recycled);
   const recycleGroups = deriveRecycleGroups(list, workspaces, recycledIds);
   const selectedSet = new Set(selection);

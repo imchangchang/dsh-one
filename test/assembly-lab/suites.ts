@@ -56,6 +56,7 @@ import { EXTERNAL_LINK_SUITE } from './externalLinkSuites.ts'
 import { SEARCH_HIT_HIGHLIGHT_SUITE } from './searchHitHighlightSuites.ts'
 import { DRAG_PARITY_SUITE } from './dragParitySuites.ts'
 import { EXPAND_DEFAULTS_SUITE } from './expandDefaultsSuites.ts'
+import { UNREAD_COUNT_SUITE } from './unreadCountSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
@@ -6125,4 +6126,7 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // #151 展开态的默认值与空工作区（F-51：F-49 归 #152、F-50 归 #155，
   // 按「从未占用的继续」顺延；套件本体在 expandDefaultsSuites.ts，同为独立文件）。
   EXPAND_DEFAULTS_SUITE,
+  // #153 工作区行尾角标补回「未读」一项（F-52：F-49 归 #152、F-50 归 #155、F-51 归 #151，
+  // 按「从未占用的继续」顺延；套件本体在 unreadCountSuites.ts，同为独立文件）。
+  UNREAD_COUNT_SUITE,
 ]
