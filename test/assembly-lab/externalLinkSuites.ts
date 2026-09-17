@@ -399,6 +399,12 @@ export const EXTERNAL_LINK_SUITE: LabSuite = {
       await injectLinkFixture(bare, [barePlain, bareSp])
       const barePlainClick = await clickFixture(bare, barePlain.id)
       const bareSpClick = await clickFixture(bare, bareSp.id)
+      // 浏览器原生开页是**异步**的：`clickFixture` 只等 400ms，弹窗事件偶尔要更久才到
+      // （headless 上尤其），读早了会得到空表、把「时序」记成「没开页」。这里给一个有界的
+      // 等待，等不到照旧是空表、断言照旧红——判据一个字没放宽，只是别读半拍。
+      for (let waited = 0; waited < 3_000 && barePopups.length === 0; waited += 150) {
+        await bare.waitForTimeout(150)
+      }
       check.fact(
         `页 C：没 stopPropagation 的锚点 → 拦截层收到 ${String(barePlainClick.layer.length)} 次；带 stopPropagation 的锚点 → 拦截层收到 ${String(bareSpClick.layer.length)} 次；页面按浏览器原生行为开的页 = ${JSON.stringify(barePopups)}`,
       )
