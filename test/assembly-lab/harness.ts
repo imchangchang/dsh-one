@@ -260,6 +260,9 @@ export interface NativeSideEffectRoute {
  * （宁可它落在报告里「写（新面孔）」那一栏被人看见）。
  * 将来官方新增原生动作时，它要么自己进这份清单，要么由报告里那些新面孔提醒人去核对
  * （见 `verify.ts` 的 R-06）。
+ *
+ * 命中的请求在页面上会被 `observePageRequests` **拦下来**（`abort`，不往下交），
+ * 所以这份清单同时也是「实验室绝不放行到网关」的名单。
  */
 export const NATIVE_SIDE_EFFECT_ROUTES: ReadonlyArray<NativeSideEffectRoute> = [
   {
@@ -301,7 +304,7 @@ const NATIVE_SIDE_EFFECT_BY_PATH: ReadonlyMap<string, NativeSideEffectRoute> = n
   NATIVE_SIDE_EFFECT_ROUTES.map((entry) => [entry.path, entry]),
 )
 
-/** 整轮观测到的原生副作用类调用（一条都不该有；有就整轮红，见 `verify.ts` 的 R-06）。 */
+/** 整轮观测到的、**没人接住**的原生副作用类调用（一条都不该有；有就整轮红，见 `verify.ts` 的 R-06）。 */
 export interface NativeSideEffectCall {
   /** 哪个套件发出来的（`verify.ts` 逐套件设置，见 {@link setLabSuite}）。 */
   suite: string
@@ -317,7 +320,7 @@ export interface NativeSideEffectCall {
 
 const observedNativeSideEffectCalls: NativeSideEffectCall[] = []
 
-/** 整轮观测到的原生副作用类调用（R-06 的判据读它）。 */
+/** 整轮里**没人接住**的原生副作用类调用（R-06 的判据读它；套件夹具故意接住的不在内）。 */
 export function nativeSideEffectCalls(): ReadonlyArray<NativeSideEffectCall> {
   return observedNativeSideEffectCalls
 }
@@ -397,39 +400,68 @@ function summarizeRequestBody(text: string): string {
 }
 
 /**
- * 给一页装观测：听 `request` 事件，**不动请求本身**。
- *
- * 为什么是事件而不是 `page.route` + `fallback()`（#177 原来用的是后者）：几条套件自己
- * 在页上挂了夹具路由（`page.route('**\/api/**', …)`，F-58 就挂着一条
- * `**\/api/directoryPicker/pick` 用来拦住原生目录面板）。同名路由按**后注册的先跑**，
- * 套件那条一定排在观测之后——于是夹具 `fulfill()` 掉的那些请求，观测**一条都看不见**。
- * 那份「看不见」在观测口径下不算错（没到网关就不是打到网关），但**判据不能有这种角落**：
- * 一条真发出、夹具又恰好没接住的调用会从缝里溜掉。`request` 事件是页面发请求那一刻就发的，
- * 谁接住、接没接住都照发，所以观测没有一个套件能盖掉的缝。
- *
- * 命中 {@link NATIVE_SIDE_EFFECT_ROUTES} 的记一笔——**只看 POST**：官方那两条通道都
- * 只认 POST（`/api/<endpoint>` 的桥 `if (request.method !== "POST") return 404`；
- * `open-in-app` 的宿主路由对非 POST 回 405），所以非 POST 的同名请求到不了原生动作，
- * 记成红只会变成假红。
+ * 观测哪一类请求要**拦下来**：{@link NATIVE_SIDE_EFFECT_ROUTES} 里那几条（不在 `/api/`
+ * 下的顶层路由也在内）。见 `observePageRequests`。
  */
-function observePageRequests(page: Page): void {
+const NATIVE_ONLY = (url: URL): boolean => NATIVE_SIDE_EFFECT_BY_PATH.has(url.pathname)
+
+/** 已经装过观测的页（页会被 `newPage` 包装与 `context.on('page')` 两路看到，别装两遍）。 */
+const observedPages = new WeakSet<Page>()
+
+/**
+ * 给一页装观测，两件事分开做（各用各的机制，理由不一样）：
+ *
+ * **① 方法清单与请求源：听 `request` 事件，不碰请求本身。**
+ * 为什么不用 `page.route` + `fallback()`（#177 原来用的就是后者）：几条套件自己在页上挂了
+ * 夹具路由（`page.route('**\/api/**', …)`，F-58 就挂着一条 `**\/api/directoryPicker/pick`
+ * 用来拦住原生目录面板）。同名路由按**后注册的先跑**，套件那条一定排在观测之后——挂路由装
+ * 观测，夹具 `fulfill()` 掉的那些就一条都看不见。`request` 事件在页面发请求那一刻就发，
+ * 谁接住、接没接住都照发，所以这份清单没有能被套件盖掉的缝。
+ *
+ * **② 原生副作用类：挂一条路由把它们拦下来（`abort`，不 `fallback` 下去），没人接住的记一笔。**
+ * 这条路由在**装观测那一刻**注册，是这一页上**最早**的那条，所以按「后注册先跑」它跑**最后**
+ * ——正好是「套件夹具都没接住」的那一档。两个作用：
+ *   - **判据**：走到这一档 = 有一条原生调用真的发出来了，记进 {@link nativeSideEffectCalls}
+ *     让 R-06 当场红，并报出套件 / 页面 / 路径 / 参数摘要；
+ *   - **兜底**：把它 `abort` 掉，于是**即使**某个套件的夹具写坏了（漏接、或哪天不再 fulfill），
+ *     这条调用也到不了网关、用户机器上不会真的冒出东西来。安全由这一层保证，不由套件的自觉
+ *     保证——F-58 那条夹具是「故意接住」，不是「唯一的防线」。
+ *
+ * **只看 POST**：官方那两条通道都只认 POST（`/api/<endpoint>` 的桥
+ * `if (request.method !== "POST") return 404`；`open-in-app` 的宿主路由对非 POST 回 405），
+ * 非 POST 的同名请求到不了原生动作，拦它、判它红都只会变成假红。
+ *
+ * **边界**：观测装在每一页上（见 `observeEveryPage`），但只装在**经 `newPage` 开出来的页**
+ * 上。今天实验室里没有把 dsh 页面开成弹窗的地方（唯一的弹窗是外链那条路上浏览器自己开的、
+ * 套件当场关掉），所以没有留这个口子；将来真要用弹窗装 dsh 页面，这里得跟着补。
+ */
+async function observePageRequests(page: Page): Promise<void> {
+  if (observedPages.has(page)) return
+  observedPages.add(page)
+  // ① 方法清单 / 请求源（只记，不改请求）。
   page.on('request', (request) => {
     const url = new URL(request.url())
-    if (url.pathname.startsWith('/api/')) {
-      const method = decodeURIComponent(url.pathname.slice('/api/'.length)).split('?')[0] ?? ''
-      if (method !== '') apiMethods.set(method, (apiMethods.get(method) ?? 0) + 1)
-      apiOrigins.set(url.origin, (apiOrigins.get(url.origin) ?? 0) + 1)
+    if (!url.pathname.startsWith('/api/')) return
+    const method = decodeURIComponent(url.pathname.slice('/api/'.length)).split('?')[0] ?? ''
+    if (method !== '') apiMethods.set(method, (apiMethods.get(method) ?? 0) + 1)
+    apiOrigins.set(url.origin, (apiOrigins.get(url.origin) ?? 0) + 1)
+  })
+  // ② 原生副作用类：拦下来 + 记一笔。
+  await page.route(NATIVE_ONLY, async (route) => {
+    const request = route.request()
+    const known = NATIVE_SIDE_EFFECT_BY_PATH.get(new URL(request.url()).pathname)
+    if (known === undefined || request.method() !== 'POST') {
+      await route.fallback()
+      return
     }
-    const known = NATIVE_SIDE_EFFECT_BY_PATH.get(url.pathname)
-    if (known !== undefined && request.method() === 'POST') {
-      observedNativeSideEffectCalls.push({
-        suite: currentSuite.id,
-        suiteName: currentSuite.name,
-        page: page.url(),
-        path: known.path,
-        detail: summarizeRequestBody(request.postData() ?? ''),
-      })
-    }
+    observedNativeSideEffectCalls.push({
+      suite: currentSuite.id,
+      suiteName: currentSuite.name,
+      page: page.url(),
+      path: known.path,
+      detail: summarizeRequestBody(request.postData() ?? ''),
+    })
+    await route.abort('blockedbyclient')
   })
 }
 
@@ -449,7 +481,7 @@ function observeEveryPage(browser: Browser): Browser {
           return async (...args: unknown[]): Promise<Page> => {
             const method = target.newPage.bind(target) as (...a: unknown[]) => Promise<Page>
             const page = await method(...args)
-            observePageRequests(page)
+            await observePageRequests(page)
             return page
           }
         }

@@ -466,7 +466,7 @@ function classifyMethod(method: string): string {
  * 整轮页面发出的网关调用的**表**（观测，见 #175）：方法名 / 次数 / 归类，按方法名排。
  *
  * 为什么给成表而不是一行流水：这份清单是「自起的那台一次性实例到底被写了什么」的答卷，
- * 一行流水读不出「有没有新面孔」。归类口径见 {@link READ_METHOD_TAIL_RE}／
+ * 一行流水读不出「有没有新面孔」。归类口径见 {@link READ_METHOD_WORDS}／
  * {@link classifyMethod}；报告渲染器把说明放进 `<pre>`，所以这里给对齐好的等宽表。
  */
 function gatewayCallFacts(): string[] {
@@ -483,7 +483,7 @@ function gatewayCallFacts(): string[] {
   ]
   if (rows.some((row) => row.kind === '写（新面孔）')) {
     lines.push(
-      '「写（新面孔）」= 名字不在已知读动词表里，按默认从严算写——请过一眼：它可能是官方新加的写类动作，也可能是我们还没见过的读法。',
+      '「写（新面孔）」= 名字既不在读词表、也不在已知写词表里，按默认从严算写——请过一眼：它可能是官方新加的写类动作，也可能是我们还没见过的读法。',
     )
   }
   return lines
@@ -492,10 +492,17 @@ function gatewayCallFacts(): string[] {
 /**
  * R-06 的原生副作用判据（#175 的机制级守卫，与 #163 的 `observeOnly` 政策并存）。
  *
- * 口径：整轮里**一条都不许出现** {@link NATIVE_SIDE_EFFECT_ROUTES} 里的调用。这不依赖
- * 「套件有没有点那个控件」——#163 管「探针不许点」，这里管「**只要发了就当场红**」，
+ * 口径：整轮里**一条都不许出现**没人接住的 {@link NATIVE_SIDE_EFFECT_ROUTES} 调用。
+ * 这不依赖「套件有没有点那个控件」——#163 管「探针不许点」，这里管「**只要发了就当场红**」，
  * 两条合起来才是闭环：前者防我们自己的探针，后者防探针之外的任何路径（新套件、
  * 新控件、官方新增的入口、套件自己 `newPage()` 开的页）。
+ *
+ * 「没人接住」是这套判据的关键口径：套件**故意**在页上挂夹具把那一条接住（F-58 就
+ * 把 `directoryPicker/pick` 接住换成夹具回执，理由写在它那条夹具的注释里）时，请求根本没
+ * 出浏览器，不算违规；反过来，夹具写坏了、只 `fallback()` 不 fulfill，请求就落到
+ * `harness.ts` 那条兜底路由上——那一层**记一笔并且 `abort` 掉**，所以既判红、也不会真的
+ * 漏到网关（实测：一条只 `fallback()` 的夹具 + 金丝雀服务器，金丝雀一个请求都收不到）。
+ * 一句收口：**判据看的是「有没有人真的把它接住」，不是「有没有人去接它」。**
  *
  * 失败信息必须**指名道姓**：哪个套件、哪一页、哪条路径、带了什么参数（摘要）。
  */
@@ -513,7 +520,11 @@ function nativeSideEffectCheck(check: Check): void {
               `套件 ${call.suite}${call.suiteName === '' ? '' : `（${call.suiteName}）`} 在页面 ${call.page} 发出 ${call.path}（${call.detail}）`,
           )
           .join('；')
-  check.ok('整轮零原生副作用调用（扫整轮发往网关的这类调用，一条即红）', calls.length === 0, detail)
+  check.ok(
+    '整轮零原生副作用调用（扫整轮发往网关的这类调用：没人接住的那一条即红，且已被拦下不让出门）',
+    calls.length === 0,
+    detail,
+  )
   for (const call of calls) {
     check.fact(`原生副作用调用：套件 ${call.suite}、页面 ${call.page}、${call.path}、参数摘要 ${call.detail}`)
   }
@@ -672,8 +683,8 @@ async function main(): Promise<number> {
     name: '整轮零请求打到实例之外 + 整轮零原生副作用调用（默认：隔离实例自起自收；--gateway：外部实例按只读对待）',
     expect:
       '① 整轮浏览器验证的写面只落在**实验室自起的隔离实例**里（独立临时 DSH_HOME、随机端口）：页面上发出的请求**一条都不落在本轮实例之外**（页面请求的源逐个记下来核过，用户日常实例不在里面），用户日常实例全程只被**只读**探测两次（跑前一次、跑后一次，读数记进事实——共享实例上有别的写者时读数会差，那不归本轮管），跑完隔离实例按 PID 收掉、端口释放、临时 DSH_HOME 删掉。' +
-      '② **整轮零原生副作用调用**（#175 的机制级守卫）：整轮里**任何一页**发出的请求命中「会打到用户机器」那几条路由（`open-in-app/open` 拉本机应用、`settings/openSettingsDocument` 用系统默认应用开文件、`settings/openAgentPresetDirectory`、`session/openWorkspacePath`——出处逐条写在 harness.ts 的 NATIVE_SIDE_EFFECT_ROUTES）即判红，失败信息报出**套件、页面、路径与参数摘要**；这条不依赖「探针没点那个控件」，探针之外的任何路径发出来一样红（与 #163 的 observeOnly 政策并存，两条合起来才是闭环）。' +
-      '③ 附整轮页面发出的网关调用表（方法名 / 次数 / 归类）作为观测：归类按「末段命中读动词才算读、其余一律按写算」的从严口径，写类里名字不在已知动词表里的标「写（新面孔）」点名。',
+      '② **整轮零原生副作用调用**（#175 的机制级守卫）：整轮里**任何一页**发出的请求命中「会打到用户机器」那几条路由（`open-in-app/open` 拉本机应用、`settings/openSettingsDocument` 用系统默认应用开文件、`settings/openAgentPresetDirectory`、`session/openWorkspacePath`、`directoryPicker/pick` 弹原生选目录面板、`terminal/create` 在用户机器上起真 PTY——出处逐条写在 harness.ts 的 NATIVE_SIDE_EFFECT_ROUTES）时，**没人接住的那些当场判红**，失败信息报出**套件、页面、路径与参数摘要**；这条不依赖「探针没点那个控件」，探针之外的任何路径发出来一样红（与 #163 的 observeOnly 政策并存，两条合起来才是闭环）。口径是「有没有人真的接住」而不是「有没有人去接」：套件故意挂夹具把它接住换成回执（F-58 就接住了 `directoryPicker/pick`）不算违规——那一条根本没出浏览器；夹具写坏了、只 `fallback()` 不 fulfill 的，请求落到兜底那一层**被记一笔并且 `abort` 掉**，所以既判红、也不会漏到网关（实测：只 `fallback()` 的夹具 + 金丝雀服务器，金丝雀一个请求都收不到）。' +
+      '③ 附整轮页面发出的网关调用表（方法名 / 次数 / 归类）作为观测：归类按「末段 camelCase 切词、命中读词表才算读、其余一律按写算」的从严口径，写类里名字不在已知动词表里的标「写（新面孔）」点名。',
     result: readonlyPassed ? 'pass' : 'fail',
     screenshots: [],
     notes: readonly.notes(),
