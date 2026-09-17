@@ -249,7 +249,7 @@ export const PENDING_DOT_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '会话等待态的状态点（#140）：等提问 / 等审批 / 计划待审 = 黄点，运行中 = 矩阵，完成 = 绿点',
   expect:
-    '侧栏树的等待态**真的由官方那条口子发布**（#140）：往页面的官方转发事件流（`$events`）投官方 `approval/request` / `user-questions/request` 瀑布帧（页面上真出现一条等待中的 interaction），会话行立刻亮**黄点**，`data-state=warning`、解析色 = `--dsw-alias-state-warn-primary`（同一枚 token 挂探针比，不写死色值）、读屏文案是官方那三档（等待审批 / 等待回答 / 计划待审，`plan-review` 由 ui-user-questions 发布、不是 ui-plan）；与**同一台机器上另开的官方浏览区页**投同一条帧，两边同一会话同一种态的 `data-state`、解析色、点几何逐项相等。**取消帧一到就清**（用户在对话区答复之后不会留一个假黄点）。回归三态：空闲档不渲染点（官方 `showsStatusDot` 的口径）、运行中 = 矩阵 svg（颜色 `--dsw-static-deepseek-450`）、跑完还没打开 = `data-state=done`（颜色 `--dsw-alias-state-success-primary`）。另外钉住工作区行尾那枚**自有**活状态角标的两态（#153 起读数写成三档，本套件不注未读集合、所以第三档恒为 0）：等待中 1 个 = `0/1/0`、运行中 1 个 = `1/0/0`（官方工作区行没有这一层）。全程零 pageerror、零 `slot entry crashed`，夹具只改页面收到的帧（注入的 eventId 网关不知道，页面不回任何结果），网关只读。',
+    '侧栏树的等待态**真的由官方那条口子发布**（#140）：往页面的官方转发事件流（`$events`）投官方 `approval/request` / `user-questions/request` 瀑布帧（页面上真出现一条等待中的 interaction），会话行立刻亮**黄点**，`data-state=warning`、解析色 = `--dsw-alias-state-warn-primary`（同一枚 token 挂探针比，不写死色值）、读屏文案是官方那三档（等待审批 / 等待回答 / 计划待审，`plan-review` 由 ui-user-questions 发布、不是 ui-plan）；与**同一台机器上另开的官方浏览区页**投同一条帧，两边同一会话同一种态的 `data-state`、解析色、点几何逐项相等。**取消帧一到就清**（用户在对话区答复之后不会留一个假黄点）。回归三态：空闲档不渲染点（官方 `showsStatusDot` 的口径）、运行中 = 矩阵 svg（颜色 `--dsw-static-deepseek-450`）、跑完还没打开 = `data-state=done`（颜色 `--dsw-alias-state-success-primary`）。另外钉住工作区行尾那枚**自有**活状态角标的两态（#153 起读数写成三档，本套件不注未读集合、所以第三档恒为 0）：等待中 1 个 = `0/1/0`、运行中 1 个 = `1/0/0`（官方工作区行没有这一层）。另有一条 #184 的取用路径断言：根节点写出的 `data-dshone-tree-pending-source`（这一页实际取的是哪一代官方钩子）与页面上那行「等待交互不可用」的可见事实**必居其一**——官方改了钩子名之后页面的表现只是「没有黄点」，与「今天没有等待中的会话」分不出来，没有这条断言就没人发现取用路径断了。全程零 pageerror、零 `slot entry crashed`，夹具只改页面收到的帧（注入的 eventId 网关不知道，页面不回任何结果），网关只读。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const own = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 380, height: 900 })
@@ -290,6 +290,25 @@ export const PENDING_DOT_SUITE: LabSuite = {
       check.fact(`官方对照档：展开 ${String(expandedOfficial)} 个工作区后渲染 ${String(officialRows0.length)} 条会话行`)
       const baseline = await readOwnRows(own.page)
       check.ok('侧栏树渲染出会话行（挑目标行才有意义）', baseline.length > 0, `rows=${String(baseline.length)}`)
+      /**
+       * #184：等待态这条依赖的取用路径必须有交代——要么按官方的名字取到（根节点写出
+       * 是哪一代钩子），要么页面上有那行「等待交互不可用」的可见事实。两者**必居其一、
+       * 不许都无**：官方改了钩子名之后，页面的表现只是「没有黄点」，与「今天没有等待中
+       * 的会话」长得一模一样，没有这条断言就没人发现取用路径已经断了。
+       */
+      const pendingWiring = await own.page.evaluate(() => {
+        const root = document.querySelector('[data-dshone-tree="root"]')
+        return {
+          source: root?.getAttribute('data-dshone-tree-pending-source') ?? null,
+          notice: root?.querySelector('[data-dshone-tree="pending-unavailable"]') !== null,
+        }
+      })
+      const sourceNames = ['sessionStatus', 'sessionPendingInteraction']
+      check.ok(
+        '等待交互取用路径有交代：按官方名字取到，或页面上有那行可见事实（#184，不许静默）',
+        sourceNames.includes(pendingWiring.source ?? '') !== pendingWiring.notice,
+        `data-dshone-tree-pending-source=${String(pendingWiring.source)} 通知行=${String(pendingWiring.notice)}`,
+      )
       const uniqueOfficialTitles = new Set(
         officialRows0.filter((row) => row.title !== '' && officialRows0.filter((other) => other.title === row.title).length === 1).map((row) => row.title),
       )

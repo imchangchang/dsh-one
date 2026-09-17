@@ -42,7 +42,13 @@
  * 人读源码时用，不进断言 detail——detail 只放可操作的定位信息（缺哪个名字、期望
  * 官方出处 `expect`、我方使用点 `where`），免得失败信息长到看不完。`names` 里多个
  * 名字是「同一东西的各代命名」，任一在场即通过（我们同时服务 0.1.2 与 0.1.6 两线）。
+ *
+ * 名单里有几处**不在本文件里手写**，而是 import 产品侧的同一份名字表（
+ * `src/pure/*.ts`）——产品改了取用名，这里自动跟着查新名，不会出现「探针还在查旧名
+ * 所以天天红」或「产品换了名探针还在查旧名所以天天绿」两种漂法（先例 #37 的
+ * `src/pure/dshWire.ts`：运行时与探针 import 同一个函数）。
  */
+import { PENDING_SOURCES } from '../../src/pure/sessionPendingSource.ts'
 
 /** 提取前提（combo 结构）——不成立时说明取法失效，人工按新结构改本文件。 */
 const MIN_SEGMENTS = 40
@@ -146,35 +152,44 @@ export const SLOT_DEPENDENCIES = [
  * 必须存在的 root 级 hook（官方 `ctx.slots.provideRoot` 下发、框架按
  * `standardHookPropName` 变成槽位 props；我们组件直接解构 `use<Name>`）。
  * 0.1.6 新增 hooks 那一次让会话树整块消失（#76），这一组就是为它设的哨兵。
+ *
+ * `names` / `props` 都是「同一东西的各版本名字」的数组，**任一组在场即通过**：官方
+ * 在版本之间换过钩子名（`sessionPendingInteraction` → `sessionStatus`，见 #184），
+ * 我们两代都服务。`names[i]` 与 `props[i]` 是同一条钩子的两个名字（钩子名与框架
+ * 映射出的 props 名），一一对应。
  */
 export const ROOT_HOOK_DEPENDENCIES = [
   {
-    name: 'panelInfo',
-    prop: 'usePanelInfo',
+    names: ['panelInfo'],
+    props: ['usePanelInfo'],
     field: 'activePanelId',
     why: '当前主面板 id：官方树组件与官方右侧栏都读它，缺了抛 `usePanelInfo is not a function`（#76 现场）',
     where: 'src/ui/assembly/shell/frameShared.ts:175（PANEL_INFO_SOURCE 提供）+ chatLayoutPlugin/sidebarLayoutPlugin/settingsLayoutPlugin 消费',
     expect: 'packages/client/ui-layout/src/client/index.ts（provideRoot 下发点）',
   },
   {
-    name: 'sessions',
-    prop: 'useSessions',
+    names: ['sessions'],
+    props: ['useSessions'],
     why: '会话列表快照：自有工作区/会话树的全部会话数据来自它',
-    where: 'packages/dsh-workspace-tree/src/workspaceTree/types.ts:47',
+    where: 'packages/dsh-workspace-tree/src/workspaceTree/types.ts（TreeProps）',
     expect: 'packages/client/ui-session（provideRoot 下发点）',
   },
   {
-    name: 'sessionPendingInteraction',
-    prop: 'useSessionPendingInteraction',
-    why: '会话级等待态（审批/提问中）：自有会话行的状态点按它渲染',
-    where: 'packages/dsh-workspace-tree/src/workspaceTree/types.ts:49',
+    /**
+     * 会话等待态：名字表与产品侧同一份（`src/pure/sessionPendingSource.ts` 的
+     * `PENDING_SOURCES`，新→旧），产品侧改了取用名这里自动跟着查——两处不会漂。
+     */
+    names: PENDING_SOURCES.map((source) => source.hook),
+    props: PENDING_SOURCES.map((source) => source.prop),
+    why: '会话级等待态（审批/提问中）：自有会话行的状态点按它渲染。0.1.6-alpha.2 起官方把这条钩子从 `sessionPendingInteraction` 换成 `sessionStatus`（值从「等待态表」变成「会话状态表」，等待态在 `status.pendingInteraction` 那一格），我们对两代都取',
+    where: 'src/pure/sessionPendingSource.ts（两代取用与投影的单一事实源）+ packages/dsh-workspace-tree/src/workspaceTree/tree.ts（按在场的那条取）',
     expect: 'packages/client/ui-session（provideRoot 下发点）',
   },
   {
-    name: 'workspaces',
-    prop: 'useWorkspaces',
+    names: ['workspaces'],
+    props: ['useWorkspaces'],
     why: '工作区列表快照：自有树的分组树/未分组列表数据来自它',
-    where: 'packages/dsh-workspace-tree/src/workspaceTree/types.ts:48',
+    where: 'packages/dsh-workspace-tree/src/workspaceTree/types.ts（TreeProps）',
     expect: 'packages/client/ui-workspace（provideRoot 下发点）',
   },
 ]
@@ -263,10 +278,15 @@ export const IDENTIFIER_DEPENDENCIES = [
     where: 'packages/dsh-workspace-tree/src/workspaceTree/tree.ts:257,279、packages/dsh-workspace-tree/src/workspaceTreePlugin.ts:182',
   },
   {
-    names: ['pendingInteractions'],
+    /**
+     * 会话等待态在各代官方产物里的取值名（与 `PENDING_SOURCES` 同一份表，新→旧）：
+     * 0.1.6-alpha.1 及以前是 uiSession 服务上的 `pendingInteractions`（等待态表），
+     * 0.1.6-alpha.2 起是会话状态对象里那一格 `pendingInteraction`。
+     */
+    names: PENDING_SOURCES.map((source) => source.field),
     scope: ['@deepseek-ai/dsh-client-ui-session'],
-    why: 'sessionPendingInteraction hook 的源（会话级等待态 Map）',
-    where: 'packages/dsh-workspace-tree/src/workspaceTree/types.ts:23（PendingMap）',
+    why: '会话等待态（审批/提问中）的取值名：自有会话行的状态点按它取',
+    where: 'src/pure/sessionPendingSource.ts（两代的取值名与投影，`PENDING_SOURCES` 的 `field`）',
   },
 ]
 
@@ -504,16 +524,20 @@ export function checkClientContract({ comboText, version, unavailableReason }) {
     const missing = []
     const found = []
     for (const dep of ROOT_HOOK_DEPENDENCIES) {
-      const h = byName.get(dep.name)
-      const propHits = locate(comboText, segments, dep.prop, undefined)
-      if (h === undefined || propHits.length === 0) {
-        const reason = [
-          h === undefined ? `provideRoot 未下发 \`${dep.name}\`` : null,
-          propHits.length === 0 ? `槽位 props 名 \`${dep.prop}\` 不在 combo 里` : null,
-        ].filter((x) => x !== null).join('；')
-        missing.push(`${dep.name}（${reason}；期望出处 ${dep.expect}；我方使用点 ${dep.where}）`)
+      // 两代命名任一条在场即通过（`names[i]`/`props[i]` 是同一条钩子的两个名字）。
+      const pairs = dep.names.map((name, index) => ({ name, prop: dep.props[index] }))
+      const hit = pairs.find((pair) => byName.has(pair.name) && locate(comboText, segments, pair.prop, undefined).length > 0)
+      if (hit === undefined) {
+        const reasons = pairs
+          .map((pair) => [
+            byName.has(pair.name) ? null : `provideRoot 未下发 \`${pair.name}\``,
+            locate(comboText, segments, pair.prop, undefined).length > 0 ? null : `槽位 props 名 \`${pair.prop}\` 不在 combo 里`,
+          ].filter((x) => x !== null).join('；'))
+          .filter((text) => text !== '')
+        const reason = reasons.length === 0 ? '名字都在场（判定异常，请核对本文件的取法）' : reasons.join(' 且 ')
+        missing.push(`${dep.names.join('|')}（${reason}；期望出处 ${dep.expect}；我方使用点 ${dep.where}）`)
       } else {
-        found.push(`${dep.name}←${h.plugin ?? '(unknown)'}`)
+        found.push(`${hit.name}←${byName.get(hit.name)?.plugin ?? '(unknown)'}`)
       }
     }
     results.push({

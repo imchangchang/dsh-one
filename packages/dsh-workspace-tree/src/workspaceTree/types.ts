@@ -3,6 +3,7 @@ import type { SessionListLike } from '../../../../src/pure/workspaceTreeView.ts'
 import type { GroupFile } from '../../../../src/pure/dshStateFile.ts'
 import type { SessionMarksState } from '../../../../src/pure/sessionMarks.ts'
 import type { TagGroupsFile } from '../../../../src/pure/sessionTagGroups.ts'
+import type { PendingHookProps } from '../../../../src/pure/sessionPendingSource.ts'
 
 export type Translate = (key: string, params?: Record<string, string | number>) => string
 
@@ -34,9 +35,6 @@ export interface AddedWorkspace {
   readonly title?: string
 }
 
-/** 等待态快照：官方 UiSession 暴露的 Map（会话 id → {kind}）。 */
-export type PendingMap = ReadonlyMap<string, { readonly kind?: string }>
-
 /** 一页宿主内容搜索结果（官方 `session.search` 的返回体）。 */
 export interface SearchPage {
   readonly items: readonly { readonly id: string; readonly snippet?: string }[]
@@ -47,8 +45,12 @@ export interface SearchPage {
  * 组件 props：官方 WorkspaceBrowser 的同一组槽位（owner share `wide` +
  * 框架标准钩子 + entry 自己 inject 出来的动作 + locale 槽位）。命名与官方保持
  * 一致，便于对照源码阅读。
+ *
+ * 官方标准钩子里的会话等待态那一对（老代 `useSessionPendingInteraction`、新代
+ * `useSessionStatus`）从 `PendingHookProps` 继承——同一页只会有其中一条，取法与
+ * 投影见 `src/pure/sessionPendingSource.ts`。
  */
-export interface TreeProps {
+export interface TreeProps extends PendingHookProps {
   /**
    * 侧栏壳给的宽度形态：宽列（true）渲染整块浏览区，rail（false）只渲染搜索/添加
    * 两个 36px 图标——**本步只做宽列**：自有侧栏外框恒传 `collapsed:false`，官方
@@ -61,7 +63,6 @@ export interface TreeProps {
   t: Translate
   useSessions: <R>(selector: (state: SessionListLike) => R) => R
   useWorkspaces: <R>(selector: (state: WorkspaceSnapshotLike) => R) => R
-  useSessionPendingInteraction: <R>(selector: (state: PendingMap) => R) => R
   /** 官方 sessions 服务：选中会话。 */
   open: (sessionId: string) => void
   /** 在工作区里开新会话（复用空白会话或新建），见 apply 处对官方语义的说明。 */

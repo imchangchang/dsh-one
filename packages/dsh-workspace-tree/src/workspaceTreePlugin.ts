@@ -50,15 +50,18 @@
  * （`uiWorkspace`）、它经 `ctx.slots.provideRoot` 下发的 `workspaces` 钩子、
  * 它注册的 `sidebar.workspaces.directoryFlow` 子槽声明、它的 locale 词典全部
  * 原样存活，自有树只是占用同一槽位的渲染位。我们消费的 `useWorkspaces` /
- * `useSessions` / `useSessionPendingInteraction` 三条钩子正是这么来的（见层 2）。
+ * `useSessions` 两条钩子正是这么来的（见层 2）；会话等待态那条两代名字各一个
+ * （见下）。
  *
  * **层 2（官方服务 API）——数据与动作**：本插件不做任何自己的取数 IO。
  * - 数据：框架注入的官方标准钩子 `useSessions`（官方 sessions 服务的 list
  *   快照，由 `@deepseek-ai/dsh-client-ui-session` 经
  *   `ctx.slots.provideRoot({hooks:{sessions}})` 提供）、`useWorkspaces`
  *   （workspaces 服务的 list 快照，ui-workspace 同法提供）、
- *   `useSessionPendingInteraction`（会话级等待态，同一 provideRoot 提供）。
- *   这三条都是 ui-session / ui-workspace 插件的必然产物（两插件在侧栏树的
+ *   `useSessionPendingInteraction`（会话级等待态，同一 provideRoot 提供；**
+ *   0.1.6-alpha.2 起这条钩子换成 `sessionStatus`**，两代的取用与投影见
+ *   `src/pure/sessionPendingSource.ts`，产品侧与新名一起改）。
+ *   这几条都是 ui-session / ui-workspace 插件的必然产物（两插件在侧栏树的
  *   保留集里），自有 entry 直接消费，不自己订阅服务。
  * - 动作：全部走官方服务——`sessions.open` / `sessions.create` /
  *   `sessions.binding(id).session.rename` / `sessions.search` /

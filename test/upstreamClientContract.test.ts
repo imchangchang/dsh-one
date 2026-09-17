@@ -43,8 +43,8 @@ interface SlotDep {
 }
 
 interface HookDep {
-  name: string
-  prop: string
+  names: string[]
+  props: string[]
   why: string
   where: string
   expect: string
@@ -96,11 +96,18 @@ interface BreakOptions {
   dropIdentifier?: string
   /** 把这个字段名挪到别的插件段（考作用域限定）。 */
   misplaceIdentifier?: string
+  /**
+   * 各依赖组用第几代命名（同一组的 `names`/`props` 数组里取第几项）。
+   * 0 = 各组的首个名字（`sessionStatus` 那一代），1 = 次个名字
+   * （`sessionPendingInteraction` 那一代）；缺省 0。
+   */
+  generation?: number
 }
 
 /** 拼一份「该有的名字都在」的 combo；按 BreakOptions 故意破坏其中的一条。 */
 function buildCombo(o: BreakOptions = {}): string {
   const parts = new Map<string, string[]>()
+  const gen = o.generation ?? 0
   const push = (plugin: string, line: string): void => {
     parts.set(plugin, [...(parts.get(plugin) ?? []), line])
   }
@@ -115,13 +122,15 @@ function buildCombo(o: BreakOptions = {}): string {
     push(FILLER_PLUGINS[0], `ctx.slots.inject("${name}", () => ({ props: {} }));`)
   }
   for (const dep of contract.ROOT_HOOK_DEPENDENCIES) {
-    if (dep.name !== o.dropHook) {
-      push(FILLER_PLUGINS[1], `ctx.slots.provideRoot({ hooks: { ${dep.name}: { getSnapshot: () => snap, subscribe: () => () => {} } } });`)
+    const name = dep.names[Math.min(gen, dep.names.length - 1)]
+    const prop = dep.props[Math.min(gen, dep.props.length - 1)]
+    if (name !== o.dropHook) {
+      push(FILLER_PLUGINS[1], `ctx.slots.provideRoot({ hooks: { ${name}: { getSnapshot: () => snap, subscribe: () => () => {} } } });`)
     }
-    if (dep.prop !== o.dropProp) push(FILLER_PLUGINS[1], `const ${dep.prop} = props.${dep.prop};`)
+    if (prop !== o.dropProp) push(FILLER_PLUGINS[1], `const ${prop} = props.${prop};`)
   }
   for (const dep of contract.IDENTIFIER_DEPENDENCIES) {
-    const name = dep.names[0]
+    const name = dep.names[Math.min(gen, dep.names.length - 1)]
     if (name === o.dropIdentifier) continue
     const plugin = name === o.misplaceIdentifier ? FILLER_PLUGINS[2] : (dep.scope?.[0] ?? FILLER_PLUGINS[3])
     push(plugin, `const hit = material.${name};`)
@@ -203,7 +212,8 @@ test('依赖清单的每个名字都能在 src 里找到取用点（清单从代
 
   const rows: { label: string; names: string[]; where: string }[] = [
     ...contract.SLOT_DEPENDENCIES.map((d) => ({ label: d.names.join('|'), names: d.names, where: d.where })),
-    ...contract.ROOT_HOOK_DEPENDENCIES.map((d) => ({ label: d.name, names: [d.name, d.prop], where: d.where })),
+    // root hook 一组：钩子名与它映射出的 props 名都算取用点（我们解构的是 props 名）。
+    ...contract.ROOT_HOOK_DEPENDENCIES.map((d) => ({ label: d.names.join('|'), names: [...d.names, ...d.props], where: d.where })),
     ...contract.IDENTIFIER_DEPENDENCIES.map((d) => ({ label: d.names.join('|'), names: d.names, where: d.where })),
   ]
   for (const row of rows) {
@@ -227,6 +237,38 @@ test('该有的名字都在时，四类断言全绿', () => {
   const rows = contract.checkClientContract({ comboText: buildCombo(), version: '0.1.6-alpha.1' })
   assert.deepEqual(rows.map((r) => r.id), ['client-combo-index', 'client-slots', 'client-root-hooks', 'client-identifiers'])
   assert.deepEqual(rows.filter((r) => r.status === 'fail'), [], rows.map((r) => `${r.id}: ${r.detail}`).join('\n'))
+})
+
+test('换过名字的依赖两组命名各来一份 combo 都算全绿（#184：等待态两代都服务）', () => {
+  const pendingHook = contract.ROOT_HOOK_DEPENDENCIES.find((d) => d.names.length > 1)
+  assert.ok(pendingHook !== undefined, '清单里要有那条「两代命名」的依赖（等待态），否则这条测试失去意义')
+  assert.ok(pendingHook.names.length === pendingHook.props.length, '钩子名与 props 名要一一对应')
+  for (const gen of [0, 1]) {
+    const label: string = pendingHook.names[gen] ?? ''
+    const rows = contract.checkClientContract({ comboText: buildCombo({ generation: gen }), version: gen === 0 ? '0.1.6-alpha.2' : '0.1.6-alpha.1' })
+    assert.deepEqual(rows.filter((r) => r.status === 'fail'), [], `${label} 那一代：${rows.map((r) => `${r.id}: ${r.detail}`).join('\n')}`)
+    assert.ok(rowOf(rows, 'client-root-hooks').detail.includes(`${label}←`), `在场清单要写出取到的是哪一代：${rowOf(rows, 'client-root-hooks').detail}`)
+  }
+})
+
+test('两代名字都没有时（官方第三次改名）：两条断言都红，指得出全部候选名', () => {
+  const pendingHook = contract.ROOT_HOOK_DEPENDENCIES.find((d) => d.names.length > 1)
+  assert.ok(pendingHook !== undefined)
+  const pendingNames = contract.IDENTIFIER_DEPENDENCIES.find((d) => d.names.length > 1 && d.names.includes('pendingInteraction'))
+  assert.ok(pendingNames !== undefined, '等待态取值名那条也要是两代命名')
+  for (const gen of [0, 1]) {
+    const rows = contract.checkClientContract({
+      comboText: buildCombo({ generation: gen, dropHook: pendingHook.names[gen], dropIdentifier: pendingNames.names[gen] }),
+      version: '0.1.7-alpha.1',
+    })
+    const hookRow = rowOf(rows, 'client-root-hooks')
+    assert.equal(hookRow.status, 'fail')
+    assert.ok(hookRow.detail.includes(pendingHook.names.join('|')), `失败信息要列出全部候选名：${hookRow.detail}`)
+    assert.ok(hookRow.detail.includes('sessionPendingSource.ts'), `失败信息要指到产品侧的取用点：${hookRow.detail}`)
+    const idRow = rowOf(rows, 'client-identifiers')
+    assert.equal(idRow.status, 'fail')
+    assert.ok(idRow.detail.includes(pendingNames.names.join('|')), `失败信息要列出全部候选名：${idRow.detail}`)
+  }
 })
 
 test('抽掉一个 slot：client-slots fail 并指出缺失项、期望出处与当前版本', () => {
