@@ -167,7 +167,7 @@
 
 | 功能 | 旧：怎么做（`文件:行`） | 现：怎么做（`文件:行`） | 判断 |
 | --- | --- | --- | --- |
-| 搜索框常显（不是点开才出现的放大镜胶囊） | `sessionsWebview.ts:519-558` | `toolbar.ts:196-252`（官方搜索栏的展开态常驻） | 一致 |
+| 搜索框的形态 | 搜索框常显（不是点开才出现的放大镜胶囊）：`sessionsWebview.ts:519-558` | `toolbar.ts:196-252`（#132 起改回官方那套**两态**：平时一枚放大镜，点开才展开成输入框） | 不同（跟官方一样，用户点名要的；旧侧栏的常显形态已下线） |
 | 输入去抖 | 200ms：`sessionsWebview.ts:540-545` | 250ms：`search.ts:3`、`tree.ts:474-482` | 不同（几乎不可感知） |
 | 内容全文搜索（后端索引） | `sessionsStore.ts:1414-1440`（`session.search`，命中给 snippet） | `tree.ts:467-487`、`1161-1162`（官方 `sessions.search`，命中给 snippet） | 一致 |
 | 命中片段显示位置 | 会话行**下方**独立一块：`sessionsWebview.ts:1392-1402`、`2572-2582` | 搜索结果行的**第二行**：`rows.ts:1394-1403` | 不同 |
@@ -264,7 +264,7 @@
 | 空态字号与内边距 | 主行 12px、次要行 11px、内边距 `20px 12px`（`sessionsView.ts:503-508`） | `.dshOneTree_empty` 13px、内边距 `16px 12px`（`styles.ts:261`，取官方 `empty` 那一条的同值） | 不同 |
 | 菜单项几何 | 最小高 30px、圆角 8px、内边距 `4px 10px`、行内间隙 8px、字号 12px、图标位 14×14（`sessionsView.ts:654-670`）；弹层 `min-width: 180px`、圆角 12px、内边距 4px（`644-653`） | 官方 `Menu` 的 **compact 档**：项高 26px / 圆角 5px / 间隙 6px / 内边距 `3px 7px` / 字号 12px / 行高 18px / 图标位 14×14；列表 `min-width: 164px` / 圆角 7px / 内边距 2px（`styles.ts:114-132`）。所有菜单都传 `compact: true`（如 `rows.ts:1285`、`toolbar.ts:80`、`tagGroups.ts:390`） | 不同（整套收紧：30→26px、8→5px、10→7px） |
 | 选择态动作条 | `padding: 6px 8px` + 1px 下边线；按钮 `padding: 3px 10px` / 12px 字（`sessionsView.ts:84-88`） | 通栏横带：上下 .5px 发丝线 + 官方悬停底色，纵向走 `group-gap`（4px）、横向走 `row-padding-inline`（`styles.ts:441-446`）；按钮是官方 `Button` 的 `sm` 档 28px（`selection.ts:119-143`，档位表记名 `styles.ts:93-98`） | 不同（无描边框，改成横带 + 官方按钮） |
-| 骨架窗口件（顶栏图标按钮 / 搜索框） | 图标按钮 24×24、圆角 4px（`sessionsView.ts:70-74`）；搜索框 `padding: 3px 22px 3px 6px`、圆角 4px、12px 字（`53-57`） | `icon-button-size`：28px / 26px；`search-height`：28px / 26px；`search-expanded-height`：30px / 26px；搜索圆角 10px、字号 13px（`sidebarFramePlugin.ts:153-158`；消费点 `styles.ts:234`、`243-250`） | 不同（整套换成官方搜索栏展开态的几何） |
+| 骨架窗口件（顶栏图标按钮 / 搜索框） | 图标按钮 24×24、圆角 4px（`sessionsView.ts:70-74`）；搜索框 `padding: 3px 22px 3px 6px`、圆角 4px、12px 字（`53-57`） | `icon-button-size`：28px / 26px；`search-height`：28px / 26px（折叠态那枚圆放大镜）；`search-expanded-height`：30px / 26px；搜索圆角 10px、字号 13px（`sidebarFramePlugin.ts:153-158`；消费点 `styles.ts:234`、`243-250`） | 不同（整套换成官方那套两态的几何） |
 | 标签组（pill / 竖线 / 组内缩进） | pill 高 16px、圆角 4px、10px 粗体字；组头高 22px；竖线 `left: 16px; top: 19px; bottom: 2px; width: 2px`；组内行缩进 24px（`sessionsView.ts:584-627`） | 同一组值逐字沿用（`styles.ts:507-538`），并在档位表里登记为例外（`styles.ts:202-208`，理由：官方没有「标签组」这个形态，量不出档） | 一致（#122 已把竖线与缩进改回旧规格） |
 | 颜色 token 的取法 | 全用 VS Code 变量（`--vscode-foreground` / `--vscode-list-hoverBackground` / `--vscode-charts-*` 等）：`sessionsView.ts:34-37`、`441-444`、`594-599` | 全用官方 token（`--dsw-alias-*`）：`styles.ts` 全篇；标签色是 6 个色值字面量（`tagGroups.ts:58-65`，官方 token 里没有标签色板这一类） | 不同（颜色来源从 VS Code 主题换成官方 token，随两端一致） |
 | 字体族与基准字号 | `var(--vscode-font-family)` / `var(--vscode-font-size)`（`sessionsView.ts:34-37`） | 树不声明字形（`styles.ts` 无 `font-family`），继承官方侧栏壳给的字体 | 不同（**未核实**官方壳给的具体字体族与基准字号：官方 css 不在本仓库） |
@@ -319,7 +319,7 @@
 
 **现在更好**（新增或修好的）：
 
-- 顶栏多了：设置齿轮、多选入口（视图选项那一枚已于 #131 退役）；搜索栏常显且是官方展开态。
+- 顶栏多了：设置齿轮、多选入口（视图选项那一枚已于 #131 退役）；搜索栏是官方那套两态（#132 起：平时一枚放大镜，点开才展开成输入框，Esc / 清除收起并清空）。
 - 会话行菜单多了「在新标签页打开」；工作区行菜单多了「重命名工作区」；未分组桶也能开菜单。
 - 会话行点击补了「先问宿主这条会话是否真的开在面板里」这一步，修掉了「点当前会话点不出对话区」（#121）。
 - 回收站：入口行主区改成开 / 合切换、回收站行多了常驻「还原」按钮与危险色的「永久归档」、动作失败有飘提示。

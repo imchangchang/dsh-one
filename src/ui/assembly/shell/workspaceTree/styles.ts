@@ -287,9 +287,10 @@ export const CSS =
   '.dshOneTree_iconButton{cursor:pointer;width:var(--dsh-one-density-icon-button-size,28px);height:var(--dsh-one-density-icon-button-size,28px);color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}' +
   '.dshOneTree_iconButton:hover{background:var(--dsw-alias-interactive-bg-hover)}' +
   '.dshOneTree_sectionHeader{box-sizing:border-box;height:var(--dsh-one-density-section-header-height,36px);color:var(--dsw-alias-label-tertiary);border-radius:12px;flex:none;justify-content:flex-end;align-items:center;gap:var(--dsh-one-density-section-gap,4px);margin-bottom:var(--dsh-one-density-section-header-gap,4px);padding-left:var(--dsh-one-density-section-padding-inline,4px);display:flex;overflow:hidden;margin-top:2px;margin-right:-4px}' +
-  // 搜索栏（#99：官方那套 UI 的**展开态**常驻，折叠态的放大镜胶囊退役）——
-  // search / searchSlot / searchButton / searchInput 四个类名与几何逐字对应官方
-  // css-module（含 Expanded 变体），所以两侧展开态可以直接逐项比对（F-04）。
+  // 搜索栏（#132：官方那套 UI 的**两态都在**，默认折叠——平时是一枚 28px 圆放大镜，
+  // 点开才展开成输入框 + 清除钮）——search / searchSlot / searchButton / searchInput /
+  // clearButton 五个类名与几何逐字对应官方 css-module（含两个 Expanded 变体），
+  // 所以两侧的折叠态与展开态都能直接逐项比对（F-04）。
   '.dshOneTree_searchSlot{box-sizing:border-box;min-width:0;max-width:var(--dsh-one-density-icon-button-size,28px);transition:max-width .18s var(--ds-ease-in-out),padding-left .18s var(--ds-ease-in-out);flex:1;align-items:center;margin-left:auto;padding-left:0;display:flex}' +
   // #125：搜索框的左缘要落在**行内容基准**上（工作区行的文件夹图标左缘 = 列表行的内容左缘）。
   // 顶栏那一行自己的左内缩是骨架基线 `section-padding-inline`（官方分节头

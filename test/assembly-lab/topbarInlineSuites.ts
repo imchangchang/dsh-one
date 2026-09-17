@@ -287,7 +287,7 @@ export const TOPBAR_INLINE_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '顶栏 / 过滤条的横向基准（#125）：搜索框、分组胶囊与行内容左缘同一条竖线（TOPBAR-INLINE 套件）',
   expect:
-    '真实装配页上（真网关**只读** + 假宿主）、260/340/500 三档宽度 × 两种密度状态（宿主给的 VS Code 档 / 把密度变量对齐回树插件自己声明的官方兜底值 = 官方档）下量**几何矩形**（不靠截图）：① **三者左缘同一条竖线（±1px）**——搜索框左缘 = 分组胶囊左缘 = 列表行的内容左缘（= 工作区行行盒左缘 + 行的 `padding-left`，也就是文件夹图标那一格的左缘；两个读法必须互相印证）；② **行出血不受影响**——行盒左缘仍在侧栏左缘（±1px）上（hover 底色因此通栏到两侧），且 hover 时底色真的出现（非透明）；③ **三者相对侧栏左缘都不低于下限**——下限 = 当页的 `row-padding-inline`（行内容基准本身）且不低于紧凑档的项内边距 7px（档位表 `SCALE_TIERS.compact.rowPaddingInline`，官方出处 `._item_1nxmc_92{padding:3px 7px}`），防止以后又被压回贴边；④ **右侧关系没被这次改动动过、也不产生横向溢出**——顶栏那一行的右缘仍在列表右缘之外（官方分节头的 `margin-right:-4px` 右出血保留）、过滤条右缘仍落在列表区右缘上、搜索框右缘不超过同一行动作组的左缘、列表 / 过滤条 / 顶栏 / 文档自身的 `scrollWidth ≤ clientWidth + 1`。另核两处「同基准」的顺带项（#125 要做的第 4 点）：底部回收站入口行的主区图标左缘、抽屉头标题左缘、抽屉会话行的内容左缘都落在同一条行内容基准上（抽屉要有内容才量得到行，用假宿主注入一条回收站记录，不写网关）。量之前先钉住 `root.scrollLeft = 0`（整棵树被横滚会让所有读数整体左移，那是另一件事）。全程零 pageerror。',
+    '真实装配页上（真网关**只读** + 假宿主）、260/340/500 三档宽度 × 两种密度状态（宿主给的 VS Code 档 / 把密度变量对齐回树插件自己声明的官方兜底值 = 官方档）下量**几何矩形**（不靠截图）：① **三者左缘同一条竖线（±1px）**——搜索框左缘 = 分组胶囊左缘 = 列表行的内容左缘（= 工作区行行盒左缘 + 行的 `padding-left`，也就是文件夹图标那一格的左缘；两个读法必须互相印证）；搜索栏 #132 起是两态，**这一条按展开态判**（点开放大镜再量），收起态的放大镜（28px）只记事实并钉住「不与同一行动作组重叠」——它骑在工具行里、与过滤条不同列，两行并一行是 #135 的事；② **行出血不受影响**——行盒左缘仍在侧栏左缘（±1px）上（hover 底色因此通栏到两侧），且 hover 时底色真的出现（非透明）；③ **三者相对侧栏左缘都不低于下限**——下限 = 当页的 `row-padding-inline`（行内容基准本身）且不低于紧凑档的项内边距 7px（档位表 `SCALE_TIERS.compact.rowPaddingInline`，官方出处 `._item_1nxmc_92{padding:3px 7px}`），防止以后又被压回贴边；④ **右侧关系没被这次改动动过、也不产生横向溢出**——顶栏那一行的右缘仍在列表右缘之外（官方分节头的 `margin-right:-4px` 右出血保留）、过滤条右缘仍落在列表区右缘上、搜索框右缘不超过同一行动作组的左缘、列表 / 过滤条 / 顶栏 / 文档自身的 `scrollWidth ≤ clientWidth + 1`。另核两处「同基准」的顺带项（#125 要做的第 4 点）：底部回收站入口行的主区图标左缘、抽屉头标题左缘、抽屉会话行的内容左缘都落在同一条行内容基准上（抽屉要有内容才量得到行，用假宿主注入一条回收站记录，不写网关）。量之前先钉住 `root.scrollLeft = 0`（整棵树被横滚会让所有读数整体左移，那是另一件事）。全程零 pageerror。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const widths = [260, 340, 500] as const
@@ -329,8 +329,35 @@ export const TOPBAR_INLINE_SUITE: LabSuite = {
           for (const width of widths) {
             await page.setViewportSize({ width, height: 900 })
             await page.waitForTimeout(300)
+            // #132 起搜索栏默认是**收起态**（一枚 28px 的放大镜，骑在工具行里），#125 那条
+            // 「搜索框左缘 = 分组胶囊左缘」说的是**展开态**那个占满一行的搜索框——收起态压根
+            // 没有能跟胶囊同列的搜索框（胶囊在下面那条过滤条上，两行并一行是 #135 的事）。
+            // 所以这里先把收起态量下来记事实（含「不越界」一条），再点开、按原有口径量展开态。
+            const collapsedReading = await readInline(page)
+            check.eq(`w=${String(width)} ${label}：量之前没有被横滚`, collapsedReading.rootScrollLeft, 0)
+            check.fact(
+              `w=${String(width)} ${label}：搜索栏收起态（默认）——左缘 ${String(collapsedReading.searchLeft)}、` +
+                `右缘 ${String(collapsedReading.searchRight)}、动作组左缘 ${String(collapsedReading.topActionsLeft)}`,
+            )
+            check.ok(
+              `w=${String(width)} ${label}：收起态的放大镜不与同一行的动作组重叠（右缘 ≤ 动作组左缘 + ${String(ALIGN_TOLERANCE)}px）`,
+              collapsedReading.searchRight <= collapsedReading.topActionsLeft + ALIGN_TOLERANCE,
+              `搜索右缘=${String(collapsedReading.searchRight)} 动作组左缘=${String(collapsedReading.topActionsLeft)}`,
+            )
+            if (width === 340) {
+              screenshots.push(await shot(ctx, page, `topbar-inline-collapsed-${density}-340`))
+            }
+            await page.click('[data-dshone-tree-action="search"]')
+            await page.waitForTimeout(300)
+            // 点放大镜会把焦点挪到输入框上，而顶栏那一行有 4px 的右出血（见 #130）——焦点落到
+            // 右侧控件时整棵树会被横滚，读数整体左移。量之前重新钉一次。
+            await page.evaluate((selector: string) => {
+              const root = document.querySelector(selector)
+              if (root !== null) root.scrollLeft = 0
+            }, ROOT)
+            await page.waitForTimeout(150)
             const reading = await readInline(page)
-            check.eq(`w=${String(width)} ${label}：量之前没有被横滚`, reading.rootScrollLeft, 0)
+            check.eq(`w=${String(width)} ${label}：展开搜索后重新钉住横滚再量`, reading.rootScrollLeft, 0)
             const at = insets(reading)
             check.fact(
               `w=${String(width)} ${label}：搜索框左缘 ${String(reading.searchLeft)}、胶囊左缘 ${String(reading.pillLeft)}、` +
@@ -410,6 +437,9 @@ export const TOPBAR_INLINE_SUITE: LabSuite = {
             if (width === 340) {
               screenshots.push(await shot(ctx, page, `topbar-inline-${density}-340`))
             }
+            // 收起回默认态，下一档宽度 / 下一档密度从头开始（否则下一轮一进门就已经是展开态）。
+            await page.keyboard.press('Escape')
+            await page.waitForTimeout(250)
           }
           if (density === 'official') await restoreDensity(page)
           await page.waitForTimeout(150)
