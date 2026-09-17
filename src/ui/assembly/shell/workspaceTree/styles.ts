@@ -400,6 +400,10 @@ export const CSS =
   //   children，标题/关闭钮/页脚由调用方给）。走官方 prop 就不必去覆盖官方哈希类名
   //   （`[class*="_header_"]` 那种写法会随官方改名静默失效，而 CSS 类名不在每日上游探针的
   //   覆盖范围内），符合 AGENTS「官方机制优先」的优先序：官方 prop > CSS 手段。
+  // - 稳定性：官方哪天摘掉 `headless`，我们自己的头行会与官方 header 同时出现（标题重复、
+  //   按钮仍在 children 里照常能点）——是**看得见的退化**，不是静默失效。这一条**每日探针
+  //   覆盖不到**（primitives 的代码在官方 web 前端的 chunk 里，不在 combo 的插件段里），所以
+  //   它靠上游升级时跑 `verify:lab` 的 F-34 撞出来（那一条会把七个弹窗逐个开出来量）。
   // - 官方那层壳照旧由官方代码提供：mask 点击关闭、Esc 关闭、portal 到 body、`role="dialog"`
   //   + `aria-modal` + `aria-label`（`title` 仍然要传，它进的是 aria-label）。
   //
