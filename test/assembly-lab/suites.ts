@@ -307,14 +307,20 @@ export const SMOKE_SUITE: LabSuite = {
     const screenshots: string[] = []
 
     const sidebar = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 380, height: 900 })
-    /** 侧栏那一页渲染出来的会话 id（多开请求要拿它们核）。 */
-    const pageSessionIds = new Set(
-      await sidebar.page.evaluate(() =>
-        Array.from(document.querySelectorAll('[data-dshone-tree-session]'))
-          .map((row) => row.getAttribute('data-dshone-tree-session') ?? '')
-          .filter((id) => id !== ''),
-      ),
-    )
+    /**
+     * 侧栏那一页**此刻**渲染出来的会话 id（多开请求要拿它们核）。
+     *
+     * 是个函数而不是一次性快照：树默认只展开一组，套件后面才把别的组展开、行才出来，
+     * 早算会把后出现的行漏掉（实测踩过一次：点了展开出来的行、判定说「不是真会话 id」）。
+     */
+    const pageSessionIds = async (): Promise<Set<string>> =>
+      new Set(
+        await sidebar.page.evaluate(() =>
+          Array.from(document.querySelectorAll('[data-dshone-tree-session]'))
+            .map((row) => row.getAttribute('data-dshone-tree-session') ?? '')
+            .filter((id) => id !== ''),
+        ),
+      )
     try {
       const rows = await contentCount(sidebar.page, '.dshOneTree_sessionRow')
       const groups = await contentCount(sidebar.page, '.dshOneTree_projectRow')
@@ -1673,14 +1679,20 @@ export const MULTIOPEN_SUITE: LabSuite = {
     // 一、入口：⋯ 菜单与行右键
     // ---------------------------------------------------------------------
     const sidebar = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 380, height: 900 })
-    /** 侧栏那一页渲染出来的会话 id（多开请求要拿它们核）。 */
-    const pageSessionIds = new Set(
-      await sidebar.page.evaluate(() =>
-        Array.from(document.querySelectorAll('[data-dshone-tree-session]'))
-          .map((row) => row.getAttribute('data-dshone-tree-session') ?? '')
-          .filter((id) => id !== ''),
-      ),
-    )
+    /**
+     * 侧栏那一页**此刻**渲染出来的会话 id（多开请求要拿它们核）。
+     *
+     * 是个函数而不是一次性快照：树默认只展开一组，套件后面才把别的组展开、行才出来，
+     * 早算会把后出现的行漏掉（实测踩过一次：点了展开出来的行、判定说「不是真会话 id」）。
+     */
+    const pageSessionIds = async (): Promise<Set<string>> =>
+      new Set(
+        await sidebar.page.evaluate(() =>
+          Array.from(document.querySelectorAll('[data-dshone-tree-session]'))
+            .map((row) => row.getAttribute('data-dshone-tree-session') ?? '')
+            .filter((id) => id !== ''),
+        ),
+      )
     try {
       const rows = await expandUntilSessionRows(sidebar.page, 2)
       const groupCount = await sidebar.page.locator('.dshOneTree_projectRow').count()
@@ -1719,7 +1731,8 @@ export const MULTIOPEN_SUITE: LabSuite = {
       check.eq('点菜单项 → 宿主收到一次多开请求', openedFirst.length, 1)
       // 「真会话 id」以**页面上那条行**为准：侧栏这一侧的行来自数据集夹具，网关清单里没有它们
       // （判据没变：交给宿主的必须是页面上那一行的 id，不是编的）。
-      check.ok('多开请求带的是真会话 id', openedFirst.length === 1 && pageSessionIds.has(openedFirst[0] ?? ''), openedFirst.join(','))
+      const idsOnPage = await pageSessionIds()
+      check.ok('多开请求带的是真会话 id', openedFirst.length === 1 && idsOnPage.has(openedFirst[0] ?? ''), openedFirst.join(','))
       check.eq('菜单收起（点完不留浮层）', (await menuFacts(sidebar.page)).menus, 0)
 
       // --- 行右键：同一份菜单、锚在指针处 ---
@@ -1766,7 +1779,8 @@ export const MULTIOPEN_SUITE: LabSuite = {
         check.fact(`两行各点多开后宿主收到的全部请求=${JSON.stringify(openedSecond)}`)
         check.eq('两次操作共两次多开请求', openedSecond.length, 2)
         check.ok('两次开的是两个不同会话', openedSecond.length === 2 && openedSecond[0] !== openedSecond[1], JSON.stringify(openedSecond))
-        check.ok('两次开的都是真会话', openedSecond.every((id) => pageSessionIds.has(id)), JSON.stringify(openedSecond))
+        const idsOnPageSecond = await pageSessionIds()
+        check.ok('两次开的都是真会话', openedSecond.every((id) => idsOnPageSecond.has(id)), JSON.stringify(openedSecond))
       }
       check.eq('多开入口全程零 console error', sidebar.capture.consoleErrors, [])
     } finally {
