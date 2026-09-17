@@ -384,3 +384,112 @@ test('#112 当前打开的文件夹：回执形状不对（没桥/坏载荷）�
   assert.deepEqual(await hostCapabilities(undefined).currentWorkspaceFolders(), [])
   resetGlobals()
 })
+
+/**
+ * #147：宿主面板里开着哪些会话——订阅形态（一条快照读 + 此后每次变化一条广播）。
+ *
+ * 这里是页面侧那一半的全部机制：桥给了 `session.panelSessions` 的回执就是快照，此后
+ * 每条 `dshOne.panelSessions` 消息就是变化。三条要钉住的事都是**时序**：
+ * ① 订阅后要有当前值（页面起来之前就开着的面板，只靠推送会漏）；
+ * ② 快照读不回来（拒绝）时按空集（= 不抑制任何提醒，安全方向），不抛；
+ * ③ 广播先到、快照后到时，**旧快照不许盖回新值**（这条错了会让绿点闪一下又回来）。
+ */
+function installMessageWindow(): { emit(data: unknown): void; listeners: number } {
+  const handlers = new Set<(event: { data: unknown }) => void>()
+  const global = globalThis as unknown as {
+    window?: { addEventListener(type: string, listener: (event: unknown) => void): void; removeEventListener(type: string, listener: (event: unknown) => void): void }
+  }
+  global.window = {
+    addEventListener: (type, listener) => {
+      if (type === 'message') handlers.add(listener as (event: { data: unknown }) => void)
+    },
+    removeEventListener: (type, listener) => {
+      if (type === 'message') handlers.delete(listener as (event: { data: unknown }) => void)
+    },
+  }
+  return {
+    emit: (data) => {
+      for (const handler of [...handlers]) handler({ data })
+    },
+    get listeners() {
+      return handlers.size
+    },
+  }
+}
+
+test('#147 订阅：先交付快照，再交付每条广播；退订之后不再交付', async () => {
+  resetGlobals()
+  const bridgeCalls: Array<{ name: string; args: unknown }> = []
+  installBridge(bridgeCalls, { 'session.panelSessions': { sessionIds: ['s1'] } })
+  const w = installMessageWindow()
+  const seen: string[][] = []
+  const dispose = hostCapabilities(undefined).onPanelSessions((ids) => seen.push([...ids]))
+  assert.deepEqual(bridgeCalls, [{ name: 'session.panelSessions', args: {} }], '订阅时读一次快照（页面可能比面板晚起来）')
+  await Promise.resolve()
+  await Promise.resolve()
+  assert.deepEqual(seen, [['s1']], '快照先交付')
+  w.emit({ type: 'dshOne.panelSessions', sessionIds: ['s1', 's2'] })
+  assert.deepEqual(seen, [['s1'], ['s1', 's2']], '此后每条广播都交付')
+  w.emit({ type: 'dshOne.setTheme', theme: 'dark' })
+  assert.deepEqual(seen.length, 2, '别的宿主消息不理（只认自己那一条）')
+  dispose()
+  assert.equal(w.listeners, 0, '退订摘掉监听')
+  w.emit({ type: 'dshOne.panelSessions', sessionIds: [] })
+  assert.deepEqual(seen.length, 2, '退订之后不再交付')
+  resetWindow()
+  resetGlobals()
+})
+
+test('#147 订阅：快照读不回来时按空集（不抑制任何提醒），不抛', async () => {
+  resetGlobals()
+  const bridgeCalls: Array<{ name: string; args: unknown }> = []
+  installBridge(bridgeCalls, {})
+  const w = installMessageWindow()
+  const seen: string[][] = []
+  const dispose = hostCapabilities(undefined).onPanelSessions((ids) => seen.push([...ids]))
+  await Promise.resolve()
+  await Promise.resolve()
+  assert.deepEqual(seen, [[]], '读失败 = 空集（照官方规则渲染），不是抛错')
+  dispose()
+  resetWindow()
+  resetGlobals()
+})
+
+test('#147 订阅：广播先到、慢快照后到——旧快照不许盖回新值', async () => {
+  resetGlobals()
+  let release: ((value: unknown) => void) | undefined
+  const global = globalThis as unknown as { __DSH_ONE_HOST__?: { call(name: string, args?: unknown): Promise<unknown> } }
+  global.__DSH_ONE_HOST__ = {
+    call: async (name: string) =>
+      name === 'session.panelSessions'
+        ? await new Promise((resolve) => {
+            release = resolve
+          })
+        : null,
+  }
+  const w = installMessageWindow()
+  const seen: string[][] = []
+  const dispose = hostCapabilities(undefined).onPanelSessions((ids) => seen.push([...ids]))
+  w.emit({ type: 'dshOne.panelSessions', sessionIds: ['s2'] })
+  assert.deepEqual(seen, [['s2']])
+  release?.({ sessionIds: ['s1'] })
+  await Promise.resolve()
+  await Promise.resolve()
+  assert.deepEqual(seen, [['s2']], '快照是更早的事实，不许盖回广播')
+  dispose()
+  resetWindow()
+  resetGlobals()
+})
+
+test('#147 订阅：官方 web 侧的处境（没有 window 消息源）——不抛、退订是空操作', async () => {
+  resetGlobals()
+  const calls: Call[] = []
+  const caps = hostCapabilities(gatewayCtx({}, calls))
+  const dispose = caps.onPanelSessions(() => {
+    throw new Error('不该被交付：那一端没有宿主面板这件事实')
+  })
+  assert.equal(typeof dispose, 'function')
+  dispose()
+  assert.deepEqual(calls, [], '这条能力没有宿主半端点，缺席端不该往网关上打请求')
+  resetGlobals()
+})
