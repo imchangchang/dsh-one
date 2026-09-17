@@ -532,6 +532,14 @@ interface ParitySample {
   text: string
 }
 
+/**
+ * 读一对同名元素里的一个（按类名后缀取第一个）。
+ *
+ * **属性名要转 kebab-case 再读**：`getPropertyValue` 只认 CSS 属性名，写成 camelCase
+ * （`paddingLeft` / `borderRadius`）一律读回空串——两侧都读空串，断言就成了「'' === ''」这种
+ * 永远为真的橡皮图章。`PARITY_PAIRS` 与调用点写的都是 camelCase（可读），所以统一在这里转
+ * （与 F-13 的 `readDensity`、F-29 的读法同一处置）。
+ */
 async function samplePair(page: OpenedPage['page'], suffix: string, props: readonly string[]): Promise<ParitySample> {
   return page.evaluate(
     ({ suffix: wanted, props: styleProps }) => {
@@ -547,8 +555,9 @@ async function samplePair(page: OpenedPage['page'], suffix: string, props: reado
       }
       if (element === null) return { found: false, styles: {}, rect: { width: 0, height: 0 }, text: '' }
       const computed = getComputedStyle(element)
+      const kebab = (prop: string): string => prop.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)
       const styles: Record<string, string> = {}
-      for (const prop of styleProps) styles[prop] = computed.getPropertyValue(prop)
+      for (const prop of styleProps) styles[prop] = computed.getPropertyValue(kebab(prop))
       const rect = element.getBoundingClientRect()
       return {
         found: true,
@@ -576,7 +585,7 @@ export const PARITY_SUITE: LabSuite = {
       // 折叠态比一遍（同一份「都还没点开」的现场），再各自点开、同处展开态后进主循环
       // 逐项比（原来那条流程）。两边都只切呈现状态，不碰任何数据。
       check.fact(
-        `对齐口径：自有树（.dshOneTree_*）对官方对照档（官方 hash 类名，按类名后缀配对），逐组比 computed style 各属性 + 几何矩形；共 ${String(PARITY_PAIRS.length)} 组元素 × 3 档宽度（260/340/500）`,
+        `对齐口径：自有树（.dshOneTree_*）对官方对照档（官方 hash 类名，按类名后缀配对），逐组比 computed style 各属性 + 几何矩形；共 ${String(PARITY_PAIRS.length)} 组元素 × 3 档宽度（260/340/500）；属性名在读取时统一转 kebab-case（camelCase 直接喂 getPropertyValue 会读回空串，两侧都空 = 断言永远为真）`,
       )
       await own.page.setViewportSize({ width: 340, height: 900 })
       await official.page.setViewportSize({ width: 340, height: 900 })
