@@ -134,7 +134,7 @@ async function loadGatewayAssembly(
     wire: filterWire(
       extractBootWire(html),
       tree.blockList,
-      tree.shellPluginId,
+      tree.framePluginId,
       tree.extraPluginIds,
       await localBundleRev(localPluginsDir(context)),
       (line) => logger.warn(line),
@@ -846,7 +846,7 @@ async function openSessionChat(sessionId: string): Promise<void> {
  * #71 性能——共享 loopback mirror 池：同一窗口同一网关地址一个 mirror 实例
  * （稳定端口 = webview 源稳定 → 跨 tab HTTP 缓存生效，44 插件整包不再每 tab
  * 全量重下）。引用计数：每个面板 acquire，关 dispose 随最后一个回收。
- * 多树伺服：单 mirror 按树（shellPluginId 键）各缓存一份过滤版整包。
+ * 多树伺服：单 mirror 按树（framePluginId 键）各缓存一份过滤版整包。
  */
 const sharedMirrors = new Map<string, { mirror: AssemblyMirror; refs: number; key: string }>()
 
@@ -866,7 +866,7 @@ async function acquireSharedMirror(
     logger,
     {
       pluginsDir: localPluginsDir(context),
-      treeCombos: ASSEMBLY_TREES.map((tree) => ({ shellPluginId: tree.shellPluginId, blockList: tree.blockList })),
+      treeCombos: ASSEMBLY_TREES.map((tree) => ({ framePluginId: tree.framePluginId, blockList: tree.blockList })),
     },
   )
   sharedMirrors.set(gateway, { mirror, refs: 1, key: gateway })
@@ -899,9 +899,9 @@ export async function preheatAssembly(context: vscode.ExtensionContext, manager:
     if (manager.getStatus().state !== 'running') return
     const mirror = await acquireSharedMirror(context, manager, logger)
     // 每树预取一次 combo：请求里带一个保留段官方 id（触发该树过滤整包的
-    // 拉取与伺服缓存）+ 该树 shell id（缓存路由键）。rev 任意值即可（缓存键）。
+    // 拉取与伺服缓存）+ 该树外框插件 id（缓存路由键）。rev 任意值即可（缓存键）。
     for (const tree of ASSEMBLY_TREES) {
-      await fetch(`${mirror.origin}/plugins-local/??@deepseek-ai/dsh-client-ui-theme/client.js,${tree.shellPluginId}/client.js&rev=preheat`)
+      await fetch(`${mirror.origin}/plugins-local/??@deepseek-ai/dsh-client-ui-theme/client.js,${tree.framePluginId}/client.js&rev=preheat`)
     }
     releaseSharedMirror(mirror)
     logger.info('assembly preheat: shared mirror + tree combos warmed')

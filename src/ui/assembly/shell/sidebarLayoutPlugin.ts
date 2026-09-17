@@ -1,5 +1,5 @@
 /**
- * @dsh-one/vscode-sidebar-shell——侧栏位 frame 插件（#70）：顶替下线的官方
+ * @dsh-one/vscode-sidebar-ui-layout——侧栏位 frame 插件（#70）：顶替下线的官方
  * ui-layout，官方侧栏（品牌位/工作区树/设置入口/底部动作条）原样进 VS Code
  * 侧栏 view。spike #69 题1 已验证裸 frame 里侧栏完整、数据正常。
  *
@@ -17,7 +17,7 @@
  *   `openSettings` 触发——见 hostCapabilities.ts 的能力表与 settingsGearPlugin 的
  *   说明）；官方底部那一行（`sidebar.settings`，官方 SettingsRoot）由
  *   `@dsh-one/vscode-settings-gear` 影子渲染空件藏掉。设置页仍是独立编辑器页
- *   （@dsh-one/vscode-settings-shell）。
+ *   （@dsh-one/vscode-settings-ui-layout）。
  * - 头部抛光（#70 VS Code 验收「很生硬」返修）：品牌位影子（brand.mark/name
  *   渲染空件 priority -1）+ logoRow 整行隐藏——VS Code 原生视图头已自报
  *   家门，官方 DeepSeek 品牌块重复且占 60px；折叠钮 aria-label 隐藏与
@@ -276,10 +276,10 @@ export const DENSITY_CSS =
 const CSS =
   '.dshOneSidebarShell_frame,.dshOneSidebarShell_side,.dshOneSidebarShell_side>div{padding-left:0!important;padding-right:0!important;margin-left:0!important;margin-right:0!important}.dshOneSidebarShell_frame{background:var(--dsw-alias-bg-base);height:100%;display:flex;overflow:hidden;position:relative}.dshOneSidebarShell_side{flex:1;min-width:0;background:var(--dsw-specific-sidebar-fill);border-right:.5px solid var(--dsw-alias-border-l3);overflow:hidden}.dshOneSidebarShell_side [class*="logoRow"]{display:none}.dshOneSidebarShell_side>div>[class*="root"]>[class*="newSession"]{display:none}.dshOneSidebarShell_side button[aria-label="Collapse sidebar"],.dshOneSidebarShell_side button[aria-label="\\6536\\8d77\\4fa7\\680f"]{display:none}.dshOneSidebarShell_side>div>[class*="root"]{--dsh-sidebar-inline-padding:0px;padding-top:4px;max-width:none!important;margin-left:0!important;margin-right:0!important}.dshOneSidebarShell_overlay{z-index:20;pointer-events:none;position:absolute;inset:0}' +
   DENSITY_CSS
-const CSS_TAG_ID = '@dsh-one/vscode-sidebar-shell/SidebarFrame.css'
+const CSS_TAG_ID = '@dsh-one/vscode-sidebar-ui-layout/SidebarFrame.css'
 if (typeof document !== 'undefined' && document.querySelector(`style[data-plugin-css="${CSS_TAG_ID}"]`) === null) {
   const tag = document.createElement('style')
-  tag.dataset.plugin = '@dsh-one/vscode-sidebar-shell'
+  tag.dataset.plugin = '@dsh-one/vscode-sidebar-ui-layout'
   tag.dataset.pluginCss = CSS_TAG_ID
   tag.textContent = CSS
   document.head.appendChild(tag)

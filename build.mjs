@@ -115,18 +115,18 @@ for (const dir of (await fsp.readdir('packages')).sort()) {
 // ── 2) 平台专用插件：只住在这个 shell 里的框与宿主协调件（`vscode-*`）────────
 // 它们无法移植（要么渲染我们自己的外框，要么调 VS Code 宿主），所以不进 packages/、
 // 不发 npm 包，照旧直接打成 dist/assembly/plugins/<id>/client.js。
-// - @dsh-one/vscode-shell：chat 树 frame（对话区，#64）
-// - @dsh-one/vscode-sidebar-shell：sidebar 树 frame（侧栏位，#70）
-// - @dsh-one/vscode-settings-shell：settings 树 frame（设置独立成页，#70）
+// - @dsh-one/vscode-chat-ui-layout：chat 树 frame（对话区，#64）
+// - @dsh-one/vscode-sidebar-ui-layout：sidebar 树 frame（侧栏位，#70）
+// - @dsh-one/vscode-settings-ui-layout：settings 树 frame（设置独立成页，#70）
 // - @dsh-one/vscode-theme-follow：主题跟随（三树共用，#70）
 // - @dsh-one/vscode-settings-gear：侧栏设置入口 shadow（sidebar 树，#70）
 // id 与 src/ui/assembly/wireFilter.ts 的常量保持一致。
-const SHELL_PLUGINS = [
-  { id: '@dsh-one/vscode-shell', entry: 'src/ui/assembly/shell/clientEntry.ts' },
-  { id: '@dsh-one/vscode-sidebar-shell', entry: 'src/ui/assembly/shell/sidebarFrameEntry.ts' },
+const VSCODE_PLUGINS = [
+  { id: '@dsh-one/vscode-chat-ui-layout', entry: 'src/ui/assembly/shell/clientEntry.ts' },
+  { id: '@dsh-one/vscode-sidebar-ui-layout', entry: 'src/ui/assembly/shell/sidebarFrameEntry.ts' },
   {
-    id: '@dsh-one/vscode-settings-shell',
-    entry: 'src/ui/assembly/shell/settingsFramePlugin.ts',
+    id: '@dsh-one/vscode-settings-ui-layout',
+    entry: 'src/ui/assembly/shell/settingsLayoutPlugin.ts',
     // 设置行动用官方 Button 原语（与齿轮同款 require 源，种子表满足）。
     externals: ['@deepseek-ai/dsh-client-ui-primitives'],
   },
@@ -140,7 +140,7 @@ const SHELL_PLUGINS = [
     externals: ['@deepseek-ai/dsh-client-ui-primitives'],
   },
 ]
-for (const plugin of SHELL_PLUGINS) {
+for (const plugin of VSCODE_PLUGINS) {
   const pluginDir = path.join('dist', 'assembly', 'plugins', plugin.id)
   await fsp.mkdir(pluginDir, { recursive: true })
   await esbuild.build({
@@ -154,7 +154,7 @@ for (const plugin of SHELL_PLUGINS) {
     ...comboShell(plugin.id),
     logLevel: 'warning',
   })
-  console.log(`assembled shell plugin -> ${pluginDir}/client.js`)
+  console.log(`assembled vscode plugin -> ${pluginDir}/client.js`)
 }
 
 // 宿主半插件（#84）：`packages/dsh-host-capabilities` 是**可安装的官方格式包**

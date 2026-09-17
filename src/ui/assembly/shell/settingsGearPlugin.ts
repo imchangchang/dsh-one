@@ -9,7 +9,7 @@
  * ## 为什么官方设置行要藏掉（#98 定稿）
  * 设置入口收到侧栏顶栏最右的齿轮图标（我们自己的树插件渲染，`workspaceTree/toolbar.ts`）
  * ——与搜索、折叠展开全部、添加工作区同处一行，底部那一行就成了重复入口。设置页本身
- * 没变：仍是我们的独立编辑器页（`@dsh-one/vscode-settings-shell` 那条装配树）。
+ * 没变：仍是我们的独立编辑器页（`@dsh-one/vscode-settings-ui-layout` 那条装配树）。
  *
  * ## 齿轮为什么不在本件里渲染
  * 它属于「我们的侧栏浏览区顶栏」，而那个顶栏由树插件（可移植的 `dsh-*`）渲染；
@@ -22,7 +22,7 @@
  */
 /**
  * 遮蔽组件：什么都不渲染（官方设置行藏起来的全部实现）。返回 null 而不是空元素
- * ——与 sidebarFramePlugin 的品牌位影子同一做法，槽位容器里不留下任何节点。
+ * ——与 sidebarLayoutPlugin 的品牌位影子同一做法，槽位容器里不留下任何节点。
  */
 function Nothing(): unknown {
   return null

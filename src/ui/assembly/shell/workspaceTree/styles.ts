@@ -16,7 +16,7 @@
 // 分组胶囊的高/字号/内边距）写成
 // `var(--dsh-one-density-<项>, <官方原值>)`：
 // - **本插件不判断宿主**：没人给偏好时取官方字面量（官方 web 侧原样），宿主
-//   （我们的 VS Code 侧栏外框 @dsh-one/vscode-sidebar-shell）在容器上设这组
+//   （我们的 VS Code 侧栏外框 @dsh-one/vscode-sidebar-ui-layout）在容器上设这组
 //   变量时自动变紧凑——本件据此保持可移植（AGENTS.md 铁律「能移植的必须移植」）。
 // - 变量是**可选输入**、不是契约：官方 web 无人设 → 走兜底；任何宿主都可以只
 //   设其中几项（未设的项独立回落官方值）。
@@ -52,7 +52,7 @@
 // （前缀 `bhn1Oq`）是主源；骨架四区的几件另有同族出处——分组胶囊与分块块头取
 // ui-model-selection 的 `ModelSelection.module.css`（前缀 `_7KE1Ra`），回收站入口行取
 // ui-cordis 的 `CordisPanel.module.css`（前缀 `Nqubda`）。每个键的出处逐条写在
-// sidebarFramePlugin.ts 的密度表对应项上方，此处不重复。**没人给偏好时就用这一档**，
+// sidebarLayoutPlugin.ts 的密度表对应项上方，此处不重复。**没人给偏好时就用这一档**，
 // 所以它不另抄一份值表；「shell 的 official 列 = 树侧兜底字面量」由
 // test/assemblyShellContract.test.ts 守着。
 //
@@ -155,7 +155,7 @@
 //   （算式的推导与依赖写在 `.dshOneTree_sectionHeader` 那条规则上方）。
 // - **纵向留白**（分节头下边距 `section-header-gap`、块与块之间 `group-gap`）→ **标准档的
 //   4px**（#119：纵向取官方节奏、横向取紧凑档——紧凑档没有「块与块之间」的纵向刻度，那个
-//   2px 是菜单项彼此相接的分隔线外边距；理由写在 sidebarFramePlugin.ts 文件头）。
+//   2px 是菜单项彼此相接的分隔线外边距；理由写在 sidebarLayoutPlugin.ts 文件头）。
 // - **行内图标位**（`.dshOneTree_slot` / `.dshOneTree_scheduleIndicator` /
 //   `.dshOneTree_rowIconButton`）→ **标准档的 16×20 / 16×16**，不取紧凑档的 14×14：
 //   紧凑档那个 14×14 是官方 **14 档图标**的盒子，而本插件的行图标是官方 **16 档**
@@ -219,7 +219,7 @@ export const SCALE_TIERS = {
     listPadding: '2px', // ._list_1nxmc_8._compactList_1nxmc_128{padding:2px}
     separatorMargin: '2px', // ._compactList_1nxmc_128 ._separator_1nxmc_82{margin:2px}
   },
-  /** 标准档：官方侧栏原值（与 sidebarFramePlugin 的密度表 official 列同源，逐项出处见那张表）。 */
+  /** 标准档：官方侧栏原值（与 sidebarLayoutPlugin 的密度表 official 列同源，逐项出处见那张表）。 */
   standard: {
     projectRowHeight: '34px', // .YDXeBa_projectRow{height:34px}
     sessionRowHeight: '32px', // .YDXeBa_sessionRow{height:32px}
@@ -578,7 +578,7 @@ export const CSS =
   //
   // **为什么这一族不吃密度变量**（`var(--dsh-one-density-*)`）：官方 Modal 把内容
   // `createPortal` 到 `document.body`，弹窗不是 frame 容器的后代——密度变量挂在 frame 上
-  // （`sidebarFramePlugin.ts` 的 `DENSITY_CSS`），继承不到弹窗里。所以这里写**紧凑档的字面量**
+  // （`sidebarLayoutPlugin.ts` 的 `DENSITY_CSS`），继承不到弹窗里。所以这里写**紧凑档的字面量**
   // （不是 `var(..., 官方原值)`：那样读到的永远只是兜底值，反而看不出真实取值）。两侧
   // （VS Code 侧栏 / 官方 web）因此拿到同一份紧凑档，弹窗本就不属于「宿主容器给的排版偏好」。
   //
@@ -1001,7 +1001,7 @@ export const CSS =
   // test/assembly-lab/recycleDrawerRowSuites.ts）：
   // - **行高 = 侧栏工作区行同一档**（标准档 `standard.projectRowHeight` 34px，官方
   //   `.YDXeBa_projectRow{height:34px}`）：走**行族那个密度键** `row-height`（不是块头自己
-  //   的键——那个键随本条改动退场，见 sidebarFramePlugin.ts 的说明），所以它与工作区行永远
+  //   的键——那个键随本条改动退场，见 sidebarLayoutPlugin.ts 的说明），所以它与工作区行永远
   //   同高、跟着行家族一起动。
   // - **圆角 8px / 左右内边距 8px**：行圆角（`row-radius`）与行内容基准（`row-padding-inline`，
   //   与它下面的抽屉会话行同一左缘）。

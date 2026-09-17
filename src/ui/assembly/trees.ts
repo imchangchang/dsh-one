@@ -8,6 +8,7 @@
  */
 import {
   CHAT_BLOCK_LIST,
+  CHAT_FRAME_PLUGIN_ID,
   COMPOSER_CLEAR_PLUGIN_ID,
   CONTEXT_MENU_PLUGIN_ID,
   GIT_CARD_PLUGIN_ID,
@@ -15,11 +16,10 @@ import {
   SESSION_BRIDGE_PLUGIN_ID,
   SESSION_EXPORT_PLUGIN_ID,
   SETTINGS_BLOCK_LIST,
+  SETTINGS_FRAME_PLUGIN_ID,
   SETTINGS_GEAR_PLUGIN_ID,
-  SETTINGS_SHELL_PLUGIN_ID,
-  SHELL_PLUGIN_ID,
   SIDEBAR_BLOCK_LIST,
-  SIDEBAR_SHELL_PLUGIN_ID,
+  SIDEBAR_FRAME_PLUGIN_ID,
   THEME_FOLLOW_PLUGIN_ID,
   WORKSPACE_TREE_PLUGIN_ID,
   type BlockedPlugin,
@@ -28,7 +28,7 @@ import {
 /** 一棵树 = 一份 block list + 一个自有 frame 插件 id + 追加的共用插件。 */
 export interface AssemblyTree {
   blockList: ReadonlyArray<BlockedPlugin>
-  shellPluginId: string
+  framePluginId: string
   extraPluginIds: readonly string[]
 }
 
@@ -37,7 +37,7 @@ export interface AssemblyTree {
  */
 export const CHAT_TREE: AssemblyTree = {
   blockList: CHAT_BLOCK_LIST,
-  shellPluginId: SHELL_PLUGIN_ID,
+  framePluginId: CHAT_FRAME_PLUGIN_ID,
   extraPluginIds: [
     THEME_FOLLOW_PLUGIN_ID,
     SESSION_BOOT_PLUGIN_ID,
@@ -54,7 +54,7 @@ export const CHAT_TREE: AssemblyTree = {
  */
 export const SIDEBAR_TREE: AssemblyTree = {
   blockList: SIDEBAR_BLOCK_LIST,
-  shellPluginId: SIDEBAR_SHELL_PLUGIN_ID,
+  framePluginId: SIDEBAR_FRAME_PLUGIN_ID,
   // #65 批 2：工作区/会话树换成自有影子插件（官方 sidebar.workspaces 座位）。
   extraPluginIds: [THEME_FOLLOW_PLUGIN_ID, SETTINGS_GEAR_PLUGIN_ID, SESSION_BRIDGE_PLUGIN_ID, WORKSPACE_TREE_PLUGIN_ID],
 }
@@ -64,9 +64,9 @@ export const SIDEBAR_TREE: AssemblyTree = {
  */
 export const SETTINGS_TREE: AssemblyTree = {
   blockList: SETTINGS_BLOCK_LIST,
-  shellPluginId: SETTINGS_SHELL_PLUGIN_ID,
+  framePluginId: SETTINGS_FRAME_PLUGIN_ID,
   extraPluginIds: [THEME_FOLLOW_PLUGIN_ID],
 }
 
-/** mirror 要同时伺服的树（缓存键 = 各树 shellPluginId，见 server/assemblyMirror.ts）。 */
+/** mirror 要同时伺服的树（缓存键 = 各树 framePluginId，见 server/assemblyMirror.ts）。 */
 export const ASSEMBLY_TREES: ReadonlyArray<AssemblyTree> = [CHAT_TREE, SIDEBAR_TREE, SETTINGS_TREE]

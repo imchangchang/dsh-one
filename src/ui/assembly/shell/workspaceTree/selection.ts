@@ -85,7 +85,7 @@ export function SelectMark({
  * 官方组件自己的档（官方 bundle 里 `._sm_cfgyt_30{height:28px;font-size:12px;
  * line-height:18px;padding:0 10px;border-radius:14px}`），28px 正好是这一列的官方控件档
  * （顶栏图标按钮 / 搜索框那一档，见 styles.ts 档位表的标准档）。同仓先例见
- * settingsFramePlugin.ts 的 `open-document-vscode` 行动（同一枚 Button + `size: 'sm'`）。
+ * settingsLayoutPlugin.ts 的 `open-document-vscode` 行动（同一枚 Button + `size: 'sm'`）。
  */
 export function SelectionBar({
   count,

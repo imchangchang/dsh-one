@@ -57,8 +57,8 @@ export interface BlockedPlugin {
 const UI_LAYOUT: BlockedPlugin = {
   id: '@deepseek-ai/dsh-client-ui-layout',
   // 官方应用外框（三列网格 + 拖拽把手 + 最小 56px 侧栏轨），与 VS Code 的
-  // 容器形态冲突；由 @dsh-one/vscode-shell（chat 树）/ @dsh-one/vscode-sidebar-shell
-  // （sidebar 树）/ @dsh-one/vscode-settings-shell（settings 树）接管根组合。
+  // 容器形态冲突；由 @dsh-one/vscode-chat-ui-layout（chat 树）/ @dsh-one/vscode-sidebar-ui-layout
+  // （sidebar 树）/ @dsh-one/vscode-settings-ui-layout（settings 树）接管根组合。
   // #77 实测过铁律的首选路径（加载官方件 + 只遮蔽它的 root slot），三条硬约束
   // 使其不可行：root 子槽声明排他、renderSlot 授权按条目、同域二次 provide 抛错
   // 且整页 boot 失败——证据与结论见 shell/frameShared.ts 文件头。
@@ -207,17 +207,17 @@ export const CHAT_BLOCKED_IDS: Readonly<string[]> = blockedIdsOf(CHAT_BLOCK_LIST
 /** settings 树 blocked id。 */
 export const SETTINGS_BLOCKED_IDS: Readonly<string[]> = blockedIdsOf(SETTINGS_BLOCK_LIST)
 
-/** chat 树自有 shell 插件 id（root 外框/layout 桩/ThemePresenter，经 mirror /plugins-local 伺服)。 */
-export const SHELL_PLUGIN_ID = '@dsh-one/vscode-shell'
+/** chat 树自有外框插件（frame 插件）id（root 外框/layout 桩/ThemePresenter，经 mirror /plugins-local 伺服)。 */
+export const CHAT_FRAME_PLUGIN_ID = '@dsh-one/vscode-chat-ui-layout'
 
 /** sidebar 树自有 frame 插件 id（root 只声明 sidebar + shell.overlay 子槽）。 */
-export const SIDEBAR_SHELL_PLUGIN_ID = '@dsh-one/vscode-sidebar-shell'
+export const SIDEBAR_FRAME_PLUGIN_ID = '@dsh-one/vscode-sidebar-ui-layout'
 
 /**
  * settings 树自有 frame 插件 id（#70 设置独立成页：block list 同 chat 树 =
  * layout + sidebar，官方 SettingsRoot 不进页，设置座位由整页宿主直渲）。
  */
-export const SETTINGS_SHELL_PLUGIN_ID = '@dsh-one/vscode-settings-shell'
+export const SETTINGS_FRAME_PLUGIN_ID = '@dsh-one/vscode-settings-ui-layout'
 
 /**
  * 主题跟随小插件 id（三棵树共用，#70 VS Code 验收）：收到宿主
@@ -322,7 +322,7 @@ export function extractFrontendAssets(html: string): GatewayAssets {
 /**
  * 过滤 wire：按 blockList 剔除条目（默认 chat 树）；application 批 combo URL
  * 改指 mirror 的 /plugins-local（mirror 伺服剥掉 blocked 段的官方原 combo)；
- * 追加自有 shell entry 与共用插件（默认追加主题跟随插件，三棵树都装），并入
+ * 追加自有外框插件 entry 与共用插件（默认追加主题跟随插件，三棵树都装），并入
  * application 批；bootstrap 批原样不动。
  *
  * combo URL 的 rev 是我们拼的缓存键：官方那半（网关算出来的 `appBatches[0].rev`）
@@ -333,7 +333,7 @@ export function extractFrontendAssets(html: string): GatewayAssets {
 export function filterWire(
   wire: BootWire,
   blockList: ReadonlyArray<BlockedPlugin> = CHAT_BLOCK_LIST,
-  shellPluginId: string = SHELL_PLUGIN_ID,
+  framePluginId: string = CHAT_FRAME_PLUGIN_ID,
   extraPluginIds: readonly string[] = [THEME_FOLLOW_PLUGIN_ID],
   /**
    * 本地那份插件产物（`dist/assembly/plugins`）的内容版本，由宿主现算
@@ -395,7 +395,7 @@ export function filterWire(
   // 不再叠加本地那份：同一个 id 两条 entry 会让客户端当场抛 duplicate graph entry，
   // 而两边的 bundle 同源（build.mjs 把包产物拷进 dist/assembly/plugins），取哪一份
   // 都不改行为（#165 干净 profile 上 chat / sidebar 树打不开的第二个原因）。
-  const localIds = [shellPluginId, ...extraPluginIds].filter((id) => !entries.some((e) => e.id === id))
+  const localIds = [framePluginId, ...extraPluginIds].filter((id) => !entries.some((e) => e.id === id))
   const appRev = appBatches[0].rev
   // combo URL 的 rev 就是 webview 的缓存键（镜像按 URL 原样回 24h `immutable`），
   // 它必须同时代表这份整包的两半内容：

@@ -150,8 +150,8 @@ export function rightbarPreference(pref: number | null, viewport: number): numbe
 }
 
 /**
- * 自有 frame 的 layout store。chat 树（vscode-shell）用 details 与 rightbar
- * 两个维度；sidebar 树（vscode-sidebar-shell）用 sidebar 维度驱动收起态
+ * 自有 frame 的 layout store。chat 树（vscode-chat-ui-layout）用 details 与 rightbar
+ * 两个维度；sidebar 树（vscode-sidebar-ui-layout）用 sidebar 维度驱动收起态
  * （0 = 收起成 56px 轨），narrow 维度在 VS Code 侧栏 view 里不参与（无 1024
  * 自动收起概念）。rightbar 三个动作照官方 0.1.6 的 store 语义：首次开启没
  * 有偏好时按视口 45% 定宽（保留下限 300），关掉只清呈现标记、宽度偏好留着。
@@ -336,7 +336,7 @@ export interface PanelInfoSnapshot {
  * 右栏」这些座位里挂载（chat 树没有 sidebar 座位、sidebar 树没有会话面板、
  * settings 树只渲染设置页），因此三棵树都不依赖选中态：settings 树虽然把设置页
  * 注册成 keyed `main` 上的条目并选中它（#95），但那条条目的渲染是按 key 显式取的
- * （见 settingsFramePlugin 的 renderSlot），不走 `activePanelId`。恒定 null 与官方
+ * （见 settingsLayoutPlugin 的 renderSlot），不走 `activePanelId`。恒定 null 与官方
  * 默认态（未选全局面板）语义一致，会话行照常高亮。快照对象必须引用稳定：官方把它
  * 交给 useSyncExternalStoreWithSelector，每次返回新对象会导致无限重渲。
  */
