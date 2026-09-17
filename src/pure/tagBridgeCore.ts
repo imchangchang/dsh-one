@@ -14,7 +14,6 @@
  * 文件 IO 与 http 壳在 src/server/tagBridge.ts；store 的读写在 sessionsStore。
  * 本模块只保留可离屏单测的部分。
  */
-import type { TagColor } from './sessionTags.ts'
 
 /** bridge.json 的共享记录：扩展每次激活起 127.0.0.1 随机端口 + 每进程随机 token。 */
 export interface TagBridgeRecord {

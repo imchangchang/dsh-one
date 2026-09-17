@@ -11,14 +11,6 @@ export function syncAnimPhase(el: HTMLElement | SVGElement, periodMs: number): v
   el.style.animationDelay = `${-(performance.now() % periodMs)}ms`
 }
 
-/** 转圈 spinner（.spinner，0.9s/圈）：创建即对齐相位，见 syncAnimPhase。 */
-export function spinnerEl(): HTMLSpanElement {
-  const s = document.createElement('span')
-  s.className = 'spinner'
-  syncAnimPhase(s, 900)
-  return s
-}
-
 /**
  * 运行中像素环：复刻官方 dsh web StateDot(ongoing)——10×10 画布上 8 个
  * 2×2 方块沿环排布，各自带负的 animationDelay 错相，配合 .session-spin 的

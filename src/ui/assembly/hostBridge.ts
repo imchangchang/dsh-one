@@ -86,16 +86,6 @@ export const HOST_CALLS = {
   'vscode.openTerminal': 'Open an integrated terminal at one workspace folder (the sidebar workspace row, #109).',
 } as const
 
-export type HostCallName = keyof typeof HOST_CALLS
-
-/** 页面→宿主的能力调用消息。 */
-export interface HostCallMessage {
-  type: 'dshOne.hostCall'
-  call: string
-  args: unknown
-  id: string
-}
-
 /** 宿主→页面的回执消息。 */
 export interface HostCallResult {
   type: 'dshOne.hostResult'
