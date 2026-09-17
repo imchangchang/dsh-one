@@ -121,7 +121,7 @@
       "expect": "把这次 10 个提交从原基线移植到 `develop/cordis-chat`（该线比共同祖先领先 507 个提交）：逐文件冲突面很小（`statusbar.ts`/`manager.ts`/`ownedRecord.ts`/`statusTooltip.ts` 两侧完全相同），只需处理 `extension.ts`（导入区与安装引导冲突）、`package.json`、l10n 与三份 markdown；移植后全历史不得残留冲突标记。",
       "result": "pass",
       "screenshots": [],
-      "notes": "过程与结论：①`git rebase --onto develop/cordis-chat b42317be` 逐提交解冲突——`extension.ts` 保留目标线的安装引导实现（`openInstallGuide`）并并入我们的导入与命令注册，README/CHANGELOG 保留目标线更新的措辞、把我们新增的行并进去 ②中途我的脚本化解冲突在两个提交里留下了半截标记（并被提交进中间提交），已用 `filter-branch --tree-filter` 把三份 markdown 在全部中间提交里统一回目标线版本，再把正确的文档内容集中成一个 `docs(statusbar): 本次改动的 CHANGELOG 与 README 条目（#86/#90/#136/#149）` 提交 ③验证：对 11 个提交逐个 `git show <c>:<file>` 扫描，零 `<<<<<<<` ④顺带修掉中途解冲突时把注释与 `openSessions` 注册挤成一行（导致该注册被注释掉）的缺陷。"
+      "notes": "过程与结论：①`git rebase --onto develop/cordis-chat b42317be` 逐提交解冲突——`extension.ts` 保留目标线的安装引导实现（`openInstallGuide`）并并入我们的导入与命令注册，README/CHANGELOG 保留目标线更新的措辞、把我们新增的行并进去 ②中途我的脚本化解冲突在两个提交里留下了半截标记（并被提交进中间提交），已用 `filter-branch --tree-filter` 把三份 markdown 在全部中间提交里统一回目标线版本，再把正确的文档内容集中成一个 `docs(statusbar): 本次改动的 CHANGELOG 与 README 条目（#86/#90/#136/#149）` 提交 ③验证：对 11 个提交逐个 `git show <c>:<file>` 扫描，零 `<<<<<<<` ④顺带修掉中途解冲突时把注释与 `openSessions` 注册挤成一行（导致该注册被注释掉）的缺陷。 ⑤合入复测又抓出一处真实缺陷：`net.Server` 没有 `closeAllConnections`（那是 `http.Server` 的 API，本机 Node 24 实测为 undefined，此前被 TS 类型转换藏住），`stop()` 实际不会断开已建立的局域网连接——已改为自己跟踪已接受 socket、stop 时逐个 destroy；单文件连跑 3 次 + 整套连跑 3 次均 917/917 通过。"
     },
     {
       "id": "R-05",

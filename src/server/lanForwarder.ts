@@ -19,6 +19,12 @@ export class LanForwarder {
   private server: net.Server | null = null
   /** 在飞的 start（并发调用复用同一个 promise，避免重复 listen 撞 EADDRINUSE）。 */
   private starting: Promise<void> | null = null
+  /**
+   * 已接受的连接。`net.Server` **没有** `closeAllConnections`（那是 `http.Server`
+   * 的 API，实测本机 Node 24 上 `typeof server.closeAllConnections === 'undefined'`），
+   * 所以自己记着、stop 时逐个 destroy——否则关掉转发器后局域网侧的老连接还挂着。
+   */
+  private readonly sockets = new Set<net.Socket>()
   private activeIp: string | undefined
   private activePort: number | undefined
   private listening = false
@@ -64,6 +70,8 @@ export class LanForwarder {
   private async listen(lanIp: string, port: number, targetPort: number): Promise<void> {
     this.stop()
     const server = net.createServer((socket) => {
+      this.sockets.add(socket)
+      socket.once('close', () => this.sockets.delete(socket))
       const upstream = net.connect({ host: '127.0.0.1', port: targetPort })
       // 透传是双向裸管道：任何一端断开/出错就拆掉整条链路，不留半开连接。
       socket.on('error', () => upstream.destroy())
@@ -107,11 +115,9 @@ export class LanForwarder {
     this.activeIp = undefined
     this.activePort = undefined
     this.listening = false
-    // close() 只停监听，不踢已建立连接；实例已不在 running，连接一并拆掉。
-    // closeAllConnections 在 Node 18.2+ 才有（本仓库 @types/node 22 的类型没标），
-    // 探测后再调用，旧运行时退化为只停监听、等现有连接自然结束。
+    // close() 只停监听；已建立的连接由自己做掉（见 sockets 字段的说明）。
     server.close(() => this.logger.info('lan forwarder stopped'))
-    const closable = server as unknown as { closeAllConnections?: () => void }
-    closable.closeAllConnections?.()
+    for (const socket of [...this.sockets]) socket.destroy()
+    this.sockets.clear()
   }
 }
