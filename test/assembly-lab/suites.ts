@@ -11,7 +11,7 @@
  */
 import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
-import type { Browser } from 'playwright'
+import type { Browser, Locator } from 'playwright'
 import {
   Check,
   bodyText,
@@ -1464,6 +1464,31 @@ export const HEADER_UTILITIES_SUITE: LabSuite = {
 // F-08 MULTIOPEN：会话多开通道（#72）——行菜单入口 + 多开 tab 的启动注入
 // ---------------------------------------------------------------------------
 
+/**
+ * 展开分组直到页面上出现 `wanted` 条带行菜单的会话行，返回那组行。
+ *
+ * 只有非空白会话行才带行菜单（官方 SessionNodeItem：`!row.blank && (...)` 才渲染时间与
+ * 行操作），多开入口同理——所以可点的行按「有 ⋯ 按钮」挑（#109 起空白会话行也有行操作
+ * 容器，但它只为挂菜单，官方不给显式 ⋯）。树默认只展开当前会话所在分组，其余分组收起、
+ * 里面一条会话行都不渲染，所以先展开几个分组（点分组头只是本地展开，不写网关）。
+ */
+async function expandUntilSessionRows(page: OpenedPage['page'], wanted: number): Promise<Locator> {
+  const rows = page.locator('.dshOneTree_sessionRow').filter({ has: page.locator('[data-dshone-tree-action="session-menu"]') })
+  const groupRows = page.locator('.dshOneTree_projectRow')
+  const groupCount = await groupRows.count()
+  for (let index = 0; index < groupCount && (await rows.count()) < wanted; index += 1) {
+    const overflow = page.locator('.dshOneTree_sessionOverflowButton')
+    if ((await overflow.count()) > 0) {
+      await overflow.first().click()
+      await page.waitForTimeout(200)
+      continue
+    }
+    await groupRows.nth(index).click()
+    await page.waitForTimeout(250)
+  }
+  return rows
+}
+
 /** 假宿主记录的多开请求（`session.openInNewTab` 带过来的会话 id）。 */
 async function sessionTabsOpened(page: OpenedPage['page']): Promise<string[]> {
   return page.evaluate(() => {
@@ -1473,23 +1498,124 @@ async function sessionTabsOpened(page: OpenedPage['page']): Promise<string[]> {
 }
 
 /**
- * 菜单现状：我们自己那一项（按自有标记属性取，不认官方哈希类名）与整份菜单
- * 的项文案（核对原有三项没被挤掉）。
+ * 官方 `Menu` 给菜单算落点的规则（#159）。源码出处：官方前端 bundle
+ * `@deepseek-ai/dsh-web-frontend` 的 `dist/assets/index-<hash>.js`（本机 0.1.6-alpha.1
+ * 是 `index-C04Zg7TP.js`，组件被压缩成 `function U6(...)`；在文件里搜 `getAnchorRect`
+ * 就能落到那段 `useLayoutEffect` 上），逐字抄下来是这样：
+ *
+ * ```js
+ * const ie = 12, ue = window.innerWidth, he = window.innerHeight,
+ *       Q = F.current, le = Q?.offsetWidth ?? 0, X = Q?.offsetHeight ?? 0;
+ * let E, V;
+ * m === 'right' ? (E = K.right + 4, V = K.top)
+ *   : p === 'start' ? (E = K.left, V = m === 'bottom' ? K.bottom + 4 : K.top - X - 4)
+ *   : (E = K.right - le, V = m === 'bottom' ? K.bottom + 4 : K.top - X - 4);
+ * le > 0 && (E = Math.min(Math.max(E, ie), ue - le - ie));
+ * X > 0 && (V = Math.min(Math.max(V, ie), he - X - ie));
+ * ```
+ *
+ * 说人话：先按锚点与方向算一个落点（`K` = 锚点矩形，`F` = 菜单面板，`le`/`X` = 面板的
+ * `offsetWidth`/`offsetHeight`），**再整份钳进视口、四周各留 12px**——横向
+ * `min(max(E, 12), 视口宽 − 菜单宽 − 12)`、纵向 `min(max(V, 12), 视口高 − 菜单高 − 12)`。
+ * 我们的行右键菜单走的是 `align:"start"` + `side:"bottom"`（`rows.ts` 里没传这两个 prop，
+ * 官方缺省值就是它俩），所以 `E = 指针 x`、`V = 指针 y + 4`。
+ *
+ * **官方只有钳位、没有翻转**：越界时菜单往回收，不会翻到锚点另一侧（#159 顺带核过，
+ * 水平与垂直都是这一条，源码里也确实没有分支）。
+ *
+ * 这就是 #159 那条红的真因：判据原先只算 `指针 y + 4`，没建模钳位；锚点落在钳位线以下
+ * （`指针 y + 4 > 视口高 − 菜单高 − 12`）时菜单顶其实是那条钳位线（实测：菜单 10 项
+ * 紧凑档 `offsetHeight = 288px`，900px 高的视口钳位线 = 600，正是 #154 报告里那个数）。
  */
-async function menuFacts(
-  page: OpenedPage['page'],
-): Promise<{ menus: number; item: string; allItems: string[]; anchored: { left: number; top: number } | null }> {
+const MENU_VIEWPORT_MARGIN = 12
+const MENU_ANCHOR_GAP = 4
+
+/** 按上面那条官方规则算 portal 菜单的落点（`align:"start"` + `side:"bottom"`）。 */
+function officialMenuPoint(
+  anchor: { x: number; y: number },
+  menu: { width: number; height: number },
+  viewport: { width: number; height: number },
+): { left: number; top: number } {
+  let left = anchor.x
+  let top = anchor.y + MENU_ANCHOR_GAP
+  // 官方那两句 `le > 0 && …` / `X > 0 && …`：面板还没量到尺寸时（宽或高为 0）不钳。
+  if (menu.width > 0) left = Math.min(Math.max(left, MENU_VIEWPORT_MARGIN), viewport.width - menu.width - MENU_VIEWPORT_MARGIN)
+  if (menu.height > 0) top = Math.min(Math.max(top, MENU_VIEWPORT_MARGIN), viewport.height - menu.height - MENU_VIEWPORT_MARGIN)
+  return { left: Math.round(left), top: Math.round(top) }
+}
+
+/**
+ * 这一次右键的指针位置。为什么要单独记：官方拿它当锚点（我们传的 `getAnchorRect` 给回的
+ * 零尺寸 `DOMRect`，坐标就是处理函数里的 `event.clientX/clientY`），而 `boundingBox()` 带
+ * 小数、按行盒 + 偏移自己算会差 0~1px——想让锚点判据**精确判等**，输入端就得取同一个整数。
+ */
+const MENU_POINTER_KEY = '__dshOneLabContextMenuPointer'
+
+/** 装一次捕获阶段的 `contextmenu` 监听，把指针位置记在页面上（每次右键都会覆盖）。 */
+async function armMenuPointerCapture(page: OpenedPage['page']): Promise<void> {
+  await page.evaluate((key) => {
+    const store = globalThis as unknown as Record<string, unknown>
+    store[key] = null
+    document.addEventListener(
+      'contextmenu',
+      (event) => {
+        store[key] = { x: event.clientX, y: event.clientY }
+      },
+      true,
+    )
+  }, MENU_POINTER_KEY)
+}
+
+/** 读最后一次右键的指针位置（没右键过就是 null）。 */
+async function lastMenuPointer(page: OpenedPage['page']): Promise<{ x: number; y: number } | null> {
+  return page.evaluate((key) => {
+    const value = (globalThis as unknown as Record<string, unknown>)[key]
+    return value == null ? null : (value as { x: number; y: number })
+  }, MENU_POINTER_KEY)
+}
+
+/**
+ * 菜单现状：我们自己那一项（按自有标记属性取，不认官方哈希类名）与整份菜单
+ * 的项文案（核对原有三项没被挤掉）；另外带上判落点要用的事实——面板自己的矩形、
+ * **面板的 `offsetWidth`/`offsetHeight`**（官方钳位用的就是这两个数，不是 `getBoundingClientRect`
+ * 的宽高）与当页视口尺寸。
+ */
+async function menuFacts(page: OpenedPage['page']): Promise<{
+  menus: number
+  item: string
+  allItems: string[]
+  anchored: { left: number; top: number } | null
+  size: { width: number; height: number } | null
+  viewport: { width: number; height: number }
+}> {
   return page.evaluate(() => {
-    const lists = Array.from(document.querySelectorAll('[role="menu"]'))
-    const last = lists[lists.length - 1]
+    const lists = Array.from(document.querySelectorAll<HTMLElement>('[role="menu"]'))
+    // 面板 = 官方 Menu portal 出去的那一份（直接挂在 body 下）。二级菜单是面板里的内联
+    // 子树（`role="menu"` 也在它身上），不能在它上面量落点与尺寸——官方钳位用的也是面板。
+    const panel = lists.find((element) => element.parentElement === document.body) ?? lists[lists.length - 1]
     const marks = Array.from(document.querySelectorAll('[data-dshone-tree-item]'))
     const mark = marks[marks.length - 1]
-    const rect = last?.getBoundingClientRect()
+    const rect = panel?.getBoundingClientRect()
     return {
       menus: lists.length,
       item: mark?.textContent ?? '',
-      allItems: last === undefined ? [] : Array.from(last.querySelectorAll('button[role="menuitem"]')).map((el) => el.textContent ?? ''),
+      allItems: panel === undefined ? [] : Array.from(panel.querySelectorAll('button[role="menuitem"]')).map((el) => el.textContent ?? ''),
       anchored: rect === undefined ? null : { left: Math.round(rect.left), top: Math.round(rect.top) },
+      size: panel === undefined ? null : { width: panel.offsetWidth, height: panel.offsetHeight },
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+    }
+  })
+}
+
+/** 官方钳位要用的输入：当前面板的 `offsetWidth`/`offsetHeight` 与当页视口尺寸。 */
+async function menuPanelBox(
+  page: OpenedPage['page'],
+): Promise<{ size: { width: number; height: number } | null; viewport: { width: number; height: number } }> {
+  return page.evaluate(() => {
+    const panel = Array.from(document.querySelectorAll<HTMLElement>('[role="menu"]')).find((element) => element.parentElement === document.body) ?? null
+    return {
+      size: panel === null ? null : { width: panel.offsetWidth, height: panel.offsetHeight },
+      viewport: { width: window.innerWidth, height: window.innerHeight },
     }
   })
 }
@@ -1517,7 +1643,7 @@ export const MULTIOPEN_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '会话多开：会话行菜单「在新标签页打开」+ 多开 tab 的启动注入（MULTIOPEN 套件）',
   expect:
-    '侧栏树：会话行的 ⋯ 菜单里有「在新标签页打开」项（原有三项都在，每项都有文案），**行右键**弹出同一份菜单且菜单锚在指针处，Esc 关掉；点该项 → 页面经宿主能力口发出一次 `session.openInNewTab`，带的是**那一行**的真会话 id；点第二行得到第二个不同 id。chat 树：`?session=<id>` 的页面把该 id 注入 `__DSH_ONE_BOOT__` 并真的把它开成当前会话（boot-timing first-meta 等于该 id）；**同一个浏览器上下文（同一源、同一 localStorage，即真 VS Code 里多条 webview 的现场）里开第二个多开会话页**，两页各自开自己的会话、互不串；注入一个不存在的 id 时防闪帧遮罩在场（不闪官方空白态）。',
+    '侧栏树：会话行的 ⋯ 菜单里有「在新标签页打开」项（原有三项都在，每项都有文案），**行右键**弹出同一份菜单且菜单落点逐像素等于官方 `Menu` 自己的规则（锚在指针处 + 官方那套视口钳位，两种落点都判：900px 高的视口走「锚点 top + 4」，矮视口下走「视口高 − 菜单高 − 12」那条钳位线），Esc 关掉；点该项 → 页面经宿主能力口发出一次 `session.openInNewTab`，带的是**那一行**的真会话 id；点第二行得到第二个不同 id。chat 树：`?session=<id>` 的页面把该 id 注入 `__DSH_ONE_BOOT__` 并真的把它开成当前会话（boot-timing first-meta 等于该 id）；**同一个浏览器上下文（同一源、同一 localStorage，即真 VS Code 里多条 webview 的现场）里开第二个多开会话页**，两页各自开自己的会话、互不串；注入一个不存在的 id 时防闪帧遮罩在场（不闪官方空白态）。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     // 真网关的会话清单（只读）：核对「记录下来的 id 是真会话」，并挑注入用的 id。
@@ -1535,27 +1661,8 @@ export const MULTIOPEN_SUITE: LabSuite = {
     // ---------------------------------------------------------------------
     const sidebar = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 380, height: 900 })
     try {
-      // 只有非空白会话行才带行菜单（官方 SessionNodeItem：`!row.blank && (...)` 才渲染
-      // 时间与行操作），多开入口同理——所以可点的行按「带行操作的会话行」挑。
-      // #109 起空白会话行也有行操作容器（只为挂菜单，官方不给显式 ⋯），所以多开入口这一档
-      // 按「有 ⋯ 按钮」挑行。
-      const rows = sidebar.page
-        .locator('.dshOneTree_sessionRow')
-        .filter({ has: sidebar.page.locator('[data-dshone-tree-action="session-menu"]') })
-      // 树默认只展开当前会话所在分组，其余分组收起、里面一条会话行都不渲染 —— 先展开
-      // 几个分组，凑出 ≥2 条带行菜单的会话行（点分组头只是本地展开，不写网关）。
-      const groupRows = sidebar.page.locator('.dshOneTree_projectRow')
-      const groupCount = await groupRows.count()
-      for (let index = 0; index < groupCount && (await rows.count()) < 2; index += 1) {
-        const overflow = sidebar.page.locator('.dshOneTree_sessionOverflowButton')
-        if ((await overflow.count()) > 0) {
-          await overflow.first().click()
-          await sidebar.page.waitForTimeout(200)
-          continue
-        }
-        await groupRows.nth(index).click()
-        await sidebar.page.waitForTimeout(250)
-      }
+      const rows = await expandUntilSessionRows(sidebar.page, 2)
+      const groupCount = await sidebar.page.locator('.dshOneTree_projectRow').count()
       const rowCount = await rows.count()
       check.fact(
         `侧栏分组=${String(groupCount)} 会话行=${String(await contentCount(sidebar.page, '.dshOneTree_sessionRow'))}（其中带行菜单的=${String(rowCount)}）`,
@@ -1597,18 +1704,25 @@ export const MULTIOPEN_SUITE: LabSuite = {
       check.ok('第二行取到几何（右键落点已知）', box !== null, JSON.stringify(box))
       if (box !== null) {
         const at = { x: 90, y: Math.round(box.height / 2) }
+        await armMenuPointerCapture(sidebar.page)
         await row1.click({ button: 'right', position: at })
         await sidebar.page.waitForTimeout(300)
         const contextMenu = await menuFacts(sidebar.page)
-        const expected = { left: Math.round(box.x) + at.x, top: Math.round(box.y) + at.y + 4 }
-        check.fact(`行右键菜单：${JSON.stringify(contextMenu)} 期望锚点约 ${JSON.stringify(expected)}`)
+        const pointer = await lastMenuPointer(sidebar.page)
+        const expected =
+          pointer === null || contextMenu.size === null
+            ? null
+            : officialMenuPoint(pointer, contextMenu.size, contextMenu.viewport)
+        check.fact(
+          `行右键菜单：${JSON.stringify(contextMenu)} 指针=${JSON.stringify(pointer)}` +
+            ` 期望锚点=${JSON.stringify(expected)}（官方钳位线=视口高 ${String(contextMenu.viewport.height)} − 菜单高 ${String(contextMenu.size?.height)} − 12）`,
+        )
         check.ok('行右键弹出同一份菜单（带多开项）', contextMenu.menus === 1 && contextMenu.item.trim() !== '', JSON.stringify(contextMenu))
-        check.ok(
-          '右键菜单锚在指针处（官方 Menu 的 getAnchorRect）',
-          contextMenu.anchored !== null &&
-            Math.abs(contextMenu.anchored.left - expected.left) <= 3 &&
-            Math.abs(contextMenu.anchored.top - expected.top) <= 3,
-          `anchored=${JSON.stringify(contextMenu.anchored)} expected=${JSON.stringify(expected)}`,
+        check.ok('这一次右键的指针位置取到了（锚点判据的输入端）', pointer !== null, JSON.stringify(pointer))
+        check.eq(
+          '右键菜单锚在指针处（官方 Menu 的 getAnchorRect + 官方自己的视口钳位）',
+          contextMenu.anchored,
+          expected,
         )
         screenshots.push(await shot(ctx, sidebar.page, 'multiopen-rightclick'))
 
@@ -1630,6 +1744,67 @@ export const MULTIOPEN_SUITE: LabSuite = {
       check.eq('多开入口全程零 console error', sidebar.capture.consoleErrors, [])
     } finally {
       await sidebar.context.close()
+    }
+
+    // ---------------------------------------------------------------------
+    // 一之二、矮视口：同一条锚点判据的**钳位那一支**
+    // ---------------------------------------------------------------------
+    // 上面那一档（900px 高）走的是「锚点 top + 4」那一支——今天的行落点在钳位线
+    // （900 − 菜单高 288 − 12 = 600）以上。#159 报的那条红正是另一支：行排得靠下、落点越过
+    // 钳位线，菜单被往上钳（#154 实测 668 → 600）。这一档把视口压矮，让**两支都被判过**——
+    // 否则模型里那条 `Math.min` 又只会在「当天数据恰好不越线」时没人走，与 #159 之前一样。
+    //
+    // 指针位置是这一档**唯一要控制**的东西：官方 `Menu` 只认指针坐标（我们的处理函数读
+    // `event.clientX/clientY`），行落在哪儿则看当天数据——今天这个 480px 高的视口里行落在
+    // y≈88、钳位线却在 180，照着真实指针点反而走不到钳位那一支。所以这里派发一次锚点在低位
+    // 的右键（落点 474 必然越过钳位线 180）：考的是「给官方一个靠下的锚点，菜单落点对不对」，
+    // 与行自身的高度无关，因此不被当天数据牵着走。
+    const SHORT_VIEWPORT_HEIGHT = 480
+    const SHORT_POINTER = { x: 90, y: 470 }
+    const short = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), {
+      width: 380,
+      height: SHORT_VIEWPORT_HEIGHT,
+    })
+    try {
+      const shortRows = await expandUntilSessionRows(short.page, 1)
+      const shortRow = shortRows.nth(0)
+      check.ok('矮视口：取到要右键的会话行', (await shortRow.count()) === 1, `rows=${String(await shortRows.count())}`)
+      await armMenuPointerCapture(short.page)
+      // 用 `evaluate` 里手搓的 `MouseEvent` 派发（`locator.dispatchEvent` 对 `contextmenu`
+      // 这类不在它白名单里的类型会造一个通用 Event，`clientX/clientY` 会丢）。
+      await shortRow.evaluate((row, pointer) => {
+        row.dispatchEvent(
+          new MouseEvent('contextmenu', {
+            clientX: pointer.x,
+            clientY: pointer.y,
+            button: 2,
+            bubbles: true,
+            cancelable: true,
+          }),
+        )
+      }, SHORT_POINTER)
+      await short.page.waitForTimeout(300)
+      const shortMenu = await menuFacts(short.page)
+      const shortPointer = await lastMenuPointer(short.page)
+      const line = shortMenu.size === null ? null : shortMenu.viewport.height - shortMenu.size.height - MENU_VIEWPORT_MARGIN
+      const shortExpected =
+        shortPointer === null || shortMenu.size === null
+          ? null
+          : officialMenuPoint(shortPointer, shortMenu.size, shortMenu.viewport)
+      check.fact(
+        `矮视口行右键菜单：${JSON.stringify(shortMenu)} 指针=${JSON.stringify(shortPointer)}` +
+          ` 期望锚点=${JSON.stringify(shortExpected)}（官方钳位线=${String(line)}）`,
+      )
+      check.ok(
+        '矮视口：这次落点确实在钳位线以下（这一档考的就是钳位那一支）',
+        shortPointer !== null && line !== null && shortExpected !== null && shortPointer.y + MENU_ANCHOR_GAP > line,
+        `指针 y=${String(shortPointer?.y)} 钳位线=${String(line)}`,
+      )
+      check.eq('矮视口下菜单顶就落在官方钳位线上（= 视口高 − 菜单高 − 12）', shortMenu.anchored?.top, line)
+      check.eq('矮视口下菜单落点仍逐像素等于官方规则（钳位算进去之后精确判等）', shortMenu.anchored, shortExpected)
+      screenshots.push(await shot(ctx, short.page, 'multiopen-rightclick-short-viewport'))
+    } finally {
+      await short.context.close()
     }
 
     // ---------------------------------------------------------------------
@@ -5166,13 +5341,29 @@ export const SIDEBAR_MENUS_SUITE: LabSuite = {
           const rect = menu?.getBoundingClientRect() ?? null
           return rect === null ? null : { left: Math.round(rect.left), top: Math.round(rect.top) }
         })
+        // 期望值按官方规则算（`officialMenuPoint`：锚点 + 4px，再整份钳进视口）——不建模钳位
+        // 的话，行一靠下（落点越过 `视口高 − 菜单高 − 12`）这条就会像 F-08 那样平白变红（#159）。
+        // 容差保持原样：这一页是活数据，行会在点击与测量之间挪，逐像素的那一条在 F-08。
+        const wsPanel = await menuPanelBox(page)
+        const wsExpected =
+          wsBoxAt === null || wsPanel.size === null
+            ? null
+            : officialMenuPoint(
+                { x: Math.round(wsBoxAt.x) + 80, y: Math.round(wsBoxAt.y) + Math.round(wsBoxAt.height / 2) },
+                wsPanel.size,
+                wsPanel.viewport,
+              )
+        check.fact(
+          `工作区行右键菜单锚点：${JSON.stringify(anchoredAt)} 期望=${JSON.stringify(wsExpected)}` +
+            `（官方钳位线=视口高 ${String(wsPanel.viewport.height)} − 菜单高 ${String(wsPanel.size?.height)} − 12）`,
+        )
         check.ok(
-          '右键菜单锚在这次点击的指针处（官方 Menu 的 getAnchorRect）',
+          '右键菜单锚在这次点击的指针处（官方 Menu 的 getAnchorRect + 官方自己的视口钳位）',
           anchoredAt !== null &&
-            wsBoxAt !== null &&
-            Math.abs(anchoredAt.left - (Math.round(wsBoxAt.x) + 80)) <= 3 &&
-            Math.abs(anchoredAt.top - (Math.round(wsBoxAt.y) + Math.round(wsBoxAt.height / 2) + 4)) <= 3,
-          `anchored=${JSON.stringify(anchoredAt)} 行(点击后)=${JSON.stringify(wsBoxAt)}`,
+            wsExpected !== null &&
+            Math.abs(anchoredAt.left - wsExpected.left) <= 3 &&
+            Math.abs(anchoredAt.top - wsExpected.top) <= 3,
+          `anchored=${JSON.stringify(anchoredAt)} 期望=${JSON.stringify(wsExpected)} 行(点击后)=${JSON.stringify(wsBoxAt)}`,
         )
         const archiveAll = wsMenu.items.find((item) => item.marker === 'archive-all')
         check.ok(
