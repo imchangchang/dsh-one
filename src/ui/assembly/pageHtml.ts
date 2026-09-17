@@ -5,8 +5,9 @@
  * 普通浏览器可开」的验收口径。
  *
  * 页面结构照抄网关 `/` 的注入形态（spike #63 从真实网关 HTML 提取的契约）：
- *   <head>：base href（一切相对 URL 落回 mirror）→ CSP → 诊断探针（内联，
- *   nonce，仅 webview 激活）→ 队列 facade（内联，nonce）→ modulepreload/CSS →
+ *   <head>：base href（一切相对 URL 落回 mirror）→ CSP → 沙箱 srcdoc 帧的 nonce
+ *   补齐（内联，nonce，见 srcdocNonceJs）→ 诊断探针（内联，nonce，仅 webview 激活）
+ *   → 队列 facade（内联，nonce）→ modulepreload/CSS →
  *   __DSH_BOOT__ wire → 阻塞 bootstrap script → 主 bundle（type=module）→
  *   __DSH_TRANSPORT__ 接缝（内联，nonce）
  *   <body>：主题预置 → __DSH_BOOT_READY__ resolve → 版本门信息条（可选）→ #root
@@ -66,9 +67,10 @@ import { hostSdkJs } from './hostSdk.ts'
 
 const CSP = [
   "default-src 'none'",
-  // nonce 给四个内联脚本；loopback 源给 mirror 伺服的 bootstrap/主 bundle；
-  // unsafe-eval：cordis 配置文档的 __jsExpr（!!js dshHomePath(...) 这类）在客户端
-  // 用 new Function+with 求值（主 bundle lu/Ol），不放行则装载即 CSP 违规。
+  // nonce 给页面自己的内联脚本（含给沙箱 srcdoc 帧补的那一份，见 srcdocNonceJs）；
+  // loopback 源给 mirror 伺服的 bootstrap/主 bundle；unsafe-eval：cordis 配置文档的
+  // __jsExpr（!!js dshHomePath(...) 这类）在客户端用 new Function+with 求值
+  // （主 bundle lu/Ol），不放行则装载即 CSP 违规。
   "script-src 'nonce-NONCE' http://127.0.0.1:* http://localhost:* 'unsafe-eval'",
   "style-src http://127.0.0.1:* http://localhost:* 'unsafe-inline'",
   // blob:：官方 composer 附件缩略图用 URL.createObjectURL（blob:）——#71 验收
@@ -294,6 +296,67 @@ function themePresetJs(theme: 'dark' | 'light'): string {
 })()`
 }
 
+/**
+ * 给沙箱 `srcdoc` 帧里的内联脚本补上本页 nonce（#185）。
+ *
+ * **为什么需要它**：Chromium 把本页的 CSP **继承给 `srcdoc` 帧**（`srcdoc` 是 local
+ * scheme，帧文档没有自己的来源可寻址）。于是 `script-src 'nonce-…'` 也管到帧里面去，
+ * 而帧的 HTML 是插件自己生成的、拿不到本页 nonce，帧内内联脚本一律被判违规。官方的
+ * dsh 网页整页没有 CSP（网关 `/` 不带 CSP meta），同一个插件帧在官方页里脚本照常跑——
+ * 所以「帧内脚本量出内容高度、postMessage 回来撑开卡片」这类插件在官方页正常、在装配页
+ * 永远停在最小高度。#185 的现场就是它：`@dsh-external/dsh-visualize` 的 HTML 预览卡
+ * 被压成 48px（正是它自己的 `MIN_HEIGHT`），因为那句
+ * `parent.postMessage({type:"dsh-visualize:height", height: document.documentElement.scrollHeight})`
+ * 从来没被执行过。
+ *
+ * **做法**：在 `srcdoc` 写进 DOM 的那一刻，给帧文档里每个 `<script>` 打上本页 nonce——
+ * 帧与本页自己的内联脚本从此走同一条政策（「script 必须带 nonce」，见
+ * `docs/architecture.md` 的 webview CSP 那一条），既不放开 `script-src`，也不改插件一个
+ * 字节。只对**声明了隔离沙箱的 `srcdoc` 帧**做（`sandbox` 带 `allow-scripts`、不带
+ * `allow-same-origin`）：那种帧是不透明来源，碰不到本页 DOM、localStorage 与宿主桥，
+ * 给它脚本执行权等于官方页本来就有的处境；反过来，没有 `sandbox` 或带
+ * `allow-same-origin` 的 `srcdoc` 帧与本页同源，给它们打 nonce 等于把本页的信任边界
+ * 让出去，所以一律原样放过（这类帧今天就是被挡住的状态，行为不变）。
+ *
+ * 两条已知不覆盖的边（都不影响 #185 的卡片）：① 帧里的内联事件属性（`onclick=`）
+ * 按 CSP 规则只能靠 `'unsafe-inline'` 放行，nonce/hash 对它无效——同类插件若只靠它做
+ * 交互，装配页里仍然不响应；② 帧要用的远端资源（CDN 的图片/字体）仍受本页 `img-src` /
+ * `font-src` 限制。两者都记在 #185 的报告里。
+ */
+function srcdocNonceJs(cspNonce: string): string {
+  return `(() => {
+  const NONCE = ${JSON.stringify(cspNonce)}
+  const isolated = (frame) => {
+    if (typeof frame.getAttribute !== "function") return false
+    const sandbox = frame.getAttribute("sandbox")
+    if (sandbox === null) return false
+    const tokens = sandbox.toLowerCase().split(/\\s+/)
+    return tokens.indexOf("allow-scripts") !== -1 && tokens.indexOf("allow-same-origin") === -1
+  }
+  const stamped = (html) => (typeof html === "string" && html.indexOf("<script") !== -1)
+    ? html.replace(/<script(?![^>]*\\snonce\\s*=)([^>]*)>/gi, (tag, rest) => '<script nonce="' + NONCE + '"' + rest + '>')
+    : html
+  const forFrame = (frame, value) => (isolated(frame) ? stamped(value) : value)
+  const setAttribute = Element.prototype.setAttribute
+  Element.prototype.setAttribute = function (name, value) {
+    return setAttribute.call(
+      this,
+      name,
+      this instanceof HTMLIFrameElement && String(name).toLowerCase() === "srcdoc" ? forFrame(this, value) : value,
+    )
+  }
+  const descriptor = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, "srcdoc")
+  if (descriptor !== undefined && typeof descriptor.set === "function" && typeof descriptor.get === "function") {
+    Object.defineProperty(HTMLIFrameElement.prototype, "srcdoc", {
+      configurable: true,
+      enumerable: descriptor.enumerable,
+      get() { return descriptor.get.call(this) },
+      set(value) { descriptor.set.call(this, forFrame(this, value)) },
+    })
+  }
+})()`
+}
+
 export function assemblyPageHtml(options: AssemblyPageOptions): string {
   const { mirrorOrigin, cspNonce, assets, bootWire, bootstrapUrl, theme, banner } = options
   // 启动早期读官方恢复键（dsh.sessions.current）：官方应用启动流程会改写它，
@@ -312,6 +375,9 @@ export function assemblyPageHtml(options: AssemblyPageOptions): string {
       ? ''
       : `<div style="position:sticky;top:0;z-index:100;padding:6px 12px;background:#8a6d1d;color:#fff;font:12px/1.5 var(--vscode-font-family,system-ui,sans-serif);">${escapeHtml(banner)}</div>`
   const cspMeta = cspOn ? `    <meta http-equiv="Content-Security-Policy" content="${csp}" />\n` : ''
+  // 沙箱 srcdoc 帧的 nonce 补齐（#185）：必须早于页面任何插件脚本——React 挂载时
+  // 就会写 srcdoc，晚一步补丁就漏掉那一帧。CSP 关掉时它没有意义（没有政策可匹配）。
+  const srcdocNonceScript = cspOn ? `    <script nonce="${cspNonce}">${srcdocNonceJs(cspNonce)}</script>\n` : ''
   const transportScript = transportOn ? `    <script nonce="${cspNonce}">${transportJs(mirrorOrigin)}</script>\n` : ''
   // body 归零（#70）：VS Code 给每条 webview 注入 @layer vscode-default
   // { body { padding: 0 20px } }（pre/index.html defaultStyles）——层内规则
@@ -325,7 +391,7 @@ export function assemblyPageHtml(options: AssemblyPageOptions): string {
   <head>
     <base href="${escapeAttr(mirrorOrigin)}/">
     <meta charset="utf-8" />
-${cspMeta}    <title>DeepSeek Harness (assembled)</title>
+${cspMeta}${srcdocNonceScript}    <title>DeepSeek Harness (assembled)</title>
     <script nonce="${cspNonce}">${assemblyProbeJs()}</script>
     <script nonce="${cspNonce}">${QUEUE_FACADE_JS}</script>
     <script nonce="${cspNonce}">${hostSdkJs()}</script>${bodyReset}${bootGlobals}${preload}
