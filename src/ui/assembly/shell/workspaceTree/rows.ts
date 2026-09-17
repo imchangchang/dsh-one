@@ -146,7 +146,7 @@ function submenuChild(options: {
  *
  * 缩进由样式落在**整行**上（styles.ts 里那条 `[role="menuitem"]:has(.dshOneTree_submenuItem)`）：
  * 官方 Menu 的项是一条「图标槽 + 文字 + 勾」的流水线，只把文字右推会让子项的图标与自己的
- * 文字脱开（色块贴在左边、文字隔 20px 远）；而官方项对象只认
+ * 文字脱开（色块贴在左边、文字隔得远——#171 的取值下是 13px）；而官方项对象只认
  * `{id, label, icon, disabled, danger, type, submenu}` 这几个字段（0.1.6-alpha.1 的
  * `lib/client.js` 里渲染项的那一段：字段逐个取用、没有 className / style 这类口），
  * 所以缩进只能落在官方那个 `<button role="menuitem">` 盒子上——用 :has() 从我们自己的

@@ -115,14 +115,14 @@
 //   那条规则上方。
 // - **菜单**→ 官方 `Menu` 传 `compact: true`（官方紧凑档），项内图标按官方该档的 14×14
 //   图标位给 `{ size: 14 }`。
-// - **二级菜单项**（就地展开的子项）→ 左内边距 = **紧凑档的项内边距 7px + 一个缩进位 14px**
-//   （`SCALE_TIERS.compact.rowPaddingInline` + `SCALE_TIERS.compact.iconSize`）。两个加数都
-//   出在官方紧凑档，加起来就是「比父项多让开一个图标槽」：子项文字因此落在父项文字右
-//   **一个图标槽宽**的位置上——看得出是嵌在父项下面的一层，又不像 #126 那样深两格（20px）。
-//   之所以拿图标槽当「一位」，是因为旧侧栏（正本）那条关系量实测正好是这一个数：父项
-//   `.menu-item{padding:4px 10px;gap:8px}` 给 32、子项 `.tag-submenu .menu-item{padding-left:24px}`
-//   给 46，差 14 = 图标槽宽（两侧逐项读数见 `test/legacy-sidebar/` 的台账）。#143 曾把它收到
-//   与父项齐平（0），#167 用户拍板「留一点」，取回来的就是旧侧栏这一档。
+// - **二级菜单项**（就地展开的子项）→ 左内边距 = **紧凑档的项内边距 7px × 2 = 14px**
+//   （`SCALE_TIERS.compact.rowPaddingInline` 两次）。旧侧栏（正本）那条关系量实测是 **+14px**
+//   （子项文字比父项文字深一个图标槽：父项 `.menu-item{padding:4px 10px;gap:8px}` 给 32、
+//   子项 `.tag-submenu .menu-item{padding-left:24px}` 给 46，差 14 = 图标槽宽，两侧逐项读数
+//   见 `test/legacy-sidebar/` 的台账）。#143 曾把它收到与父项齐平（0），#167 用户拍板「留一点」、
+//   取回旧侧栏那一档（一个图标槽），#171 用户看过仍觉得偏大，**我们取那一档的一半**：
+//   子项文字比父项文字深 **+7px**（= 紧凑档的一个项内边距）。两个数都出在官方紧凑档，
+//   算式与出处写在同一条规则上方。
 // - **选中态勾选框的缩进**（`.dshOneTree_checkIndent`，#133）→ **标准档的图标位 16px +
 //   紧凑档的行内间隙 6px = 22px**：会话行进多选后，勾选框左边先空出一层，框就落在工作区行
 //   那枚文件夹图标的列上（两行的行内边距与间隙同档，7 + 22 = 29 = 7 + 16 + 6）。与二级菜单项
@@ -318,10 +318,10 @@ export const SCALE_EXEMPT: readonly { selector: string; reason: string }[] = [
   { selector: 'dshOneTree_drawerHandle', reason: 'drawer handle (#103): hand-drawn shape, no official counterpart' },
   // 同上：把手条本体（32×3、2px 圆角），与 .dshOneTree_drawerHandle 一起构成抽屉把手。
   { selector: 'dshOneTree_drawerGrip', reason: 'drawer handle grip bar: same hand-drawn shape as above' },
-  // 二级菜单项的缩进（#126 立、#143 重定）：**原先那条豁免随 #143 退场**——取值从
-  // 27px（紧凑档三个值的和）收到紧凑档的项内边距 7px 之后，这条规则引用的就是档位表里的
-  // 一个量（`SCALE_TIERS.compact.rowPaddingInline`），不再需要例外登记。算式与出处写在
-  // 那条规则上方、档位表那一节的「二级菜单项」一条里。
+  // 二级菜单项的缩进（#126 立、#143 / #167 / #171 各重定过一回）：**原先那条豁免随 #143 退场**
+  // ——取值从 27px（紧凑档三个值的和）换成「紧凑档的项内边距 × 2」（`SCALE_TIERS.compact.rowPaddingInline`
+  // 两次，7 + 7 = 14px）之后，这条规则引用的就是档位表里的那一个量，不再需要例外登记。
+  // 算式与出处写在同一条规则上方、档位表那一节的「二级菜单项」一条里。
   // 回收站入口行的计数胶囊（#137）：字号 10px / 行高 16px / 圆角 8px / 内边距 0 5px 整套取自
   // 旧侧栏那一行（`sessionsView.ts` 的 `.recycle-entry-count`），是「这一行按旧侧栏规格」那一
   // 组取值的一员；档位表管的是与官方件同族的控件档位（官方侧栏里这一类计数只有文字、没有
@@ -703,25 +703,26 @@ export const CSS =
   // 语义属性，同一份源码）的左内边距**上：用 :has() 从我们自己的标记类去选它的祖先项，不碰
   // 任何官方哈希类名。
   //
-  // 取值 = **紧凑档的项内边距 7px + 紧凑档的图标槽 14px = 21px**（`SCALE_TIERS.compact.rowPaddingInline`
-  // 与 `SCALE_TIERS.compact.iconSize`，官方 `._item_1nxmc_92{padding:3px 7px}` 与
-  // `._itemIcon_1nxmc_144{width:14px;height:14px}`）——子项整行比父项**多让开一个图标槽**，
-  // 也就是「缩进一位」。算式（每一项都出在官方紧凑档，都相对项盒左缘）：
-  //   子项文字左缘 = 项内边距 7 + 缩进位 14 + 空图标槽 14 + 项内间隙 6 = 41
+  // 取值 = **紧凑档的项内边距 7px × 2 = 14px**（`SCALE_TIERS.compact.rowPaddingInline` 两次，
+  // 官方 `._item_1nxmc_92{padding:3px 7px}`）——子项整行比父项多让开**半个图标槽**，也就是
+  // 「缩进半位」。算式（每一项都出在官方紧凑档，都相对项盒左缘）：
+  //   子项文字左缘 = 项内边距 7 + 缩进半位 7 + 空图标槽 14 + 项内间隙 6 = 34
   //   父项文字左缘 = 项内边距 7 + 图标槽 14 + 项内间隙 6 = 27
   //   父项图标槽右缘 = 项内边距 7 + 图标槽 14 = 21
-  // 子项文字比父项文字深 14 = **一个图标槽的宽度**：看得出嵌在父项下面一层，又不像 #126
-  // 那样深两格。为什么拿图标槽当这一位：旧侧栏（正本）的同一条关系实测就是 +14px（父项
-  // `.menu-item{padding:4px 10px;gap:8px}` 给 32、子项 `.tag-submenu .menu-item{padding-left:24px}`
-  // 给 46，差正好是它自己那个 14px 图标槽宽；两侧实测见 `test/legacy-sidebar/` 的台账
-  // `submenu-text-vs-parent-text`）。
-  // 两版历史：#126 这条写 27px（= 项内边距 + 图标槽 + 间隙，子项文字比父项深 20px），用户实测
-  // 报「太深」，#143 收到 7px（与父项同列，深 0）——用户看下来「层级没了」，#167 拍板「留一点」，
-  // 取回来的就是旧侧栏那一档（一个图标槽）。这条关系量由 `test/assembly-lab/` 的 F-32 在真装配
-  // 页上钉住（两个菜单各一遍，期望值从 `SCALE_TIERS` 读）。
+  // 子项文字比父项文字深 7 = **半个图标槽的宽度**（正好等于紧凑档的一个项内边距）：既不像 #126
+  // 那样深两格、也不像 #143 那样与父项同列。为什么取「旧侧栏那一档的一半」：旧侧栏（正本）的
+  // 同一条关系实测就是 +14px（父项 `.menu-item{padding:4px 10px;gap:8px}` 给 32、子项
+  // `.tag-submenu .menu-item{padding-left:24px}` 给 46，差正好是它自己那个 14px 图标槽宽；两侧
+  // 实测见 `test/legacy-sidebar/` 的台账 `submenu-text-vs-parent-text`）——#167 先照那一档取回
+  // 一个图标槽（+14），用户实测仍觉得偏大，#171 取它的一半（+7 = 一个项内边距）。
+  // 三版历史：#126 这条写 27px（= 项内边距 + 图标槽 + 间隙，子项文字比父项深 20px），用户实测
+  // 报「太深」，#143 收到 7px（与父项同列，深 0）——用户看下来「层级没了」，#167 拍板「留一点」
+  // 取回旧侧栏那一档（一个图标槽），#171 再收一半到 7px。这条关系量由 `test/assembly-lab/` 的
+  // F-32 在真装配页上钉住（两个菜单各一遍，期望值从 `SCALE_TIERS` 读），回归钉子：**不许深过
+  // 旧侧栏那一档**（一个图标槽 14px）。
   // 子项没有图标时也占住图标槽（rows.ts 的 indentSubmenuItem 补空槽），所以「子项文字左缘 −
   // 父项文字左缘」对所有子项是**同一个值**。
-  '[role="menuitem"]:has(.dshOneTree_submenuItem){padding-left:calc(7px + 14px)}' +
+  '[role="menuitem"]:has(.dshOneTree_submenuItem){padding-left:calc(7px + 7px)}' +
   // 底部回收站入口行（#99：官方 sidebar.footer.action 座位；#137 整套几何按**旧侧栏规格**
   // 重定）。形态还是主区（🗑 + 文案 + 计数）+ 右侧两枚动作图标，计数 0 整体灰态。
   //
