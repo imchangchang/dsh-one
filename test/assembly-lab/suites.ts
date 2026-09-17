@@ -4357,7 +4357,9 @@ async function installApiFixtures(
       stats.searchCalls += 1
       await reply({
         ok: true,
-        value: { items: [{ id: stats.fixtureSessionId, snippet: 'lab fixture snippet' }], hasMore: true },
+        // 字段名按**官方 wire 形状**（`sessionId`，见 dsh-api-session-controller 的
+        // `SessionSearchResultItem`）：#195 之前这里写成 `id`，与真回执不一致。
+        value: { items: [{ sessionId: stats.fixtureSessionId, snippet: 'lab fixture snippet' }], hasMore: true },
       })
       return
     }
