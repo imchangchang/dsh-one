@@ -39,6 +39,7 @@ import { SELECT_MODE_INDENT_SUITE } from './selectModeIndentSuites.ts'
 import { SUBMENU_INDENT_SUITE } from './submenuIndentSuites.ts'
 import { MODAL_COMPACT_SUITE } from './modalCompactSuites.ts'
 import { VIEW_OPTIONS_RETIRED_SUITE } from './viewOptionsSuites.ts'
+import { TOPBAR_INLINE_SUITE } from './topbarInlineSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
@@ -1903,13 +1904,17 @@ const DENSITY_REGIONS: ReadonlyArray<{
   { region: '顶栏动作组', where: 'tree', selector: '[data-dshone-tree="top-bar-actions"]', props: ['columnGap'] },
   { region: '分组过滤条', where: 'tree', selector: '.dshOneTree_filterBar', props: ['paddingLeft', 'columnGap'] },
   { region: '分组胶囊', where: 'tree', selector: '.dshOneTree_pill', props: ['height', 'fontSize', 'columnGap', 'paddingLeft', 'paddingRight'] },
-  { region: '回收站入口行', where: 'tree', selector: '[data-dshone-tree="recycle-entry"]', props: ['paddingLeft', 'paddingRight'] },
+  // #125：入口行的左内缩不再是密度档给的量（归 0——主区自己带 `row-padding-inline`，行内容
+  // 左缘才落在行内容基准上），所以「左内缩随密度变紧」这一条由**主区**那一项承担（同一列
+  // 的内缩现在只在行自己身上）；容器这一项只剩右内缩。
+  { region: '回收站入口行', where: 'tree', selector: '[data-dshone-tree="recycle-entry"]', props: ['paddingRight'] },
   { region: '回收站入口主区', where: 'tree', selector: '.dshOneTree_footerMain', props: ['height', 'paddingLeft', 'paddingRight'] },
   { region: '回收站入口动作按钮', where: 'tree', selector: '.dshOneTree_footerIconButton', props: ['width', 'height'] },
   { region: '抽屉头', where: 'drawer', selector: '.dshOneTree_drawerHeader', props: ['height', 'paddingLeft', 'paddingRight', 'columnGap'] },
   { region: '抽屉分块块头', where: 'drawer', selector: '.dshOneTree_drawerGroupLabel', props: ['height', 'paddingLeft', 'paddingRight'] },
   { region: '抽屉会话行', where: 'drawer', selector: '.dshOneTree_drawerRow', props: ['height', 'paddingLeft', 'paddingRight'] },
-  { region: '抽屉列表', where: 'drawer', selector: '.dshOneTree_drawerList', props: ['paddingLeft', 'paddingRight', 'paddingBottom'] },
+  // 同上：抽屉列表的左内缩归 0（#125），左边那一列的内缩由抽屉会话行自己承担。
+  { region: '抽屉列表', where: 'drawer', selector: '.dshOneTree_drawerList', props: ['paddingRight', 'paddingBottom'] },
 ]
 
 type DensityReading = Record<string, Record<string, number>>
@@ -1987,7 +1992,7 @@ export const DENSITY_SPREAD_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '侧栏密度档扩散（#104）：顶栏 / 分组过滤条 / 回收站入口行 / 抽屉在三档宽度下都更紧凑（DENSITY-SPREAD 套件）',
   expect:
-    '同一页、同一数据、260/340/500 三档宽度下，把自有树的密度变量从宿主给的 VS Code 档切到它自己声明的官方兜底值（= 官方档），四区的几何逐一比较：顶栏行（高/左内边距/行内间隙）、顶栏图标按钮（宽高）、顶栏动作组间隙、分组过滤条（左内边距/间隙）、分组胶囊（高/字号/间隙/左右内边距）、回收站入口行（左右内边距）、入口主区（高/左右内边距）、入口动作按钮（宽高）、抽屉头（高/左右内边距/间隙）、抽屉分块块头（高/左右内边距）、抽屉会话行（高/左右内边距）、抽屉列表（左右内边距/底部留白）——**每一项紧凑档都严格小于官方原值**，且同一区域在三档宽度下的紧凑读数一致（密度是容器给的，不随宽度漂）。同时钉住「对齐到官方兜底值后读数确实变大」（说明这两组读数真的来自那套变量，不是量到了别的东西）。全程零 pageerror。',
+    '同一页、同一数据、260/340/500 三档宽度下，把自有树的密度变量从宿主给的 VS Code 档切到它自己声明的官方兜底值（= 官方档），四区的几何逐一比较：顶栏行（高/左内边距/行内间隙）、顶栏图标按钮（宽高）、顶栏动作组间隙、分组过滤条（左内边距/间隙）、分组胶囊（高/字号/间隙/左右内边距）、回收站入口行（右内边距，左内缩归 0、由主区自己承担）、入口主区（高/左右内边距）、入口动作按钮（宽高）、抽屉头（高/左右内边距/间隙）、抽屉分块块头（高/左右内边距）、抽屉会话行（高/左右内边距）、抽屉列表（右内边距/底部留白，左内缩同样归 0）——**每一项紧凑档都严格小于官方原值**，且同一区域在三档宽度下的紧凑读数一致（密度是容器给的，不随宽度漂）。同时钉住「对齐到官方兜底值后读数确实变大」（说明这两组读数真的来自那套变量，不是量到了别的东西）。全程零 pageerror。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const widths = [260, 340, 500] as const
@@ -5827,4 +5832,8 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // 套件本体在 viewOptionsSuites.ts，
   // 同为独立文件，少一处合入热点）。
   VIEW_OPTIONS_RETIRED_SUITE,
+  // #125 顶栏 / 过滤条的横向基准（F-35：F-30…F-34 已被 #123/#124/#126/#131/#127 占走，
+  // 按「从未占用的继续」顺延；
+  // 套件本体在 topbarInlineSuites.ts，同上为独立文件，少一处合入热点）。
+  TOPBAR_INLINE_SUITE,
 ]

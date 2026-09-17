@@ -104,6 +104,13 @@
 // - **骨架窗口件**（顶栏 / 抽屉头 / 搜索框 / 图标按钮）→ 高度取**紧凑档的行高 26px**
 //   （一列里只有这一种「一个控件的高度」，比它高的东西会把这一行撑破），横向档取紧凑档的
 //   容器内边距 2px；它们的官方原值（36 / 30 / 28px）留在标准档里当兜底。
+// - **横向左缘基准**（#125，新增骨架件照这条判）：这一列的**左**缘只有两条基准。**骨架区**
+//   （顶栏那一行 / 分组过滤条 / 抽屉头）取**行内容基准** `row-padding-inline`——它们里面的
+//   东西（搜索框、分组胶囊、抽屉标题）要与列表行的内容左缘（工作区行的文件夹图标左缘）
+//   对齐；搜索框还要补回官方 `searchExpanded` 自己那 2px 左外突，算式与理由写在它那条规则
+//   上方。**通栏容器**（列表 / 抽屉列表 / 回收站入口行）左内缩归 0，靠里面的行自己带
+//   `row-padding-inline`——行的底色因此从容器左缘铺到头（#125 的「出血不受影响」）。
+//   右侧不受这条管：容器与控件的右内缩仍取骨架基线 `section-padding-inline`。
 // - **纵向留白**（分节头下边距 `section-header-gap`、块与块之间 `group-gap`）→ **标准档的
 //   4px**（#119：纵向取官方节奏、横向取紧凑档——紧凑档没有「块与块之间」的纵向刻度，那个
 //   2px 是菜单项彼此相接的分隔线外边距；理由写在 sidebarFramePlugin.ts 文件头）。
@@ -284,7 +291,17 @@ export const CSS =
   // search / searchSlot / searchButton / searchInput 四个类名与几何逐字对应官方
   // css-module（含 Expanded 变体），所以两侧展开态可以直接逐项比对（F-04）。
   '.dshOneTree_searchSlot{box-sizing:border-box;min-width:0;max-width:var(--dsh-one-density-icon-button-size,28px);transition:max-width .18s var(--ds-ease-in-out),padding-left .18s var(--ds-ease-in-out);flex:1;align-items:center;margin-left:auto;padding-left:0;display:flex}' +
-  '.dshOneTree_searchSlotExpanded{max-width:100%;padding-left:0}' +
+  // #125：搜索框的左缘要落在**行内容基准**上（工作区行的文件夹图标左缘 = 列表行的内容左缘）。
+  // 顶栏那一行自己的左内缩是骨架基线 `section-padding-inline`（官方分节头
+  // `.bhn1Oq_sectionHeader{padding-left:4px}`），而行的内容从 `row-padding-inline` 起
+  //（官方 `.YDXeBa_projectRow,.YDXeBa_sessionRow{padding:0 8px}`），两者之差就是这一格
+  // 要补的距离；再加回 2px 是因为官方 `searchExpanded` 自己带 `margin-inline:-2px`
+  //（`.bhn1Oq_searchExpanded{width:calc(100% + 4px);…;margin-inline:-2px}`，与它的
+  // `width:calc(100% + 4px)` 配对，靠它向两侧各外突 2px），它把搜索框的边框盒往左顶了
+  // 2px——补回来之后对齐的才是**搜索框的边框左缘**，也就是用户眼睛看到的那条左缘。
+  // 两个键都是档位里的量（紧凑档 7px / 官方 8px 与紧凑档 2px / 官方 4px），所以这条例
+  // 在两档下都成立、不写死像素。
+  '.dshOneTree_searchSlotExpanded{max-width:100%;padding-left:calc(var(--dsh-one-density-row-padding-inline,8px) - var(--dsh-one-density-section-padding-inline,4px) + 2px)}' +
   '.dshOneTree_headerActions{opacity:1;visibility:visible;max-width:none;flex:none;align-items:center;gap:var(--dsh-one-density-section-gap,4px);display:flex}' +
   '.dshOneTree_search{box-sizing:border-box;cursor:text;width:100%;height:var(--dsh-one-density-search-height,28px);color:var(--dsw-alias-label-secondary);transition:width .18s var(--ds-ease-in-out),padding .18s var(--ds-ease-in-out),border-color .18s var(--ds-ease-in-out),background-color .18s var(--ds-ease-in-out);background:0 0;border:none;border-radius:50%;flex:none;align-items:center;gap:0;margin:0;padding:0;display:flex;overflow:hidden}' +
   '.dshOneTree_searchExpanded{border:.5px solid var(--dsw-alias-border-l4);width:calc(100% + 4px);height:var(--dsh-one-density-search-expanded-height,30px);color:var(--dsw-alias-label-caption);background:0 0;border-radius:10px;margin-inline:-2px;padding:0 4px 0 0}' +
@@ -432,7 +449,11 @@ export const CSS =
   // 颜色一律官方 token；尺寸/间距走密度档变量（#104 起把过滤条与抽屉也纳进来，新键的
   // 出处见文件头那段的说明：胶囊尺寸取自官方同形的胶囊触发器、块头取自官方列表分组
   // 块头）。变量名与官方原值两栏一一对应，改动时 shell 侧那张表同步改。
-  '.dshOneTree_filterBar{align-items:center;gap:var(--dsh-one-density-section-gap,4px);margin:0 0 var(--dsh-one-density-group-gap,4px);padding-left:var(--dsh-one-density-section-padding-inline,4px);display:flex}' +
+  // #125：左内缩改用 `row-padding-inline`（= 行内容基准）而不是骨架基线
+  // `section-padding-inline`——过滤条上面的胶囊要和下面列表行的内容左缘对齐，而这两条
+  // 在选中状态下是同时在场的（选择态动作条 `.dshOneTree_selectionBar` 的横向留白本来就是
+  // `row-padding-inline`），对齐之后三条（胶囊 / 计数 / 行内容）同一条竖线。
+  '.dshOneTree_filterBar{align-items:center;gap:var(--dsh-one-density-section-gap,4px);margin:0 0 var(--dsh-one-density-group-gap,4px);padding-left:var(--dsh-one-density-row-padding-inline,8px);display:flex}' +
   // 分组过滤条（#99：单胶囊 + 成员计数 + ▾）。形状沿用官方胶囊语言（官方 token、
   // 999px 圆角 = 容器档，出处：官方 ui-cordis 的 `.Nqubda_transitionActions button`）；
   // 尺寸整套取**紧凑档**——高 26px / 字号 12px 与行菜单的项同高同字，左内边距取紧凑档的
@@ -466,7 +487,13 @@ export const CSS =
   // 主区（🗑 + 文案 + 计数）+ 右侧两枚动作图标；计数 0 整体灰态。它是行家族一员，整套取
   // 紧凑档（高 26px / 圆角 5px / 行内间隙 6px / 字号 12px）；官方同座位的条目
   // （ui-cordis 的 CordisPanel.module.css `Nqubda_badge{height:42px}`）留在标准档当兜底。
-  '.dshOneTree_footerRow{align-items:center;gap:2px;padding:0 var(--dsh-one-density-section-padding-inline,4px);display:flex}' +
+  // #125：左内缩归 0——主区自己带 `row-padding-inline`（行家族的行内边距），所以它的内容
+  // （🗑 图标）左缘落在行内容基准上，与列表行的文件夹图标同一竖线；容器再加一道左内缩
+  // 会把这一行推进去一格（此前进去了 section-padding-inline，比行内容基准多 2px）。
+  // 右侧仍吃骨架基线 `section-padding-inline`：那是两枚动作图标与侧栏右缘的距离，不是
+  // 行内容那一列的事。底色通栏也靠这一条——行盒从侧栏左缘起（与列表行同一处置：
+  // 容器零左内缩、行自己带内边距）。
+  '.dshOneTree_footerRow{align-items:center;gap:2px;padding:0 var(--dsh-one-density-section-padding-inline,4px) 0 0;display:flex}' +
   '.dshOneTree_footerRowEmpty{color:var(--dsw-alias-label-tertiary)}' +
   '.dshOneTree_footerMain{cursor:pointer;min-width:0;height:var(--dsh-one-density-footer-row-height,42px);color:inherit;background:0 0;border:none;border-radius:var(--dsh-one-density-row-radius,8px);flex:1;align-items:center;gap:6px;padding:0 var(--dsh-one-density-row-padding-inline,8px);font-family:inherit;font-size:var(--dsh-one-density-title-font-size,14px);display:inline-flex;overflow:hidden}' +
   '.dshOneTree_footerMain:hover{background:var(--dsw-alias-interactive-bg-hover)}' +
@@ -575,7 +602,10 @@ export const CSS =
   '.dshOneTree_drawerHeader{height:var(--dsh-one-density-section-header-height,36px);flex:none;align-items:center;gap:var(--dsh-one-density-section-gap,4px);padding:0 var(--dsh-one-density-section-padding-inline,4px) 0 var(--dsh-one-density-row-padding-inline,8px);display:flex}' +
   '.dshOneTree_drawerTitle{color:var(--dsw-alias-label-secondary);flex:1;min-width:0;font-size:var(--dsh-one-density-title-font-size,14px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
   '.dshOneTree_drawerCount{color:var(--dsw-alias-label-tertiary);flex:none;font-size:var(--dsh-one-density-meta-font-size,12px)}' +
-  '.dshOneTree_drawerList{min-height:0;padding:0 var(--dsh-one-density-section-padding-inline,4px) var(--dsh-one-density-list-padding-bottom,16px);flex:1;overflow-y:auto}' +
+  // #125：左内缩归 0，理由同入口行——抽屉会话行自己带 `row-padding-inline`，容器的左内缩
+  // 会把整列推右一格（此前进去了 section-padding-inline，于是抽屉行的内容左缘比抽屉头
+  // 标题右 2px）；右侧仍吃骨架基线。
+  '.dshOneTree_drawerList{min-height:0;padding:0 var(--dsh-one-density-section-padding-inline,4px) var(--dsh-one-density-list-padding-bottom,16px) 0;flex:1;overflow-y:auto}' +
   '.dshOneTree_drawerGroup+.dshOneTree_drawerGroup{margin-top:var(--dsh-one-density-group-gap,4px)}' +
   // 抽屉里的分块块头**就是那一枚可点折叠的按钮**：几何取**紧凑档的分组标题档**——
   // 盒高 24px = 官方 compact 档 `._label_1nxmc_124{padding:4px 7px}` + `line-height:16px`
