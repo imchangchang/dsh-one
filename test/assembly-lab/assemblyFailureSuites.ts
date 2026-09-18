@@ -195,7 +195,7 @@ export const ASSEMBLY_FAILURE_SUITE: LabSuite = {
     // 第 0 层：这一页本来好着（否则后面「变空」不是这次注入造成的）。
     const before = await readFailure(page)
     check.ok(
-      '改前：chat 树首屏起来了，提示条零枚',
+      '注入前：chat 树首屏起来了、提示条零枚',
       opened.ready && before.rootVisible && before.notice === 0,
       `ready=${String(opened.ready)} rootVisible=${String(before.rootVisible)} notice=${String(before.notice)} rootChildren=${String(before.rootChildren)}`,
     )
