@@ -133,7 +133,10 @@ npm run verify:lab -- --headed --keep   # 开有界面的浏览器，跑完留�
 `dist/assembly/plugins/`，页面要靠它装配。**不再需要本机有在跑的 dsh 网关**——实例由实验室
 自己起；用户日常那台只被只读探测两次（探不到就如实记一条事实，见 R-06）。
 
-环境变量：`LAB_GATEWAY`（外部实例地址）、`LAB_TOKEN`（外部实例的 token）、`LAB_PORT`
+环境变量：`LAB_GATEWAY`（外部实例地址）、`LAB_TOKEN`（外部实例的 token）、`LAB_LOCALE`
+（隔离实例的页面语言，缺省 `zh`；`LAB_LOCALE=en node test/assembly-lab/verify.ts --suite F-18`
+就是「在一个真 en 页面上跑这一套」——#206 加的，用来让「文案断言的两份取值都认」这件事
+**能复跑**，而不是只靠读代码相信）、`LAB_PORT`
 （实验室端口；**缺省时先试 3179、被占用就自动退到随机空闲端口并打印实际地址**——并行跑多条线时不用再自己记得给 `LAB_PORT`；显式给值时占不到就按人话报错退出，不会偷偷换端口。见 #194）。全部参数见 `node test/assembly-lab/verify.ts --help`。
 
 ### 套件判据不许依赖运行环境（#162 立，硬约束）
@@ -151,6 +154,12 @@ npm run verify:lab -- --headed --keep   # 开有界面的浏览器，跑完留�
   **把语言钉成 zh**（`labGateway.ts` 的 `settingsYaml`），所以这一条在默认跑法下不再是变量；
   词典口径（`check.eqText` / `isText` / `hasText`）**照旧保留**：连外部实例时页面语言仍可能
   是 en，钉住的是默认那条跑法而不是判据的写法。
+  **#206 补一句：这份「钉住」不是密不透风的。** 设置文档送达**之前**，页面用的是**官方 locale
+  服务自己的临时语言**——由浏览器语言决定、兜底英文（出处见下文「#203 那一轮记下来的事实」）。
+  那一刻页面渲染的是词典的 **en 那一份**取值，哪怕实例的设置文档写的是 zh。所以「文案一律从
+  词典读」不是给外部实例留的后路，而是**默认跑法也需要的写法**：写死中文会在这个正常中间态
+  上假红（#203 的并发实验里 F-18 那条就是这么红的）。要在一个真的 en 页面上整轮跑一遍：
+  `LAB_LOCALE=en node test/assembly-lab/verify.ts --suite <id>`（见「跑法」一节）。
 - **不要放宽判据来让它变绿**：这些事修的是**数据与文案的来源**，不是期望的松紧。真做不到自控的
   少数几档，改成「记事实 + 只判关系量」，并在注释里写明为什么。
 
@@ -460,7 +469,29 @@ ledger 的 `environment.machine`（渲染在报告抬头「环境」那张表里
 写死了中文 `加载中`（`suites.ts` 里那句 `loadingText.includes('加载中')`）——并发时语言字典还没
 落到页面上，插件用了 en 兜底，断言就假红。两条口径：① 这是**判据**违反本目录自己那条硬约束
 （文案断言一律从词典读、zh/en 都收，见「套件判据不许依赖运行环境」）；② 顺带暴露出一个**产品
-行为**：zh 机器上加载态那一下可能显示英文兜底。两件事都可以另开条目处理，这里先如实记下现场。
+行为**：zh 机器上加载态那一下可能显示英文兜底。
+
+**#206 的处置与定性**（这一条就是为它立的）：
+
+- **判据按①改了**：那条断言改成 `hasText(loadingText, '加载中…')`——期望值写成词典里那条
+  （`workspaceTree/locale.ts` 的 `empty.loading`），`hasText` 认同一条键的 zh / en 两份取值
+  （`加载中…` / `Loading…`），实测命中任一份即过；事实行还把「命中的是第几份」写出来，
+  下次再撞上这类红，报告里直接看得到那一刻页面是哪份语言。
+- **②定性为官方固有行为，不是我们某处漏走词典**（读本机官方产物给证据）：那一刻页面语言是
+  **官方 locale 服务的临时语言**，与我们的插件无关。出处（`@deepseek-ai/dsh@0.1.6-alpha.1`，
+  本机 `~/.nvm/…/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-client-locale/lib/client.js`）：
+  `FALLBACK_LOCALE = "en"`（注释原话「English is both the locale the UI opens in when the
+  browser names no registered language … and the dictionary consulted after the active locale
+  misses a key」）；`LocaleRuntime` 构造时 `provisional = resolveInitialLocale(locales)`，而
+  `resolveInitialLocale` = `detectBrowserLocale(locales) ?? "en"`（浏览器 `navigator.languages`
+  里没有已注册语言时直接英文——实验室的 chromium 报的是 en-US）；随后 `adopt(host)` 只在宿主
+  设置文档**已经读到**时才会把 `locale.preference`（我们钉的 zh）采纳下来，读不到就 `return`
+  早早退出。所以：**设置文档送达之前**跑的一直是 en，我们那条 `empty.loading` 的 en 取值
+  （`Loading…`）被渲染出来，是这套兜底的正常中间态。我们的件两边都注册了
+  （`ctx.locale.register('dshOneTree', { zh, en })`），没有漏走词典。
+- **`LAB_LOCALE`**：为了让「两份取值都认」这件事能复跑，隔离实例的页面语言现在可给
+  （`LAB_LOCALE=en node test/assembly-lab/verify.ts --suite F-18`，见「跑法」一节）。**改前**
+  en 轮里这条断言红、**改后**两轮都绿，读数写在 #206 的 comment 里。
 
 ## 套件
 
