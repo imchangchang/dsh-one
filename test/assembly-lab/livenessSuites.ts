@@ -973,11 +973,27 @@ export interface LivenessPoint {
   official?: string
   /**
    * 这条交互点的选择器**按哪些文案认控件**（#209）：是就把那几条文案连同档位列出来。
-   * 选择器不靠文案认控件的（按 `data-slot`、按结构断的那些）不给这个字段。
+   * **不靠文案认控件的（按 `data-slot`、按结构断的那些）写空数组**——空数组也是一句明确
+   * 的表态（「这一条我不按文案认控件」），不是省略。
    *
    * 一个交互点可以对应不止一条文案（「折叠 / 展开全部」是一枚按钮、提示随态翻），所以是数组。
+   *
+   * **必填，而且两条约束合起来才闭环（#210 定的）**：
+   *
+   * 1. **类型层挡一道**：这个字段没有 `?`，所以**新加一个交互点而忘了表态**（既没列文案、
+   *    也没写空数组）当场就是 `tsc` 报错——`npm run typecheck` 会点名是哪一个交互点缺这个
+   *    属性，写 `textSources: []` 或把文案列上才能过。挡的是「新加的点悄悄按单语言字面量
+   *    认控件」这种写法：它连表态都没有，谈不上被别处查到。
+   * 2. **运行时挡第二道**：`test/livenessTextSelectors.test.ts` 逐条读这里声明的档位，断言
+   *    每条文案在 zh / en 两种页面语言下都解析得出取值、并且两份都真的落在选择器里（另加
+   *    一条两个方向的对账：声明过的文案 ↔ 真被 `textSelector` 拼过的文案）。挡的是「表了态
+   *    却只给一份取值」——类型层看不出这个，只有把文案拿去过一遍 `texts()` 才知道。
+   *
+   * 两道各管一段，都不可省：类型层管**有没有表态**，运行时管**表态的东西成不成立**。
+   * 为什么类型层不写成 `textSources: readonly LivenessTextSource[] | 'none'` 之类的联合：
+   * 空数组已经把「不按文案认控件」说清楚了，多一种写法只会多一处要维护的判别分支。
    */
-  textSources?: readonly LivenessTextSource[]
+  textSources: readonly LivenessTextSource[]
   /**
    * **只观察、绝不点击**：理由是「点下去会发生什么」。
    *
@@ -1088,12 +1104,18 @@ const CHAT_POINTS: ReadonlyArray<LivenessPoint> = [
   },
   {
     label: 'composer 的权限选择（访问模式）',
+    // 不按文案认控件：按 `data-slot="conversation.input.permission"` 认——按钮上的字是**当前那种**
+    // 访问模式的名字（换个模式或页面语言，那几个字都跟着变），没有一个稳定的文案可认。
+    textSources: [],
     selector: '[data-slot="conversation.input.permission"] button',
     expect: '弹出权限预设菜单',
     official: '[data-slot="conversation.input.permission"] button',
   },
   {
     label: 'composer 的模型选择',
+    // 不按文案认控件：按 `data-slot="conversation.input.model"` 认——按钮上写的是当前模型名，
+    // 那是数据（随会话变），不是一条稳定的文案。
+    textSources: [],
     selector: '[data-slot="conversation.input.model"] button',
     expect: '弹出模型菜单',
     official: '[data-slot="conversation.input.model"] button',
@@ -1150,6 +1172,9 @@ const CHAT_POINTS: ReadonlyArray<LivenessPoint> = [
   },
   {
     label: '会话头 · 打开 / 收起右侧边栏',
+    // 不按文案认控件：按 `data-slot="conversation.session.header.corner"` 认——认的是官方那个
+    // 槽位（会话头右侧角上的展开钮），不是某条按钮文字。
+    textSources: [],
     selector: '[data-slot="conversation.session.header.corner"] button',
     expect: '右栏开合（DOM 结构变）',
     official: '[data-slot="conversation.session.header.corner"] button',
@@ -1228,7 +1253,14 @@ const SETTINGS_POINTS: ReadonlyArray<LivenessPoint> = [
   // `Agent 预设` / `已归档会话`，见 `settingsLayoutPlugin` 的 navCell），写死一个节名
   // 会在别的实例上「元素不在场 → 跳过」，跟着「导航回通用设置」那一条也就成了空点
   // （当时已经在通用设置上，点下去当然没有反应——#177 实测红过一条）。
-  { label: '设置 · 导航到另一节', selector: 'button.dshOneSettingsShell_navCell:not([aria-current])', expect: '切到该节内容' },
+  {
+    label: '设置 · 导航到另一节',
+    // 不按文案认控件：按「不是当前那一节」这个**结构条件**认（`.dshOneSettingsShell_navCell`
+    // 上有没有 `aria-current`）——节名随装着的插件变，认文案反而会把这条钉死在某个实例上。
+    textSources: [],
+    selector: 'button.dshOneSettingsShell_navCell:not([aria-current])',
+    expect: '切到该节内容',
+  },
   {
     // 「通用设置」是**官方**那一节的名字（`general.nav`）：设置页的节由装着的那件官方插件
     // 注册、标题取它自己的词典，所以这条文案归 `OFFICIAL_EXTRA`。
@@ -1269,6 +1301,9 @@ const SETTINGS_POINTS: ReadonlyArray<LivenessPoint> = [
   },
   {
     label: '设置 · 打开配置文件',
+    // 不按文案认控件：按 `data-slot="settings.action"` 认——这一条要判的正是「这个 slot 里
+    // 在渲染哪一枚」（我们自己那条遮蔽官方那条有没有生效），认文案等于先假定是哪一枚。
+    textSources: [],
     selector: '[data-slot="settings.action"] button',
     expect: '打开设置文档（官方那条经网关宿主用系统默认应用打开）',
     observeOnly:

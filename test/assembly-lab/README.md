@@ -175,6 +175,18 @@ npm run verify:lab -- --headed --keep   # 开有界面的浏览器，跑完留�
   两份都真的落在选择器里」。**新加一条按文案认控件的选择器时，要把文案加进对应交互点的
   `textSources`**——不加，自检也会红（它拿表里声明的档位跟真正拼过的选择器对账）。见下文
   「#209 的处置与实测」。
+  **#210 补一句：`textSources` 是必填字段，两条约束各管一段。** 这个字段在 `LivenessPoint` 上
+  没有 `?`，所以**每个交互点都必须表态**：按文案认控件的把文案列上，不按文案认控件的
+  （按 `data-slot`、按结构条件认的那些）**写空数组 `textSources: []`**。于是：
+  - **类型层（`npm run typecheck`）挡「有没有表态」**：新加一个交互点、既没列文案也没写空数组，
+    当场报 `TS2741: Property 'textSources' is missing … but required in type 'LivenessPoint'`，
+    并点名是哪一个交互点。这一道专治 #209 报的那个残留缺口——「新加一个点、选择器里直接写
+    单语言字面量、还不写 `textSources`」，那种写法连表态都没有，运行时自检看不见它。
+  - **运行时（`npm test` 的 `test/livenessTextSelectors.test.ts`）挡「表态的东西成不成立」**：
+    把声明过的文案逐条拿去解析 zh / en 两份、并核对两份都落在选择器里。类型层看不出「只给一份
+    取值」，只有真跑一遍才知道。
+  两道都不可省；为什么不用 `textSources: readonly LivenessTextSource[] | 'none'` 这类联合把两件事
+  合成一个字段：空数组已经把「我不按文案认控件」说清楚了，多一种写法只会多一处判别分支。
 - **不要放宽判据来让它变绿**：这些事修的是**数据与文案的来源**，不是期望的松紧。真做不到自控的
   少数几档，改成「记事实 + 只判关系量」，并在注释里写明为什么。
 
@@ -620,6 +632,34 @@ bundle，esbuild）——`rm -rf dist/assembly` 到产物重新落盘之间「�
 - **改后实测**：`npm test` **1030/1030**（1028 + 本自检的 2 条）；`LAB_LOCALE=zh` 与
   `LAB_LOCALE=en` 两轮 F-54 各 **49/49**、两轮「元素不在场 / 跳过判定」都是 **0**；整轮
   `verify:lab` 63 项 3466 条全绿。
+
+**#210 的处置与实测**（补 #209 收尾时诚实报的那个残留缺口）：
+
+- **缺口**：#209 的自检入口是「表里声明的档位 + `textSelector` 的调用记录」，所以「**新加一个交互点、
+  选择器里直接写单语言字面量、而且不写 `textSources`**」这一种它看不见——要静态拦这种写法就得去猜
+  选择器字符串的形状，那正是 #209 特意避开的那种脆扫描器。
+- **处置**：把 `LivenessPoint.textSources` 改成**必填**（去掉 `?`）。于是每个交互点都得表态：
+  按文案认控件的把文案连同档位列上，不按文案认控件的（按 `data-slot`、按结构条件认的那些）
+  写空数组 `textSources: []`。两道约束就此闭环——**类型层管「有没有表态」，运行时管「表态的东西
+  成不成立」**：
+  - `npm run typecheck`（`tsc --noEmit`）：新加一个交互点而不写这个字段 → `TS2741: Property
+    'textSources' is missing in type '{…}' but required in type 'LivenessPoint'`，报错点名到行；
+  - `npm test` 的 `test/livenessTextSelectors.test.ts`：声明过的文案必须在 zh / en 两种页面语言下
+    都解析得出取值、且两份都真的落在选择器里（这一条类型层看不出来）。
+- **本次逐条表态的**：**5 条**不靠文案认控件的交互点各写了 `textSources: []`（对话区的「权限选择」
+  「模型选择」「会话头 · 打开 / 收起右侧边栏」，设置页的「导航到另一节」「打开配置文件」），
+  每条上面一行注释写明**为什么它不按文案认控件**（按钮上的字是数据、随会话或实例变；或者认的
+  本来就是结构条件）。已有声明的 **19 条一条没动**。
+  （#210 的正文按「19 条已声明 + 另外 11 条不靠文案认控件」写的，实测这张表是 23 个交互点、
+  19 条声明、**5 条**不靠文案认控件——按表里实际的点数做的，见 #210 的 comment。）
+- **负向对照实测**（临时加、跑完即还原，未提交）：
+  ① 临时新加一个不写 `textSources` 的点（选择器写单语言字面量 `button[aria-label="发送消息"]`）
+  → `npm run typecheck` 红：
+  `test/assembly-lab/livenessSuites.ts(1313,3): error TS2741: Property 'textSources' is missing in type '{ label: string; selector: string; expect: string; }' but required in type 'LivenessPoint'.`；
+  ② 同一个点补上 `textSources: []` → typecheck 过。
+- **改后实测**：`LAB_LOCALE=zh` 与 `LAB_LOCALE=en` 两轮 F-54 各 **49/49**、两轮「元素不在场 /
+  跳过判定」都是 **0**；整轮 `verify:lab` 63 项 3466 条全绿；`npm test` **1030/1030**（本次不动
+  断言条数，与基线一致）。
 
 ## 套件
 
