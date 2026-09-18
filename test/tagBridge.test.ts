@@ -1,15 +1,15 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile } from 'node:fs/promises'
-import * as os from 'node:os'
+import { readFile } from 'node:fs/promises'
 import * as path from 'node:path'
+import { scratchDir } from './scratchDirs.ts'
 import { TagBridge, type TagBridgeHandleResult } from '../src/server/tagBridge.ts'
 import type { TagBridgeRequest } from '../src/pure/tagBridgeCore.ts'
 
 const noopLogger = { info: () => {}, warn: () => {} }
 
 async function tmpDir(): Promise<string> {
-  return mkdtemp(path.join(os.tmpdir(), 'dsh-tag-bridge-'))
+  return scratchDir('dsh-tag-bridge-')
 }
 
 const defaultHandle = (_req: TagBridgeRequest): TagBridgeHandleResult => ({

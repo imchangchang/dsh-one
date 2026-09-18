@@ -1,8 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
-import * as os from 'node:os'
+import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import * as path from 'node:path'
 import {
   acquireOwnedLock,
@@ -14,11 +13,12 @@ import {
   writeOwnedRecord,
 } from '../src/server/ownedRecord.ts'
 import type { OwnedLock, OwnedRecord } from '../src/server/ownedRecord.ts'
+import { scratchDir } from './scratchDirs.ts'
 
 const noopLogger = { info: () => {}, warn: () => {}, error: () => {} } as never
 
 async function tmpDir(): Promise<string> {
-  return mkdtemp(path.join(os.tmpdir(), 'dsh-owned-test-'))
+  return scratchDir('dsh-owned-test-')
 }
 
 /** 一个确定已死的 pid：拉起一个即刻退出的子进程，用它的 pid。 */
@@ -198,5 +198,4 @@ test('lock: degrades to a no-op after the timeout (does not block forever)', asy
   await degraded.release() // no-op：占锁方还在，锁目录仍在
   assert.equal((await ownerFile(`${file}.lock`)).pid, process.pid)
   await holder.release()
-  await rm(dir, { recursive: true, force: true })
 })

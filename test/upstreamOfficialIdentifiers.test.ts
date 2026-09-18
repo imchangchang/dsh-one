@@ -13,8 +13,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
-import * as os from 'node:os'
 import * as path from 'node:path'
+import { scratchDirSync } from './scratchDirs.ts'
 
 const ROOT = path.join(import.meta.dirname, '..')
 
@@ -91,9 +91,9 @@ const SYNTHETIC: Record<string, string> = {
   `,
 }
 
-/** 把合成产物铺到临时目录，返回该目录（调用方负责删）。 */
+/** 把合成产物铺到临时目录，返回该目录（收尾交给 scratchDirs）。 */
 function writeSynthetic(overrides: Record<string, string | null> = {}): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-official-ids-'))
+  const dir = scratchDirSync('dsh-official-ids-')
   const merged: Record<string, string | null> = { ...SYNTHETIC, ...overrides }
   for (const [rel, content] of Object.entries(merged)) {
     if (content === null) continue

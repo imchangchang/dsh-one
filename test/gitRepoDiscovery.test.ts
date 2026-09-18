@@ -4,14 +4,14 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import * as os from 'node:os'
 import * as path from 'node:path'
 import * as fs from 'node:fs/promises'
 import { DEFAULT_SKIP_DIRS, discoverGitRepos } from '../src/pure/gitRepoDiscovery.ts'
+import { scratchDir } from './scratchDirs.ts'
 
 /** 造一个临时树：`{ 'sub/.git': true, 'a/b/.git': true }`。 */
 async function makeTree(spec: Record<string, true>): Promise<string> {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'dshone-disc-'))
+  const root = await scratchDir('dshone-disc-')
   for (const rel of Object.keys(spec)) {
     const dir = path.join(root, path.dirname(rel))
     await fs.mkdir(dir, { recursive: true })

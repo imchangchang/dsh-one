@@ -18,6 +18,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { scratchDirSync } from './scratchDirs.ts'
 
 const ROOT = path.join(import.meta.dirname, '..')
 const MODULE_PATH = path.join(ROOT, 'scripts', 'labDoctor.mjs')
@@ -110,8 +111,8 @@ test('平台分叉：POSIX 上真去读进程表（读得到自己那条）', { 
 })
 
 test('isLabHome：只认临时目录下、按实验室前缀建出来的家目录', () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-lab-doctor-judge-'))
-  const other = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-lab-doctor-other-'))
+  const tmp = scratchDirSync('dsh-lab-doctor-judge-')
+  const other = scratchDirSync('dsh-lab-doctor-other-')
   try {
     for (const prefix of doctor.LAB_HOME_PREFIXES) {
       assert.equal(doctor.isLabHome(path.join(tmp, `${prefix}XXXXXX`), tmp), true, prefix)
@@ -126,7 +127,7 @@ test('isLabHome：只认临时目录下、按实验室前缀建出来的家目�
 })
 
 test('classify：四条件逐条正反面对照（收错的防线全在这里）', () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-lab-doctor-judge-'))
+  const tmp = scratchDirSync('dsh-lab-doctor-judge-')
   const labHome = path.join(tmp, 'dsh-lab-home-AAAAAA')
   const owned = { pid: 1000, port: 3080 }
   /** 默认当「父进程还活着」：进程表里放一条 42。 */
@@ -245,7 +246,7 @@ test(
   '端到端：有孤儿时报得出来，--kill 只收孤儿，绝不动登记的那台',
   { skip: process.platform === 'win32' ? '巡检脚本用 ps 读进程表，POSIX 专属' : false },
   async () => {
-    const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-lab-doctor-e2e-'))
+    const sandbox = scratchDirSync('dsh-lab-doctor-e2e-')
     const tmpdir = path.join(sandbox, 'tmp')
     const home = path.join(sandbox, 'home')
     const userHome = path.join(tmpdir, 'dsh-lab-home-userAAAA')
@@ -320,7 +321,7 @@ test(
   '端到端：SIGTERM 收不掉（进程无视信号）的孤儿，会补 SIGKILL 收掉',
   { skip: process.platform === 'win32' ? '巡检脚本用 ps 读进程表，POSIX 专属' : false },
   async () => {
-    const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-lab-doctor-e2e-'))
+    const sandbox = scratchDirSync('dsh-lab-doctor-e2e-')
     const tmpdir = path.join(sandbox, 'tmp')
     const home = path.join(sandbox, 'home')
     const orphanHome = path.join(tmpdir, 'dsh-lab-home-stubborn')

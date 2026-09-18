@@ -6,12 +6,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
-import * as os from 'node:os'
 import * as path from 'node:path'
 import { LogFile } from '../src/pure/logFile.ts'
+import { scratchDirSync } from './scratchDirs.ts'
 
 function tempDir(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-one-log-'))
+  return scratchDirSync('dsh-one-log-')
 }
 
 test('追加写：行末自带换行，重新构造同一个文件时接着写不覆盖', () => {

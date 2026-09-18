@@ -10,7 +10,8 @@ import assert from 'node:assert/strict'
 import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { existsSync, mkdtempSync } from 'node:fs'
+import { existsSync } from 'node:fs'
+import { scratchDirSync } from './scratchDirs.ts'
 import {
   HOST_CAPABILITY_METHODS,
   HOST_CAPABILITY_SERVICE,
@@ -28,7 +29,7 @@ import {
 import { deleteState, dshHomeDir, readState, stateFilePath, writeState } from '../packages/dsh-host-capabilities/src/stateStore.ts'
 import { resolveSaveDir, saveContentFile, uniqueFileName } from '../packages/dsh-host-capabilities/src/saveContent.ts'
 
-const tmpHome = (): string => mkdtempSync(path.join(os.tmpdir(), 'dsh-cap-'))
+const tmpHome = (): string => scratchDirSync('dsh-cap-')
 
 test('端点名 = <服务名>/<方法名>，方法表与宿主半实例方法一一对应', () => {
   assert.equal(capabilityEndpoint('stateRead'), `${HOST_CAPABILITY_SERVICE}/stateRead`)

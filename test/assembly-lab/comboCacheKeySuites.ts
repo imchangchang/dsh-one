@@ -38,6 +38,7 @@ import * as path from 'node:path'
 import { openTreePage, type OpenedPage } from './harness.ts'
 import { consoleLogger, LAB_TREES, startLabServer, type LabServer, type LabTreeRoute } from './labServer.ts'
 import { localBundleRev } from '../../src/server/localBundleRev.ts'
+import { scratchDir } from '../scratchDirs.ts'
 // 只取类型（编译后不留 import，运行期没有环）：套件接口定义在 suites.ts 里。
 import type { LabSuite } from './suites.ts'
 
@@ -108,7 +109,7 @@ export const COMBO_CACHE_KEY_SUITE: LabSuite = {
     '临时目录里放一份**自有插件产物的拷贝**当 pluginsDir（不碰仓库里真正那份），拿同一台真网关（**只读**）起一个姊妹实验室服务器，然后开侧栏树页面走完用户那一步：① **起点的缓存键** = 页面发出的 combo 请求 rev 恰好是 `<当天网关 application 批的 rev>-<现算的 pluginsDir 内容版本>`（两半都由套件自己算：官方那半取 `lab.gatewayWire()`，本地那半取 `localBundleRev`），且这一份产物里还没有下面那段探针代码（探针此刻不当场 = 页面跑的确实是改前的字节）；② **镜像仍回长缓存**——把同一个 URL 取回来，`cache-control` 仍是 `max-age=86400, immutable`（#71 的初衷没被顺手砍），ETag 里含那个 rev（缓存键与 URL 同源），正文里既有保留的官方段、也有本地产物那一段；③ **改本地产物 → 重载页面**（= 用户「改一行 CSS → `npm run build` → reload 窗口」）：新的 combo URL 与旧的不同（本地那一半变了）、URL 前缀（官方那一半）不变，且**新产物真的执行了**（页面上出现那段探针 = 「reload 立刻看到新样式」的可执行版本；没有 #173 的修法时这一步会命中同一 URL 的 immutable 缓存，探针不出现，本套件当场红）；④ **负向对照**：同一份产物再重载一次，rev 一字不变——键是内容派生的，不是每次换个新值（否则 #71 的长缓存等于白设）。全程零 pageerror、真网关只读。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
-    const pluginsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'dsh-one-lab-plugins-'))
+    const pluginsDir = await scratchDir('dsh-one-lab-plugins-')
     let sibling: LabServer | undefined
     check.fact(`产物拷贝：${pluginsDir}（源 = ${ctx.lab.pluginsDir}；改的是这一份，仓库里那份一个字节没动）`)
     check.ok(

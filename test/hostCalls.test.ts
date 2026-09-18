@@ -4,10 +4,9 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import * as os from 'node:os'
 import * as path from 'node:path'
 import * as fs from 'node:fs/promises'
-import { mkdtempSync } from 'node:fs'
+import { scratchDirSync } from './scratchDirs.ts'
 import {
   COMMIT_SHA_ARG_RE,
   SESSION_ID_ARG_RE,
@@ -92,9 +91,9 @@ test('parseAllowedUrl 只放行 http/https/mailto', () => {
 })
 
 test('resolveAllowedDir 只认允许根之内的真实目录', async () => {
-  const root = mkdtempSync(path.join(os.tmpdir(), 'dshone-hostcall-'))
+  const root = scratchDirSync('dshone-hostcall-')
   const inside = path.join(root, 'work')
-  const outside = mkdtempSync(path.join(os.tmpdir(), 'dshone-outside-'))
+  const outside = scratchDirSync('dshone-outside-')
   await fs.mkdir(inside)
   try {
     assert.equal(await resolveAllowedDir(inside, [root]), await fs.realpath(inside))
@@ -115,8 +114,8 @@ test('resolveAllowedDir 只认允许根之内的真实目录', async () => {
 })
 
 test('resolveAllowedDir 解符号链接后判定（链接指到根外即拒绝）', async () => {
-  const root = mkdtempSync(path.join(os.tmpdir(), 'dshone-link-root-'))
-  const outside = mkdtempSync(path.join(os.tmpdir(), 'dshone-link-out-'))
+  const root = scratchDirSync('dshone-link-root-')
+  const outside = scratchDirSync('dshone-link-out-')
   const link = path.join(root, 'escape')
   try {
     await fs.symlink(outside, link, 'dir')
@@ -128,9 +127,9 @@ test('resolveAllowedDir 解符号链接后判定（链接指到根外即拒绝�
 })
 
 test('resolveQueryDir：会话工作区路径在允许根内时优先用它', async () => {
-  const vscodeFolder = mkdtempSync(path.join(os.tmpdir(), 'dshone-qdir-vscode-'))
-  const gatewayWorkspace = mkdtempSync(path.join(os.tmpdir(), 'dshone-qdir-gateway-'))
-  const outside = mkdtempSync(path.join(os.tmpdir(), 'dshone-qdir-out-'))
+  const vscodeFolder = scratchDirSync('dshone-qdir-vscode-')
+  const gatewayWorkspace = scratchDirSync('dshone-qdir-gateway-')
+  const outside = scratchDirSync('dshone-qdir-out-')
   try {
     // 「VS Code 工作区 + 网关会话工作区」两类根都算允许根
     const roots = [vscodeFolder, gatewayWorkspace]

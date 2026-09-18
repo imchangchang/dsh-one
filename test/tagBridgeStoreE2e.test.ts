@@ -1,8 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
-import * as os from 'node:os'
+import { readFile } from 'node:fs/promises'
 import * as path from 'node:path'
+import { scratchDir } from './scratchDirs.ts'
 import { randomUUID } from 'node:crypto'
 import { TagBridge } from '../src/server/tagBridge.ts'
 import { DshStateStore } from '../src/ui/dshStateStore.ts'
@@ -80,7 +80,7 @@ interface WorkspaceBucket {
 }
 
 test('真桥 e2e: assign 按组名 / assign 按 tagId / get / unassign 全链路到 tags.json v2', async () => {
-  const sandbox = await mkdtemp(path.join(os.tmpdir(), 'dsh-tag-e2e-'))
+  const sandbox = await scratchDir('dsh-tag-e2e-')
   const storeDir = path.join(sandbox, STORE_DIR)
   const bridgeFile = path.join(sandbox, 'bridge.json')
   const io = new DshStateStore({ dir: storeDir, log: noopLogger })
@@ -146,6 +146,5 @@ test('真桥 e2e: assign 按组名 / assign 按 tagId / get / unassign 全链路
     assert.ok(tags.workspaces[WS].tags.some((t) => t.id === tag.id), 'group definition retained after unassign')
   } finally {
     await bridge.dispose()
-    await rm(sandbox, { recursive: true, force: true })
   }
 })

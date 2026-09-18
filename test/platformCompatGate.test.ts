@@ -16,9 +16,9 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import * as fsp from 'node:fs/promises'
-import * as os from 'node:os'
 import * as path from 'node:path'
 import { execFileSync, spawnSync } from 'node:child_process'
+import { scratchDir } from './scratchDirs.ts'
 
 const ROOT = path.join(import.meta.dirname, '..')
 const MODULE_PATH = path.join(ROOT, 'scripts', 'platformCompatScan.mjs')
@@ -367,7 +367,7 @@ type GateRepo = {
 }
 
 async function makeGateRepo(): Promise<GateRepo> {
-  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'dshone-platgate-'))
+  const dir = await scratchDir('dshone-platgate-')
   const env = {
     ...process.env,
     GIT_AUTHOR_NAME: 'Ada',
@@ -582,7 +582,7 @@ test('端到端：声明不是合法 JSON → 拒绝并指出去修', async () =
 
 test('门禁脚本经符号链接路径调用也照常出声（macOS 上 /tmp 是 /private/tmp 的链接）', async () => {
   const repo = await makeGateRepo()
-  const linkParent = await fsp.mkdtemp(path.join(os.tmpdir(), 'dshone-platgate-link-'))
+  const linkParent = await scratchDir('dshone-platgate-link-')
   const link = path.join(linkParent, 'repo-link')
   try {
     await fsp.symlink(repo.dir, link)

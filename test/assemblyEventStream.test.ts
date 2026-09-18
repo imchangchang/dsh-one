@@ -24,8 +24,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fsp from 'node:fs/promises'
 import * as http from 'node:http'
-import * as os from 'node:os'
 import * as path from 'node:path'
+import { scratchDir } from './scratchDirs.ts'
 import { startAssemblyMirror } from '../src/server/assemblyMirror.ts'
 import { localBundleRev } from '../src/server/localBundleRev.ts'
 import { CHAT_BLOCK_LIST, CHAT_FRAME_PLUGIN_ID, filterWire, projectGraphFrame, extractBootWire } from '../src/ui/assembly/wireFilter.ts'
@@ -86,7 +86,7 @@ async function startStubGateway(): Promise<{ origin: string; close: () => void; 
 
 /** 临时 pluginsDir：写入该树的自有插件产物（mirror 读它、localBundleRev 也按它算）。 */
 async function pluginsDir(): Promise<string> {
-  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'dsh-one-events-'))
+  const dir = await scratchDir('dsh-one-events-')
   for (const id of [CHAT_FRAME_PLUGIN_ID, EXTRA_PLUGIN_ID]) {
     await fsp.mkdir(path.join(dir, id), { recursive: true })
     await fsp.writeFile(path.join(dir, id, 'client.js'), `window.__ModuleLoader__.load({ id: "${id}" })`)
