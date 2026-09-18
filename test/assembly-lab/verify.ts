@@ -626,12 +626,21 @@ async function main(): Promise<number> {
   const machineBefore = readMachineLoad(isolated?.pid)
   // ② 会话面读数（`--diag-surface` 才记）：套件边界读网关、每次开页读页面，
   //    用来在长轮次里看出会话面是「越跑越少」还是「某一步之后归零」。
+  //    每条读数**即时追加**到 `session-surface.txt`：一轮要是被 Ctrl-C / 超时打断，
+  //    已经记到的那段仍然留在产物目录里（#203 第一次实测就是被后台超时打断、
+  //    时间线只在内存里，白跑一轮）。
   const surface: SurfaceReading[] = []
   const roundStart = Date.now()
   const surfaceSeconds = (): number => (Date.now() - roundStart) / 1000
+  const surfaceTxtPath = path.join(args.out, 'session-surface.txt')
+  const recordSurface = async (reading: SurfaceReading): Promise<void> => {
+    surface.push(reading)
+    await fsp.appendFile(surfaceTxtPath, `${readingLine(reading)}\n`, 'utf8').catch(() => undefined)
+  }
   if (args.diagSurface) {
+    await fsp.writeFile(surfaceTxtPath, '# 会话面读数时间线（#203，--diag-surface）\n', 'utf8').catch(() => undefined)
     setPageSurfaceSink((reading) => {
-      surface.push({ seconds: surfaceSeconds(), where: `page:${reading.where}`, url: reading.url, page: reading.page })
+      void recordSurface({ seconds: surfaceSeconds(), where: `page:${reading.where}`, url: reading.url, page: reading.page })
     })
   }
   try {
@@ -643,7 +652,7 @@ async function main(): Promise<number> {
       setLabSuite(suite.id, suite.name)
       // 会话面读数的第一个采样点：**进套件之前**（边界采样，退化落在哪一条边界上才看得出）。
       if (args.diagSurface) {
-        surface.push({ seconds: surfaceSeconds(), where: `suite:${suite.id}`, gateway: await readGatewaySurface(gateway) })
+        await recordSurface({ seconds: surfaceSeconds(), where: `suite:${suite.id}`, gateway: await readGatewaySurface(gateway) })
       }
       let screenshots: string[] = []
       let crash: string | undefined
@@ -677,7 +686,7 @@ async function main(): Promise<number> {
     const everydayAfter = watchEveryday ? await probeReadOnly(EVERYDAY_GATEWAY, undefined, log) : undefined
     const externalAfter = args.gateway === undefined ? undefined : await probeReadOnly(gateway, args.token, log)
     // 会话面读数的收尾采样点，以及落盘（`--diag-surface` 才有）。
-    if (args.diagSurface) surface.push({ seconds: surfaceSeconds(), where: 'suite:（末尾）', gateway: await readGatewaySurface(gateway) })
+    if (args.diagSurface) await recordSurface({ seconds: surfaceSeconds(), where: 'suite:（末尾）', gateway: await readGatewaySurface(gateway) })
     nativeSideEffectCheck(readonly)
     for (const line of gatewayCallFacts()) readonly.fact(line)
     readonly.fact(describeMachineLoad(machineBefore))
@@ -727,20 +736,22 @@ async function main(): Promise<number> {
   const { branch, commit } = gitInfo()
   const machineAfter = readMachineLoad(isolated?.pid)
   if (args.diagSurface) {
+    // 完整重写一次：跑到底时这份是**权威副本**（逐条追加那份可能因为进程被打断而少尾巴）。
     const jsonPath = path.join(args.out, 'session-surface.json')
-    const txtPath = path.join(args.out, 'session-surface.txt')
-    await fsp.writeFile(jsonPath, `${JSON.stringify({ readings: surface }, null, 2)}\n`, 'utf8')
+    await fsp.writeFile(jsonPath, `${JSON.stringify({ readings: surface, machineBefore, machineAfter }, null, 2)}\n`, 'utf8')
     await fsp.writeFile(
-      txtPath,
+      surfaceTxtPath,
       [
         '# 会话面读数时间线（#203，--diag-surface）',
-        `# 机器现场：${describeMachineLoad(machineBefore)}`,
+        `# 机器现场（跑前）：${describeMachineLoad(machineBefore)}`,
+        `# 机器现场（跑后）：${describeMachineLoad(machineAfter)}`,
+        `# 结论：${concurrencyLabel(machineBefore)}`,
         ...surface.map(readingLine),
         '',
       ].join('\n'),
       'utf8',
     )
-    process.stdout.write(`会话面时间线: ${txtPath}（${String(surface.length)} 个读数点）\n`)
+    process.stdout.write(`会话面时间线: ${surfaceTxtPath}（${String(surface.length)} 个读数点）\n`)
   }
   const ledgerPath = path.join(args.out, 'verify.lab.ledger.json')
   await fsp.writeFile(
