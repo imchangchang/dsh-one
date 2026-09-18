@@ -9,6 +9,11 @@
  * 恢复行为（默认 tab 不变），恢复键（dsh.sessions.current）路线禁用：多 tab 同源
  * localStorage 互相覆盖已实证（spike 题4 实验2），协调全靠宿主映射 + 本注入。
  *
+ * **注入是「盯住目标直到落定」，不是「喊一次/几拍固定重试」**（#205）：官方的启动
+ * 恢复会来抢同一个选中值，而且**喊不动**的两类情形（目标还没出现在这页的列表里、
+ * 这一页开不了它）都不能静默——前者的旧写法把「一眼没看到」当成结论就此收手，后者
+ * 的旧写法把抛出的错吞掉。落点见 `assertDesired` / `watchTick`。
+ *
  * 活跃上报：每次「当前会话」变化（含注入 open 的结果与官方恢复值）广播
  * {type:'dshOne.sessionMeta', sessionId, title}——宿主维护 tab↔会话映射、
  * 跟随面板标题；首拍恢复值也上报（默认 tab 借此挂接映射）。
@@ -127,25 +132,24 @@ const openSession = (ctx: BootContext, sessionId: string): void => {
   ctx.get('uiWorkspace').openSession(sessionId)
 }
 
+/**
+ * 盯目标的观察窗口（毫秒）：这段时间里只要「想要的当前会话」还没落定就继续喊，到点按实际
+ * 读数说一句并放手。**为什么要一个窗口而不是几拍固定重试**（#205）：旧写法是 150/400/900
+ * 三拍固定时刻重试，加上一条「目标不在列表里就当它已经定下来」的早退——那三拍错过了就永远
+ * 错过了，而且「一眼没看到目标」被当成了结论（列表分批到、会话刚从回收站恢复，都会先看不到
+ * 它）。窗口内的每一拍都是重新看一眼当前读数，不依赖「上一次是第几拍」。
+ */
+const WATCH_TARGET_MS = 1500
+
+/** 盯目标的节拍（毫秒）：窗口内每隔这么久看一眼；列表有变化时另有一拍（订阅驱动）。 */
+const WATCH_TICK_MS = 250
+
+/** 两次真的喊 `openSession` 之间的最小间隔：列表频繁刷新时别把它打成风暴。 */
+const WATCH_MIN_GAP_MS = 250
+
 export function apply(ctx: BootContext): void {
   // apply 时刻 ≈ 整树插件装载完（本插件在 application 批末位）。
   timingLog('apply')
-  // 运行时就地切换（#71 单例终态）：宿主转发的 dshOne.switchSession → 官方
-  // uiWorkspace.openSession(id)（机制层 2 官方服务 API）——不 reload、不遮罩（遮罩只
-  // 服务冷启动注入），官方切换自带加载态。
-  const onSwitchMessage = (event: MessageEvent): void => {
-    const data = event.data as { type?: unknown; sessionId?: unknown } | undefined
-    if (data?.type !== 'dshOne.switchSession' || typeof data.sessionId !== 'string' || data.sessionId === '') return
-    const list = ctx.get('sessions').list.getSnapshot()
-    if (withCurrentSession(list).current === data.sessionId) return
-    try {
-      openSession(ctx, data.sessionId)
-      timingLog('switch', data.sessionId.slice(0, 13))
-    } catch {
-      /* 目标不在列表（被归档等）：保持现状 */
-    }
-  }
-  window.addEventListener('message', onSwitchMessage)
   const target = bootSessionId()
   // 整包网络字节（transferSize=0 = 命中 HTTP 缓存，#71 性能对照指标）。
   const comboEntry = performance
@@ -156,11 +160,28 @@ export function apply(ctx: BootContext): void {
   let reportedFirstMeta = false
   /**
    * 这一页的身份定了没有：`true` = 注入目标已经是当前会话，或者压根不再等它
-   * （没有注入 / 目标不在列表 / 重试预算用尽）。`false` 期间**不上报**：此刻的
-   * current 是官方启动恢复的过渡值，多开页共用同一份 localStorage，那个值是别的
-   * 面板的会话，报给宿主只会让 tab↔会话映射绑错（#72 的「互不串」判据盯的就是它）。
+   * （没有注入 / 观察窗口走完）。`false` 期间**不上报**：此刻的 current 是官方启动恢复的
+   * 过渡值，多开页共用同一份 localStorage，那个值是别的面板的会话，报给宿主只会让
+   * tab↔会话映射绑错（#72 的「互不串」判据盯的就是它）。
    */
   let identitySettled = target === undefined
+  /**
+   * 这一页「想要的当前会话」：冷启动是宿主注入的目标，运行时就地切换会改写它（同一个
+   * 盯法服务两条通路，见 assertDesired）。
+   */
+  let desired = target
+  /** 目标盯到什么时候为止；窗口走完就不再插手（用户手动切走不会被拽回来）。 */
+  let watchUntil = desired === undefined ? 0 : performance.now() + WATCH_TARGET_MS
+  /** 上一次真的喊 `openSession` 的时刻（节流，见 WATCH_MIN_GAP_MS）。 */
+  let lastAssert = 0
+  /** 「目标还没出现在列表里」只记一次（每一拍都记会把日志刷满）。 */
+  let waitingLogged = false
+  /** 「这一页开不了它」只记一次（同上）。 */
+  let failedLogged = false
+  /** 窗口走完时那句「没落定」的读数只说一次。 */
+  let gaveUpLogged = false
+  let disposed = false
+  const timers: Array<ReturnType<typeof setTimeout>> = []
   const normalize = (): SessionsListSnapshot => ctx.get('sessions').list.getSnapshot()
   const currentOf = (list: SessionsListSnapshot): string | undefined => withCurrentSession(list).current
   /**
@@ -178,71 +199,144 @@ export function apply(ctx: BootContext): void {
     persistPanelState(current)
     postMeta(current, list.byId[current]?.displayTitle ?? list.byId[current]?.title)
   }
-  /** 目标已落定？落定就把身份标记为定下来（之后的切换按正常路径上报）。 */
-  const settle = (list: SessionsListSnapshot): boolean => {
-    if (target === undefined || identitySettled) return identitySettled
-    if (currentOf(list) === target) identitySettled = true
-    else if (list.byId[target] === undefined) identitySettled = true
-    return identitySettled
-  }
-  const injectTarget = (): void => {
-    if (target === undefined || settle(normalize())) return
+  /**
+   * 喊一次 `openSession(desired)`——**盯住目标**这一条的中心：不是「喊过了就算了」，
+   * 而是在窗口内每一拍都重新看一眼「它到了没有」，没到就再喊一次。
+   *
+   * 为什么必须盯（#205）：官方 0.1.6-alpha.2 起把「恢复上次选中的会话」搬进了
+   * ui-workspace 自己的 watcher（它等 sessions/workspaces 双双 ready 才动），与我们
+   * 「sessions ready 就注入」几乎同时——多开页上恢复值是别的面板的会话，首次注入会被它
+   * 盖掉，要再喊才落定；官方这次先到、我们后到也一样要靠再喊补上。而**喊不动**的两种
+   * 情形都不许静默：目标还没出现在列表里（列表分批到、会话刚从回收站恢复）只记一条
+   * `inject-wait` 并继续等，`openSession` 抛了（这一页开不了它）当场说出来——旧写法把
+   * 抛出的错吞掉、把「一眼没看到目标」当成「已经定下来」，于是用户看到的是一个空面板，
+   * 日志里只有遮罩那句「timed out」（#205 的现场）。
+   */
+  const assertDesired = (list: SessionsListSnapshot): void => {
+    if (desired === undefined) return
+    if (currentOf(list) === desired) {
+      identitySettled = true
+      return
+    }
+    if (performance.now() >= watchUntil) return
+    if (list.byId[desired] === undefined) {
+      if (!waitingLogged) {
+        waitingLogged = true
+        timingLog('inject-wait', `target=${desired.slice(0, 13)} not in this page's session list yet`)
+      }
+      return
+    }
+    const now = performance.now()
+    if (now - lastAssert < WATCH_MIN_GAP_MS) return
+    lastAssert = now
     try {
-      openSession(ctx, target)
-    } catch {
-      /* 目标 id 不在列表（会话被归档等）：保持官方恢复值 */
+      openSession(ctx, desired)
+    } catch (err) {
+      if (!failedLogged) {
+        failedLogged = true
+        console.warn(`[dsh-one] opening session ${desired.slice(0, 13)} failed: ${describeError(err)}`)
+      }
     }
   }
   /**
-   * 启动注入：喊一次 + 落定前的有限次重试。
+   * 盯目标的一拍：先喊（该喊的话），再看窗口走完没有。走完时按**实际读数**说一句——
+   * 目标没落定时那句 warn 说的就是「谁成了当前会话 / 它压根不在这页的列表里」，与遮罩
+   * 那句 generic 的 timeout 分开（遮罩只管盖不盖着，这里管目标到底怎么了）。
    *
-   * 为什么不是喊一次就够（#191 实测）：0.1.6-alpha.2 起官方把「恢复上次选中的会话」搬进
-   * ui-workspace 自己的 watcher（它等 sessions/workspaces 双双 ready 才动），与我们
-   * 「sessions ready 就注入」几乎同时——实测**首次**注入会被它盖掉（多开页上恢复值是
-   * 别的面板的会话），要再喊一次才落定。重试只到「目标成为当前会话」为止，预算用尽就
-   * 不再等（那时按正常路径上报，不把这一页永久钉住）。
+   * `listDriven` = 这一拍由列表变化驱动（那是「页面状态变了」，照旧往宿主上报一次）；
+   * 纯节拍只在「身份刚定下来」那一拍上报，免得盯着的 1.5 秒里每 250ms 重复报一遍。
    */
-  const injectRetries = target === undefined ? [] : [150, 400, 900]
-  /** 重试预算用尽的时刻：那时还等不到目标就不再拦上报（这一页不永久哑掉）。 */
-  const INJECT_GIVE_UP_MS = 1500
-  const timers: Array<ReturnType<typeof setTimeout>> = []
-  const scheduleInjectRetries = (): void => {
-    for (const delay of injectRetries) {
+  const watchTick = (listDriven: boolean): void => {
+    const list = normalize()
+    const settledBefore = identitySettled
+    assertDesired(list)
+    if (performance.now() >= watchUntil) {
+      if (desired !== undefined && currentOf(list) !== desired && !gaveUpLogged) {
+        gaveUpLogged = true
+        const current = currentOf(list)
+        const why =
+          list.byId[desired] === undefined
+            ? 'not in this page session list'
+            : current === undefined
+              ? 'no current session'
+              : `current is ${current.slice(0, 13)}`
+        console.warn(
+          `[dsh-one] session ${desired.slice(0, 13)} did not become current within ${String(WATCH_TARGET_MS)}ms (${why})`,
+        )
+      }
+      // 窗口走完就放手：这一页不永久哑掉，宿主照常拿到它实际开着的那条。
+      identitySettled = true
+    }
+    if (listDriven || (identitySettled && !settledBefore)) report(list)
+  }
+  /**
+   * 盯着目标的节拍：窗口内每隔 `WATCH_TICK_MS` 走一拍（列表有变化时另有一拍，见下面
+   * 的订阅）。节拍靠 `ticking` 去重——运行时就地切换会重开一个新窗口。
+   */
+  let ticking = false
+  const ensureTicker = (): void => {
+    if (ticking) return
+    ticking = true
+    const step = (): void => {
       timers.push(
         setTimeout(() => {
-          if (settle(normalize())) return
-          injectTarget()
-        }, delay),
+          if (disposed) {
+            ticking = false
+            return
+          }
+          watchTick(false)
+          if (performance.now() < watchUntil) step()
+          else ticking = false
+        }, WATCH_TICK_MS),
       )
     }
-    timers.push(
-      setTimeout(() => {
-        if (identitySettled) return
-        identitySettled = true
-        report(normalize())
-      }, INJECT_GIVE_UP_MS),
-    )
+    step()
   }
+  // 运行时就地切换（#71 单例终态）：宿主转发的 dshOne.switchSession 也走**同一条**
+  // 盯目标的通路（机制层 2 官方服务 API）——不 reload、不遮罩（遮罩只服务冷启动注入），
+  // 官方切换自带加载态。旧写法在这里只喊一次且吞错：被盖掉或喊不动时用户看到的是
+  // 「点了没反应」，日志里一个字都没有。
+  const onSwitchMessage = (event: MessageEvent): void => {
+    const data = event.data as { type?: unknown; sessionId?: unknown } | undefined
+    if (data?.type !== 'dshOne.switchSession' || typeof data.sessionId !== 'string' || data.sessionId === '') return
+    const list = ctx.get('sessions').list.getSnapshot()
+    if (withCurrentSession(list).current === data.sessionId) return
+    desired = data.sessionId
+    watchUntil = performance.now() + WATCH_TARGET_MS
+    waitingLogged = false
+    failedLogged = false
+    gaveUpLogged = false
+    lastAssert = 0
+    timingLog('switch', data.sessionId.slice(0, 13))
+    ensureTicker()
+    watchTick(true)
+  }
+  window.addEventListener('message', onSwitchMessage)
   ctx.effect(() => {
     return () => {
+      disposed = true
       window.removeEventListener('message', onSwitchMessage)
       for (const timer of timers) clearTimeout(timer)
     }
-  }, 'dsh-one session boot: dispose switch listener + inject retries')
+  }, 'dsh-one session boot: dispose switch listener + target watch')
   ctx.get('sessions').list.subscribe(() => {
     const list = ctx.get('sessions').list.getSnapshot()
     if (list.phase !== 'ready') return
     // 当前会话先归一（#191）：官方 0.1.6-alpha.2 起快照里不再有 `current` 字段，
     // 官方改成从行上的 `retainedBy.mainView` 推（见 withCurrentSession）。不归一的话
     // 这一页既不会注入目标会话，也不会往宿主上报名。
-    const current = withCurrentSession(list).current
     if (!injected) {
       injected = true
-      timingLog('list-ready', `target=${target ?? 'none'}`)
-      injectTarget()
-      scheduleInjectRetries()
+      timingLog('list-ready', `target=${desired ?? 'none'}`)
+      ensureTicker()
+      watchTick(true)
+      return
     }
-    settle(list)
-    report(list)
+    watchTick(true)
   })
+}
+
+/** 错误对象说成人话（`openSession` 抛的是什么，日志里要看得见）。 */
+function describeError(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
 }

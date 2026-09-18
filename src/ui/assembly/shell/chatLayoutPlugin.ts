@@ -327,14 +327,24 @@ function ShellFrame({ useStore, useSessions, usePanelInfo, actions, renderSlot, 
   // 抓出——原先只比 current !== bootId，运行时切到别的会话会让遮罩**重新罩上**
   // 直到 5s 兜底，表现为「切会话被白屏挡一下」）。
   const [bootReached, setBootReached] = useState(false)
+  // 超时回调要读**当下**的到达状态（state 在回调闭包里是旧的），所以另存一份 ref。
+  const bootReachedRef = useRef(false)
   useEffect(() => {
-    if (bootId !== undefined && currentSession === bootId) setBootReached(true)
+    if (bootId !== undefined && currentSession === bootId) {
+      bootReachedRef.current = true
+      setBootReached(true)
+    }
   }, [bootId, currentSession])
   useEffect(() => {
     // 超时只按 bootId 起一次：活网关列表持续更新会反复触发 current 变化，
     // 若随 current 重置定时器，兜底永不降临（NO-FLASH 实测抓出）。
     if (bootId === undefined) return
     const timer = setTimeout(() => {
+      // 只在**遮罩还盖着**的时候说话（#205）：旧写法不看到达状态，凡是带注入的页面
+      // 5 秒一到都打这一行——一路正常的页面也打，于是这行看着像「抢值输了」，实际
+      // 什么都说明不了（实验室实测：五种恢复键现场、页面全都正常渲染，五行 warn 一行
+      // 不少）。目标为什么没落定由 session-boot 插件按实际读数另说一句。
+      if (bootReachedRef.current) return
       console.warn(`[dsh-one] opening session ${bootId} timed out; revealing the shell anyway`)
       setRevealedByTimeout(true)
     }, OPENING_MASK_TIMEOUT_MS)
