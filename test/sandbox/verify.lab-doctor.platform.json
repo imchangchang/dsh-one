@@ -1,0 +1,106 @@
+{
+  "branch": "agent/lab-doctor",
+  "slug": "lab-doctor",
+  "platformCoverage": [
+    {
+      "file": "scripts/dsh-upstream-watch/probe.mjs",
+      "rule": "signal",
+      "path": "探针收尾时的进程信号：先 SIGTERM（等 1.5 秒）再 SIGKILL 收它自己起的 dsh web；以及本次新补的 SIGTERM(143) 处理与 `process.on('exit')` 同步兜底（那里只来得及做同步的事，所以单写一个 cleanupSync）",
+      "verifiedBy": "real-machine",
+      "evidence": "macOS 真机（本机）跑 `node scripts/dsh-upstream-watch/watch.mjs --repo imchangchang/dsh-one --force --dry-run`（它的文档里就是给本地验证用的那档：不建 issue、不改徽章、不提交）——探针正常跑完并退出码 0，跑完 `ps` 复核没有残留的 dsh 进程、临时 DSH_HOME 目录也没留下。本次新增的两条 handler 只是在原有收尾之外多两条入口（SIGTERM / 异常退出），走的还是同一份 cleanup/cleanupSync；Windows 上探针本来就不跑（上游 watch 是 ubuntu-latest 的 job）"
+    },
+    {
+      "file": "scripts/labDoctor.mjs",
+      "rule": "path-sep",
+      "path": "命令行判据里的可执行文件名与分隔符归一化：`(^|[/\\\\])dsh(\\.cmd|\\.exe)?\\s+web` —— POSIX 的 `/path/bin/dsh` 与 Windows 形态的 `C:\\x\\dsh.cmd` 都认，同时别把 `.../dsh-one/build.mjs` 这类路径误认成 dsh",
+      "verifiedBy": "unit-test",
+      "evidence": "test/labDoctor.test.ts「isLabCommand：认得自起实例的形状，也认得不是的」——正向含 `node C:\\x\\dsh.cmd web --host 127.0.0.1 --port 1234 --no-open`，反向含 `node /repo/dsh-one/build.mjs`（路径里有 dsh 但不是 dsh）与 `bash /repo/scripts/lab-doctor.sh`。这两条正则的产物只喂给纯函数，不依赖平台。"
+    },
+    {
+      "file": "scripts/labDoctor.mjs",
+      "rule": "platform-branch",
+      "path": "读另一条进程的 DSH_HOME 按平台分叉：Linux 走 /proc/<pid>/environ，其余 POSIX 走 `ps eww -p <pid> -o command=`；进程表本身在 win32 上直接判「不支持」（返回 null）。两处平台参数都有缺省值（= process.platform），所以两条分支都能在单测里显式构造。",
+      "verifiedBy": "real-machine",
+      "evidence": "darwin 分支：macOS 真机（本机）反复跑 `scripts/lab-doctor.sh`——认出了自起隔离实例（DSH_HOME=/var/folders/…/T/dsh-lab-home-hJO9SW，pid 11693）与用户登记实例（pid 74792 / 3080），`ps eww` 读环境的整条链路走通。linux / win32 两条分支的**判定与解析**由 test/labDoctor.test.ts 覆盖：「读 DSH_HOME 的两种平台形状各自能解析」（parseProcEnviron 吃 NUL 分隔串、parsePsEnvLine 吃 ps 行，各含「没设 → undefined」一例）、「平台分叉：Windows 上没有这套判据，明说不支持而不是猜」（listProcesses('win32') === null、diagnose({platform:'win32'}) → {unsupported:true}）；linux 上真去读 /proc 的那一次系统调用没有真机跑过，声明为未覆盖。"
+    },
+    {
+      "file": "scripts/labDoctor.mjs",
+      "rule": "platform-command",
+      "path": "两条平台专属命令：Linux 的 `/proc/<pid>/environ`（读别的进程环境）与 POSIX 的 `ps eww -p <pid> -o command=` ／ `ps -eo pid=,ppid=,etime=,args=`（进程表与环境）",
+      "verifiedBy": "real-machine",
+      "evidence": "macOS 真机（本机）实测：`bash scripts/lab-doctor.sh` 用 `ps -eo pid=,ppid=,etime=,args=` 读出全量进程表、用 `ps eww -p <pid>` 读出每个 dsh 进程的 DSH_HOME，据此区分出「正在跑的隔离实例」「登记实例」「孤儿」三类；端到端用例（test/labDoctor.test.ts 的两条「端到端」）也是在这台机器上真跑 `ps` 完成的。`/proc/<pid>/environ` 的解析是纯函数 parseProcEnviron，有单测（见上一条），但那一次实际读盘未在 Linux 机器上跑过。"
+    },
+    {
+      "file": "scripts/labDoctor.mjs",
+      "rule": "signal",
+      "path": "按 PID 收进程：`process.kill(pid, 0)` 探活 → SIGTERM → 等 5 秒 → 仍不退则 SIGKILL。Windows 上没有这套语义，脚本在 win32 上提前退（exit 2，提示这套判据要在 POSIX 上跑），不会走到任何信号",
+      "verifiedBy": "real-machine",
+      "evidence": "macOS 真机（本机）+ test/labDoctor.test.ts 两条端到端用例：①「有孤儿时报得出来，--kill 只收孤儿，绝不动登记的那台」——SIGTERM 一条挂着不动的假实例，实测收掉且同一次运行里登记实例（命令行形状完全相同）毫发无损；②「SIGTERM 收不掉（进程无视信号）的孤儿，会补 SIGKILL 收掉」——假实例装 `process.on('SIGTERM', () => {})`，实测走满 5 秒宽限后 SIGKILL 收掉、断言输出里有「SIGKILL 收掉」。`process.kill(pid, 0)` 探活是 waitGone 的实现细节，同一批用例覆盖。"
+    }
+  ],
+  "branchMatrix": {
+    "trigger": "platform + state-probe + probe-result-branch",
+    "rows": [
+      {
+        "condition": "platform === 'darwin'（缺省跑法，也是本条实测的平台）",
+        "expected": "进程表走 `ps -eo pid=,ppid=,etime=,args=`，每个 dsh 进程的 DSH_HOME 走 `ps eww -p <pid> -o command=` 再按 parsePsEnvLine 取",
+        "verification": "macOS 真机跑 `bash scripts/lab-doctor.sh`：认出自起隔离实例（pid 11693，DSH_HOME=/var/folders/…/T/dsh-lab-home-hJO9SW）、另一台在跑的隔离实例（pid 51017）、用户登记实例（pid 74792 · 3080 · owned）；test/labDoctor.test.ts 两条端到端也在这台机器上真读真收"
+      },
+      {
+        "condition": "platform === 'linux'",
+        "expected": "同一套判据，只有「读环境」换走 /proc/<pid>/environ，按 parseProcEnviron 取 DSH_HOME",
+        "verification": "解析这一半有单测（test/labDoctor.test.ts「读 DSH_HOME 的两种平台形状各自能解析」）；实际读 /proc 的那一次系统调用本机（macOS）跑不到，未在 Linux 机器上验证"
+      },
+      {
+        "condition": "platform === 'win32'",
+        "expected": "listProcesses 返回 null → diagnose 返回 {unsupported:true} → main 打印「这套判据要在 POSIX 上跑」并 exit 2；不动任何进程、不删任何目录",
+        "verification": "test/labDoctor.test.ts「平台分叉：Windows 上没有这套判据，明说不支持而不是猜」：listProcesses('win32') === null、diagnose({platform:'win32'}) 深等于 {unsupported:true, platform:'win32'}；Windows 真机未跑，但这条分支的目标行为就是「什么都不做」，成败不依赖 Windows 行为"
+      },
+      {
+        "condition": "canonical(p)：realpath 成功（路径存在）",
+        "expected": "返回真实的规范路径，/var/... 与 /private/var/... 这类软链两边统一到同一把尺子上",
+        "verification": "test/labDoctor.test.ts「isLabHome：只认临时目录下、按实验室前缀建出来的家目录」——在真临时目录下建出目录再比父目录规范路径；本机跑 `scripts/lab-doctor.sh` 时所有已存在目录走的都是这条"
+      },
+      {
+        "condition": "canonical(p)：realpath 失败（路径不存在 / 读不到）",
+        "expected": "退化成 path.resolve 的绝对路径，不抛；isLabHome 比的是**父目录**的规范路径，所以「目录还不存在」不会让判据失效（父目录 = tmpdir 一定存在）",
+        "verification": "test/labDoctor.test.ts 同一条用例里 isLabHome 传的是没建出来的 `<tmp>/dsh-lab-home-XXXXXX`，断言为 true；classify 的用例里 DSH_HOME 同样是没建出来的目录（⑥⑦⑧ 三行要判成 lab-live / lab-orphan，路径解析一旦退化错就会判成 foreign）"
+      },
+      {
+        "condition": "listLabHomeDirs：临时目录读不出（readdirSync 抛）",
+        "expected": "返回空数组（当作「没有遗留目录」），不影响进程那一段的结论",
+        "verification": "代码路径是 try/catch 兜底；诊断函数里它与进程扫描各自独立（同一份报告里进程段照常输出）。本机两次实跑（干净态 / 有孤儿态）目录段都有输出，未构造过「读不出」的现场"
+      },
+      {
+        "condition": "listLabHomeDirs：临时目录读得出",
+        "expected": "只挑出 LAB_HOME_PREFIXES 三个前缀（dsh-lab-home- / dsh-lab-fresh-home- / dsh-empty-gateway-）开头的目录，按路径排序",
+        "verification": "本机实测：清现场前扫出 dsh-empty-gateway-gz4hH4 / -YeBqiJ / dsh-lab-fresh-home-eSEhZK 三个遗留目录，同时没有把临时目录里另外 3 万多个别的 dsh-* 条目（单测 scratch 目录）算进来；端到端用例里砂箱临时目录只放实验室前缀的目录，断言收完只剩登记实例那一个"
+      },
+      {
+        "condition": "PORT_RE.exec(args) 命中 / 没命中（parsePort）",
+        "expected": "命中 → 端口号；没命中 → undefined（报告里显示「端口 未知」，并且不参与「端口撞上登记实例」这条判据）",
+        "verification": "test/labDoctor.test.ts「parsePort：两种写法都认，没有就是 undefined」——`--port 59724`、`--port=3080`、以及不带 --port 三例"
+      },
+      {
+        "condition": "有登记记录（~/.dsh/dsh-owned.json 读得到 pid/port）/ 没有登记记录（文件缺失、坏 JSON、字段不全）",
+        "expected": "有记录：pid 命中或端口命中的实例判成 owned，永不收；没记录：owned 这一条判据失效，剩下的防线是「DSH_HOME 必须是实验室临时目录」——用户那台用的是 ~/.dsh，仍然不会被收",
+        "verification": "有记录：端到端用例①（砂箱 HOME 里写 {pid: 假实例, port: 3080}，命令行与实验室实例完全相同的那个假实例被判 owned 并活到最后）+ 纯判据用例②③；没记录：端到端用例②（砂箱里根本没有 dsh-owned.json，报告打「没有登记」，收完不误伤任何非实验室家目录的进程）。本机实跑时该文件真实存在（pid 74792 / 3080），报告里两个字段都打了出来"
+      },
+      {
+        "condition": "listProcesses 返回进程表 / 返回 null（平台不支持）",
+        "expected": "有表：照常扫描；null：diagnose 立刻返回 {unsupported:true, platform}，main 打印提示并 exit 2",
+        "verification": "test/labDoctor.test.ts「平台分叉：Windows 上没有这套判据」覆盖 null 那一支；「平台分叉：POSIX 上真去读进程表（读得到自己那条）」断言非 null 且表里有自己（进程表真空了会在这一步先红，而不是让后面判成「机器上没有 dsh 进程」）"
+      },
+      {
+        "condition": "待收进程 SIGTERM 后自己退了 / 5 秒还不退",
+        "expected": "退了 → 记「SIGTERM 收掉」；不退 → 补 SIGKILL，再等 5 秒仍不退才报「得人工看一眼」",
+        "verification": "test/labDoctor.test.ts 两条端到端各覆盖一支：①普通假实例走 SIGTERM 退掉；②假实例 `process.on('SIGTERM', () => {})` 无视信号，断言输出含「SIGKILL 收掉」且进程真的没了。「SIGKILL 之后还在」那一支没构造（要一个连 SIGKILL 都杀不掉的进程，不可能）"
+      },
+      {
+        "condition": "临时目录里没人认领的目录：刚建出来（不到 1 分钟）/ 早已存在",
+        "expected": "刚建出来的跳过并说明（可能是正在启动的实例，它的 mkdtemp 与 spawn 之间有几十毫秒空档）；老目录删掉。刚被本次按 PID 收掉的那台不受这条限制（它的家目录删掉是安全的）",
+        "verification": "端到端用例①：早先留下的目录（mtime 被写成 2026-01-01）被删；同一次运行里刚被收掉的孤儿的家目录（目录还是刚建的）也被删（走「claimedByKilled 免检」这条）；本机清现场时删的 3 个目录都是几小时前的，走的也是「老目录」那一支"
+      }
+    ]
+  }
+}

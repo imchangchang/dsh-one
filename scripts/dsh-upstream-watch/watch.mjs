@@ -117,16 +117,23 @@ function buildFromSource(tag, tmp, commit) {
 
 function runProbe(version, target, commit) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-watch-'))
-  const installed = target === 'source' ? buildFromSource(`dsh-v${version}`, tmp, commit) : installFromNpm(version, tmp)
-  const outJson = path.join(tmp, 'probe-results.json')
-  const args = [path.join(HERE, 'probe.mjs'), '--command', installed.command, '--expect-version', version, '--json', outJson]
-  if (installed.cwd) args.push('--cwd', installed.cwd)
-  const r = spawnSync(process.execPath, args, { encoding: 'utf8', timeout: 300_000 })
-  process.stdout.write(r.stdout ?? '')
-  process.stderr.write(r.stderr ?? '')
-  let results = null
-  try { results = JSON.parse(fs.readFileSync(outJson, 'utf8')) } catch { /* probe 早退时无 JSON */ }
-  return { exitCode: r.status ?? -1, results, via: installed.via }
+  try {
+    const installed = target === 'source' ? buildFromSource(`dsh-v${version}`, tmp, commit) : installFromNpm(version, tmp)
+    const outJson = path.join(tmp, 'probe-results.json')
+    const args = [path.join(HERE, 'probe.mjs'), '--command', installed.command, '--expect-version', version, '--json', outJson]
+    if (installed.cwd) args.push('--cwd', installed.cwd)
+    const r = spawnSync(process.execPath, args, { encoding: 'utf8', timeout: 300_000 })
+    process.stdout.write(r.stdout ?? '')
+    process.stderr.write(r.stderr ?? '')
+    let results = null
+    try { results = JSON.parse(fs.readFileSync(outJson, 'utf8')) } catch { /* probe 早退时无 JSON */ }
+    return { exitCode: r.status ?? -1, results, via: installed.via }
+  } finally {
+    // 这份临时安装（源码构建那条路还会在里面 pnpm install + build，能到 GB 级）探针一跑完
+    // 就没用了——结果已经读进内存。以前它从来不删，一次失败的本机运行就在 /tmp 里留一份
+    // 完整的 dsh 复制（#192 现场：3 个 dsh-watch-*）。
+    fs.rmSync(tmp, { recursive: true, force: true })
+  }
 }
 
 function badgeJson(label, message, color) {
