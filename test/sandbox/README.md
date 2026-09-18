@@ -215,4 +215,8 @@ node test/sandbox/report.mjs \
 - 截图产物在 `/tmp/dsh-sandbox-shots/`（不落仓库，见「产物目录约定」）。
 - 无 UI 行为变化的任务（纯逻辑/文档）可不建 ledger，在 backlog 条目变更记录里注明「无 UI 行为变化，沙盒报告不适用」。
 
+### 平台覆盖声明（`verify.<slug>.platform.json`）
+
+与 ledger 并排的另一种产物：任务的新增行命中平台相关代码或按状态变量分叉的逻辑时，`dev-merge.sh` 的平台兼容性自检（#6，`scripts/check-platform-compat.sh`）要求提交 `test/sandbox/verify.<slug>.platform.json`，逐条声明「这条平台路径在哪验证过」并给出分支矩阵。**没命中就不需要这个文件**；格式、字段口径与本地跑法见 `docs/development.md` 的「合入门禁」一节（门禁被拒时会直接打印可复制的模板，照模板补齐即可）。
+
 
