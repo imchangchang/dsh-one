@@ -1,0 +1,20 @@
+{
+  "branch": "agent/platform-compat-merge-gate",
+  "slug": "platform-compat-merge-gate",
+  "platformCoverage": [],
+  "branchMatrix": {
+    "trigger": "state-probe",
+    "rows": [
+      {
+        "condition": "声明文件 test/sandbox/verify.<slug>.platform.json 存在且是合法 JSON",
+        "expected": "按 platformCoverage 逐条核验命中（file+rule 要对上、verifiedBy 在词表内、evidence 非空），按 branchMatrix.rows 核验矩阵（每行三项齐全、verification 不是占位词）；全齐则打印声明与矩阵后放行（exit 0）",
+        "verification": "test/platformCompatGate.test.ts：『补上声明 → 放行』『缺矩阵 → 拒绝』『坏 JSON → 拒绝』三条端到端用例（临时 git 仓库里跑真门禁脚本）"
+      },
+      {
+        "condition": "声明文件不存在",
+        "expected": "命中平台路径或状态分叉形状时拒绝（exit 1）并打印命中位置与可复制的模板；两者都不命中时放行、不需要声明文件",
+        "verification": "test/platformCompatGate.test.ts：『命中平台代码但没有声明 → 拒绝』『不命中平台代码的改动不受影响』两条端到端用例"
+      }
+    ]
+  }
+}
