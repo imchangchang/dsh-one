@@ -33,6 +33,7 @@ import * as fsp from 'node:fs/promises'
 import * as net from 'node:net'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { scratchDir } from '../scratchDirs.ts'
 import { exchangeToken } from '../../src/server/assemblyMirror.ts'
 import type { LogSink } from '../../src/log.ts'
 import { startLabLlm, type MockLlm } from './labLlm.ts'
@@ -203,7 +204,7 @@ function cordisPatchYaml(home: string): string {
  * 桌面上弹一个浏览器窗口）+ 本次现起的假模型端点。
  */
 export async function startLabGateway(log: LogSink, options: StartLabGatewayOptions = {}): Promise<LabGateway> {
-  const home = await fsp.mkdtemp(path.join(os.tmpdir(), 'dsh-lab-home-'))
+  const home = await scratchDir('dsh-lab-home-')
   const requested = options.port ?? (await freePort())
   if (await portListening(requested)) {
     await fsp.rm(home, { recursive: true, force: true })

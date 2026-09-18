@@ -5,9 +5,9 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import * as os from 'node:os'
 import * as path from 'node:path'
 import * as fs from 'node:fs/promises'
+import { scratchDir } from './scratchDirs.ts'
 import { execFileSync } from 'node:child_process'
 import { queryCommitInWorkspace } from '../src/pure/gitWorkspaceQuery.ts'
 import { createTtlCache, type TtlCache } from '../src/pure/ttlCache.ts'
@@ -26,7 +26,7 @@ const hasGit = gitAvailable()
 
 /** 造一个临时工作区目录（自身不是仓库）。 */
 async function makeWorkspace(): Promise<string> {
-  return fs.mkdtemp(path.join(os.tmpdir(), 'dshone-ws-'))
+  return scratchDir('dshone-ws-')
 }
 
 /** 在 workspace/<rel> 造一个真 git 仓库并提交，返回 hash。 */

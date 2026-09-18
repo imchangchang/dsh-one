@@ -19,6 +19,7 @@ import * as http from 'node:http'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { localBundleRev } from '../src/server/localBundleRev.ts'
+import { scratchDir } from './scratchDirs.ts'
 import { startAssemblyMirror } from '../src/server/assemblyMirror.ts'
 import { CHAT_BLOCK_LIST, CHAT_FRAME_PLUGIN_ID, filterWire, extractBootWire } from '../src/ui/assembly/wireFilter.ts'
 
@@ -39,7 +40,7 @@ const KEPT_OFFICIAL_ID = '@deepseek-ai/dsh-typert-registry'
 
 /** 建一个临时 pluginsDir，写入 `<id>/client.js` 的内容（内容可指定）。 */
 async function pluginsDirWith(content: string): Promise<string> {
-  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'dsh-one-bundle-'))
+  const dir = await scratchDir('dsh-one-bundle-')
   await fsp.mkdir(path.join(dir, CHAT_FRAME_PLUGIN_ID), { recursive: true })
   await fsp.writeFile(path.join(dir, CHAT_FRAME_PLUGIN_ID, 'client.js'), content)
   return dir

@@ -6,12 +6,12 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import * as os from 'node:os'
 import * as path from 'node:path'
 import * as fs from 'node:fs/promises'
 import { execFileSync } from 'node:child_process'
 import { remoteContainsCommit, runGitShow } from '../src/pure/gitShowCommand.ts'
 import { resolveQueryDir } from '../src/pure/hostCalls.ts'
+import { scratchDir } from './scratchDirs.ts'
 
 /** git 可用性探测（不可用则跳过整组）。 */
 function gitAvailable(): boolean {
@@ -29,7 +29,7 @@ const hasGit = gitAvailable()
  * @param label - 写进文件与提交信息（两个仓库要拿到不同哈希就必须内容不同）。
  */
 async function makeRepo(label = 'a'): Promise<{ dir: string; hash: string; cleanup: () => Promise<void> }> {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'dshone-git-'))
+  const dir = await scratchDir('dshone-git-')
   const git = (...args: string[]): string =>
     execFileSync('git', args, {
       cwd: dir,
@@ -98,7 +98,7 @@ test('runGitShow 找不到的提交回 found=false（不抛错）', { skip: !has
 })
 
 test('runGitShow 在非仓库目录回 found=false；git 缺席回 undefined', { skip: !hasGit }, async () => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'dshone-nogit-'))
+  const dir = await scratchDir('dshone-nogit-')
   try {
     const info = await runGitShow('deadbeef', dir)
     assert.equal(info?.found, false)
@@ -127,7 +127,7 @@ test('会话属 B 工作区时以 B 路径查询（不是宿主自己的 A 目�
     const crossRepo = await runGitShow(repoA.hash.slice(0, 7), dir ?? repoB.dir)
     assert.equal(crossRepo?.found, false)
     // 会话工作区路径不在允许根里（域外）→ 回落到宿主的 A，不报错
-    const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'dshone-outside-'))
+    const outside = await scratchDir('dshone-outside-')
     try {
       const fallbackResolved = await resolveQueryDir(outside, repoA.dir, allowedRoots)
       const fallback = fallbackResolved?.dir
@@ -151,9 +151,9 @@ async function makeRepoWithRemote(): Promise<{
   localOnly: string
   cleanup: () => Promise<void>
 }> {
-  const remoteDir = await fs.mkdtemp(path.join(os.tmpdir(), 'dshone-remote-'))
+  const remoteDir = await scratchDir('dshone-remote-')
   execFileSync('git', ['init', '-q', '--bare', remoteDir], { stdio: 'ignore' })
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'dshone-gitremote-'))
+  const dir = await scratchDir('dshone-gitremote-')
   const git = (...args: string[]): string =>
     execFileSync('git', args, {
       cwd: dir,

@@ -15,8 +15,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'node:fs/promises'
-import * as os from 'node:os'
 import * as path from 'node:path'
+import { scratchDir } from './scratchDirs.ts'
 import {
   createTreeGroup,
   deleteTreeGroup,
@@ -33,7 +33,7 @@ import type { GroupFile } from '../src/pure/dshStateFile.ts'
 
 /** 一个临时 dsh 家目录。 */
 async function tmpHome(): Promise<string> {
-  return await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-one-state-'))
+  return await scratchDir('dsh-one-state-')
 }
 
 /** 读一个键；失败体（结构化错误）直接抛，测试里只关心成功路径。 */

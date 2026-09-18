@@ -21,6 +21,7 @@ import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import * as fsp from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { scratchDir } from '../scratchDirs.ts'
 
 export interface FreshGateway {
   /** 临时 `DSH_HOME`（`dispose()` 时删掉）。 */
@@ -64,7 +65,7 @@ function dshVersion(): string | undefined {
  * 打过的全部输出——这种失败必须看得见，不能让它变成「套件悄悄跳过」。
  */
 export async function startFreshGateway(options: FreshGatewayOptions = {}): Promise<FreshGateway> {
-  const home = await fsp.mkdtemp(path.join(os.tmpdir(), 'dsh-lab-fresh-home-'))
+  const home = await scratchDir('dsh-lab-fresh-home-')
   const child: ChildProcess = spawn(DSH, ['web', '--host', '127.0.0.1', '--port', '0', '--no-open'], {
     cwd: os.tmpdir(),
     env: { ...process.env, DSH_HOME: home },
