@@ -144,29 +144,39 @@ export function parseElapsed(text) {
   return days * 86_400 + hours * 3_600 + Number.parseInt(m[3], 10) * 60 + Number.parseInt(m[4], 10)
 }
 
-/** 读另一条进程的环境变量：Linux 走 `/proc`，macOS 走 `ps eww`（环境跟在命令行后面）。 */
-function readDshHome(pid) {
-  if (process.platform === 'linux') {
-    try {
-      const env = fs.readFileSync(`/proc/${String(pid)}/environ`, 'utf8')
-      const m = /(?:^|\0)DSH_HOME=([^\0]*)/.exec(env)
-      return m === null ? undefined : m[1]
-    } catch {
-      return undefined
-    }
-  }
+/** Linux 形状：`/proc/<pid>/environ` 是 NUL 分隔的 `KEY=VALUE` 串。 */
+export function parseProcEnviron(text) {
+  const m = /(?:^|\0)DSH_HOME=([^\0]*)/.exec(text)
+  return m === null ? undefined : m[1]
+}
+
+/** macOS 形状：`ps eww -p <pid> -o command=` 把环境接在命令行后面，空格分隔。 */
+export function parsePsEnvLine(text) {
+  const m = /(?:^|\s)DSH_HOME=(\S*)/.exec(text)
+  return m === null ? undefined : m[1]
+}
+
+/**
+ * 读另一条进程的 `DSH_HOME`：Linux 走 `/proc`，其余 POSIX 走 `ps eww`（环境跟在命令行后面）。
+ * 读不到（进程没了、没权限、平台不认这条路）一律返回 `undefined`——上层按「陌生人」对待。
+ */
+export function readDshHome(pid, platform = process.platform) {
   try {
+    if (platform === 'linux') return parseProcEnviron(fs.readFileSync(`/proc/${String(pid)}/environ`, 'utf8'))
     const out = execFileSync('ps', ['eww', '-p', String(pid), '-o', 'command='], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 })
-    const m = /(?:^|\s)DSH_HOME=(\S*)/.exec(out)
-    return m === null ? undefined : m[1]
+    return parsePsEnvLine(out)
   } catch {
     return undefined
   }
 }
 
-/** 进程表（`ps` 全量，POSIX）。Windows 上返回 null——实验室那套 spawn 本来也只在 POSIX 上跑。 */
-export function listProcesses() {
-  if (process.platform === 'win32') return null
+/**
+ * 进程表（`ps` 全量，POSIX）。Windows 上返回 `null`——实验室那套起实例的代码本来就只在
+ * POSIX 上跑（`spawn('dsh', …)` 在 Windows 上没有 shim 解析），这里的判据（读环境变量）
+ * 在那边也没有等价物，所以宁可明说「不支持」，不猜。
+ */
+export function listProcesses(platform = process.platform) {
+  if (platform === 'win32') return null
   const out = execFileSync('ps', ['-eo', 'pid=,ppid=,etime=,args='], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 })
   const rows = []
   for (const line of out.split('\n')) {
@@ -208,10 +218,11 @@ export function listLabHomeDirs(tmpdir = os.tmpdir()) {
  * 以及登记在 `dsh-owned.json` 的那台。只读，不动任何东西。
  */
 export function diagnose(options = {}) {
+  const platform = options.platform ?? process.platform
   const tmpdir = options.tmpdir ?? os.tmpdir()
   const home = options.home ?? os.homedir()
-  const rows = listProcesses()
-  if (rows === null) return { unsupported: true, platform: process.platform }
+  const rows = listProcesses(platform)
+  if (rows === null) return { unsupported: true, platform }
   const byPid = new Map(rows.map((r) => [r.pid, r]))
   const { file: ownedFile, record: owned } = readOwned(home)
 
@@ -222,7 +233,7 @@ export function diagnose(options = {}) {
   const homesByPid = new Map()
   const dshish = rows.filter((r) => r.pid !== process.pid && r.pid !== process.ppid && /(^|[/\\])dsh(\.cmd|\.exe)?(\s|$)/.test(r.args))
   for (const row of dshish) {
-    const dshHome = readDshHome(row.pid)
+    const dshHome = readDshHome(row.pid, platform)
     if (dshHome !== undefined) homesByPid.set(row.pid, dshHome)
     const common = {
       pid: row.pid,

@@ -41,6 +41,10 @@ interface LabDoctor {
   isLabHome(dir: string, tmpdir?: string): boolean
   parseElapsed(text: string): number | undefined
   classify(rec: ClassifyInput): { verdict: Verdict; why: string }
+  parseProcEnviron(text: string): string | undefined
+  parsePsEnvLine(text: string): string | undefined
+  listProcesses(platform?: string): unknown[] | null
+  diagnose(options?: { platform?: string; tmpdir?: string; home?: string }): { unsupported?: boolean; platform?: string }
 }
 
 const doctor = (await import(MODULE_PATH)) as LabDoctor
@@ -82,6 +86,27 @@ test('parseElapsed：ps 的三种 etime 形状', () => {
   assert.equal(doctor.parseElapsed('02:03:04'), 7_384)
   assert.equal(doctor.parseElapsed('1-00:00:00'), 86_400)
   assert.equal(doctor.parseElapsed('垃圾'), undefined)
+})
+
+test('读 DSH_HOME 的两种平台形状各自能解析（Linux 的 /proc 串、macOS 的 ps 行）', () => {
+  // Linux：`/proc/<pid>/environ` 是 NUL 分隔的 KEY=VALUE
+  assert.equal(doctor.parseProcEnviron('HOME=/Users/x\0DSH_HOME=/tmp/dsh-lab-home-AAAAAA\0PATH=/bin'), '/tmp/dsh-lab-home-AAAAAA')
+  assert.equal(doctor.parseProcEnviron('DSH_HOME=/tmp/dsh-lab-home-AAAAAA\0'), '/tmp/dsh-lab-home-AAAAAA', '头一个也是 NUL 起头')
+  assert.equal(doctor.parseProcEnviron('HOME=/Users/x\0PATH=/bin'), undefined, '没设就是 undefined')
+  // macOS：`ps eww -p <pid> -o command=` 把环境接在命令行后面
+  assert.equal(doctor.parsePsEnvLine('node /x/bin/dsh web --host 127.0.0.1 --port 1 --no-open DSH_HOME=/tmp/dsh-lab-home-BBBBBB PATH=/bin'), '/tmp/dsh-lab-home-BBBBBB')
+  assert.equal(doctor.parsePsEnvLine('node /x/bin/dsh web --host 127.0.0.1 --port 1 --no-open HOME=/Users/x'), undefined, '没设就是 undefined')
+})
+
+test('平台分叉：Windows 上没有这套判据，明说不支持而不是猜', () => {
+  assert.equal(doctor.listProcesses('win32'), null)
+  assert.deepEqual(doctor.diagnose({ platform: 'win32' }), { unsupported: true, platform: 'win32' })
+})
+
+test('平台分叉：POSIX 上真去读进程表（读得到自己那条）', { skip: process.platform === 'win32' ? 'POSIX 专属' : false }, () => {
+  const rows = doctor.listProcesses(process.platform)
+  assert.ok(Array.isArray(rows) && rows.length > 0, '进程表读出来是空的')
+  assert.ok((rows as { pid: number }[]).some((r) => r.pid === process.pid), '进程表里该有自己')
 })
 
 test('isLabHome：只认临时目录下、按实验室前缀建出来的家目录', () => {
@@ -150,6 +175,9 @@ test('classify：四条件逐条正反面对照（收错的防线全在这里）
 
 /** 假 dsh：只挂着不动，给巡检脚本当靶子（命令行形状由调用方给）。 */
 const FAKE_DSH = 'setTimeout(() => {}, 600000)\n'
+
+/** 假 dsh（无视 SIGTERM 版）：用来验「SIGTERM 收不掉时要补 SIGKILL」这条路。 */
+const FAKE_DSH_IGNORING_TERM = "process.on('SIGTERM', () => {})\nsetTimeout(() => {}, 600000)\n"
 
 /**
  * 起一条假实例，并把它变成孤儿（PPID 1）：经一个中间进程 spawn + `detached`，
@@ -282,6 +310,41 @@ test(
         } catch {
           // 已经被脚本自己收掉的，正常
         }
+      }
+      fs.rmSync(sandbox, { recursive: true, force: true })
+    }
+  },
+)
+
+test(
+  '端到端：SIGTERM 收不掉（进程无视信号）的孤儿，会补 SIGKILL 收掉',
+  { skip: process.platform === 'win32' ? '巡检脚本用 ps 读进程表，POSIX 专属' : false },
+  async () => {
+    const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-lab-doctor-e2e-'))
+    const tmpdir = path.join(sandbox, 'tmp')
+    const home = path.join(sandbox, 'home')
+    const orphanHome = path.join(tmpdir, 'dsh-lab-home-stubborn')
+    let pid = 0
+    try {
+      fs.mkdirSync(path.join(sandbox, 'bin'), { recursive: true })
+      fs.mkdirSync(path.join(home, '.dsh'), { recursive: true })
+      fs.mkdirSync(tmpdir, { recursive: true })
+      fs.mkdirSync(orphanHome, { recursive: true })
+      fs.writeFileSync(path.join(sandbox, 'bin', 'dsh'), FAKE_DSH_IGNORING_TERM)
+      fs.writeFileSync(path.join(sandbox, 'intermediate.mjs'), INTERMEDIATE)
+
+      pid = await startFakeInstance(sandbox, 41998, orphanHome)
+
+      const report = runDoctor(home, tmpdir, ['--kill'])
+      assert.equal(report.status, 0, `该收干净：\n${report.stdout}\n${report.stderr}`)
+      assert.match(report.stdout, /SIGKILL 收掉/, 'SIGTERM 没收掉时要走到 SIGKILL 那条')
+      assert.ok(killed(pid), '无视 SIGTERM 的孤儿也要被收掉')
+      assert.equal(fs.existsSync(orphanHome), false, '它的临时家目录也要删掉')
+    } finally {
+      try {
+        process.kill(pid, 'SIGKILL')
+      } catch {
+        // 已经被脚本自己收掉的，正常
       }
       fs.rmSync(sandbox, { recursive: true, force: true })
     }
