@@ -137,7 +137,16 @@ async function main() {
     }
     try { fs.rmSync(dshHome, { recursive: true, force: true }) } catch { /* 临时目录 */ }
   }
+  // 正常跑完与 Ctrl-C / SIGTERM 走 cleanup()；未预期异常只能靠 `exit` 兜底——那里只来得及
+  // 做同步的事，所以另写一个同步版。缺了这段兜底的话，probe 一被异常带走，它起的 dsh web
+  // 与临时 DSH_HOME 就留在机器上没人管了（#192）。
+  const cleanupSync = () => {
+    if (child && child.exitCode === null) { try { child.kill('SIGKILL') } catch { /* 已经没了 */ } }
+    try { fs.rmSync(dshHome, { recursive: true, force: true }) } catch { /* 临时目录 */ }
+  }
   process.on('SIGINT', async () => { await cleanup(); process.exit(130) })
+  process.on('SIGTERM', async () => { await cleanup(); process.exit(143) })
+  process.on('exit', () => { cleanupSync() })
 
   // 1. 版本解析
   const ver = await run(opts.command, ['--version'], { cwd: opts.cwd ?? undefined })
