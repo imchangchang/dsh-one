@@ -44,6 +44,10 @@ export interface Assertion {
  * 缺值时的行为（口径）：`OFFICIAL_EXTRA` 里没有的文案，`texts()` 就回到我们自己那份
  * 词典里找；两边都没有时**原样返回一条**（只有中文那一份）——所以**加进这张表的每条都要
  * 给全两份**，不然那一份语言上等于白写。
+ *
+ * 这张表也是 **#209 那条自检的分档判据**：`test/livenessTextSelectors.test.ts` 按
+ * {@link hasOfficialExtra} 断言「官方件那几条确实在这张表里、我们自己的那几条确实不在这张
+ * 表里」，并逐条查两份取值都真的落进了选择器。
  */
 const OFFICIAL_EXTRA: Readonly<Record<string, readonly [string, string]>> = {
   // 官方内置 `common` 命名空间的 `cancel` 键（我们的弹窗那枚「取消」走的是它）。
@@ -82,6 +86,18 @@ const OFFICIAL_EXTRA: Readonly<Record<string, readonly [string, string]>> = {
   // 于是同一个按钮在 zh 页上是「中文」、在 en 页上是「English」——两份都得认。
   // 出处：`@deepseek-ai/dsh-client-locale` 的 `lib/client.js`。
   中文: ['中文', 'English'],
+}
+
+/**
+ * 一条中文文案在不在 {@link OFFICIAL_EXTRA} 里（#209 的自检按它判「这条文案归官方件」）。
+ *
+ * 为什么要有这个口子：`texts()` 把两个来源（我们自己那份词典、官方这张表）汇成同一个结果，
+ * 光看返回的两份取值分不出它打哪儿来；而 #209 的自检要按来源分档断言——我们自己的控件走
+ * 词典、官方件的标签必须在 `OFFICIAL_EXTRA` 里登记（逐条写着「哪份官方包、哪个键」），
+ * 档位张冠李戴（例如把官方那条搬进我们词典、或反过来）同样算红。
+ */
+export function hasOfficialExtra(zhText: string): boolean {
+  return Object.prototype.hasOwnProperty.call(OFFICIAL_EXTRA, zhText)
 }
 
 export function texts(zhText: string): string[] {
