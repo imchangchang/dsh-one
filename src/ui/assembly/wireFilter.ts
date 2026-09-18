@@ -12,7 +12,7 @@
  *   按 __ModuleLoader__.load 边界剥掉 blocked 段后伺服，见 assemblyMirror)。
  * - bootstrap 批只有 client-modules，永不过滤。
  *
- * 三棵树三份 block list（#70 立、#71 瘦身、#180 逐条复核）：
+ * 三棵树三份 block list（#70 立、#71 瘦身、#180 逐条复核、#202 续）：
  * - chat 树（装配对话区）：官方外框 + 官方侧栏都下线（#64 行为不变）；
  *   对话区本身在这棵树上，对话流卡片全保留。
  * - sidebar 树（侧栏位装配）：官方外框 + 对话区那几件下线，官方侧栏（品牌位/
@@ -171,16 +171,48 @@ const FLOW_BOTH_TREES: ReadonlyArray<BlockedPlugin> = [
  *   那个槽位（停车），settings 树声明了但不渲染对话区。
  */
 
-/** 设置子页组（#71 瘦身）：设置独立成页后 chat/sidebar 树不再载设置子页。 */
+/** 设置子页组（#71 瘦身）：设置独立成页后 sidebar 树不再载设置子页。 */
 const SETTINGS_PAGES: ReadonlyArray<BlockedPlugin> = [
-  { id: '@deepseek-ai/dsh-client-ui-settings-general', reason: 'General section (owns SettingsRoot/modal); only the settings tree needs it after settings became a page' },
   // ui-settings-models 曾在这条清单里（Models 设置节）。2026-09-16 摘除，当时的理由
   // 与上面那一段摘除留档里 ui-model-selection 同一份错误观察（日常 profile 被另一仓的
   // `@dsh-one/dsh-llm-provider` 补丁改过），更正与教训见那一段。
   // 它留在清单外是对的：chat / sidebar 两棵树不声明设置区槽位，放着不渲染任何东西。
+  //
+  // 下面这两件在 chat 树也继续下线（#202 只摘了同组的 ui-settings-general，见下）。
+  // 它们注册的槽位同样全在 `sidebar.settings` 之下，形状与那件一致——按同一条判据
+  // 它们也停车、放行同样零渲染，摘不摘都不改今天的观感；#202 的整改对象是承载断线
+  // 提示的那一件，这两件留给下一次按同一条判据的逐条复核。
   { id: '@deepseek-ai/dsh-client-ui-settings-plugins', reason: 'Plugins section; only the settings tree needs it after settings became a page' },
   { id: '@deepseek-ai/dsh-client-ui-settings-plugin-inventory', reason: 'plugin-inventory section; only the settings tree needs it after settings became a page' },
 ]
+
+/**
+ * `@deepseek-ai/dsh-client-ui-settings-general`（General 设置节 + 设置弹窗壳
+ * `SettingsRoot` + 连接状态那枚提示）**只在 sidebar 树继续下线**（#202 逐条复核）。
+ *
+ * 判据照 #180 那条「这棵树有没有声明它注册的座位」。它注册的座位
+ * （`settings.trigger` / `settings.header` / `settings.action` / `settings.close` /
+ * `settings.section` / `settings.onboarding`）全是 `sidebar.settings` 的**子槽**
+ * （官方 `dsh-client-ui-settings-general/lib/client.js` 的 `apply`：`ctx.slots.inject
+ * ("sidebar.settings", …)` 里那份 children 表），而 `sidebar.settings` 只有官方
+ * **侧栏壳**声明（`dsh-client-ui-sidebar/lib/client.js` 的 `sidebar` 注册 children 表）：
+ *
+ * - **sidebar 树继续下线**：这棵树的官方侧栏壳在，`sidebar.settings` 声明得了 ⇒ 它的
+ *   `SettingsRoot` 会真的注册进来。我们那行设置入口（`@dsh-one/vscode-settings-gear`）
+ *   按 priority −1 遮蔽它，所以照旧下线、不靠遮蔽兜底。
+ * - **chat 树摘除（#202）**：这棵树没有官方侧栏壳，`sidebar.settings` 一个座位都没声明，
+ *   它那几处贡献的回调永不跑、整件停车、零渲染——挂着它只是白背一个官方 id 依赖。
+ *
+ * 摘除前在实验室实测过（#202）：chat 树放行前后页面的**元素集合**（`tag + data-slot +
+ * class` 排序）逐项一致、设置座位锚点仍是零枚 ⇒ 放行**不会**把设置页面的东西带进
+ * 对话区。代价是官方那枚断线提示也**拿不回来**：它渲染在 `SettingsRoot` 的 triggerRow
+ * 里，而那行要 `sidebar.settings` 座位。所以对话区那行提示由自有 frame 插件自己出
+ * （`@dsh-one/vscode-chat-ui-layout`，见 chatLayoutPlugin.ts 的 `connectionHint` 段）。
+ */
+const SETTINGS_GENERAL: BlockedPlugin = {
+  id: '@deepseek-ai/dsh-client-ui-settings-general',
+  reason: 'General section (owns SettingsRoot/modal): the sidebar tree declares its seats through the official sidebar shell, so its SettingsRoot does register there; the settings tree needs it to render, the chat tree declares none of its seats',
+}
 
 /**
  * sidebar 树 block list（#70，#71 瘦身；#180 起不再背对话流卡片的 id）：官方外框 +
@@ -213,14 +245,16 @@ const SIDEBAR_ONLY: ReadonlyArray<BlockedPlugin> = [
   { id: '@deepseek-ai/dsh-client-ui-agent-preset', reason: 'session-scoped seat mounted in the conversation hero; nowhere to render in the sidebar tree' },
 ]
 
-export const SIDEBAR_BLOCK_LIST: ReadonlyArray<BlockedPlugin> = [UI_LAYOUT, ...FLOW_BOTH_TREES, ...SETTINGS_PAGES, ...SIDEBAR_ONLY]
+export const SIDEBAR_BLOCK_LIST: ReadonlyArray<BlockedPlugin> = [UI_LAYOUT, ...FLOW_BOTH_TREES, SETTINGS_GENERAL, ...SETTINGS_PAGES, ...SIDEBAR_ONLY]
 
 /**
- * chat 树 block list（#64 行为 + #71 瘦身）：官方外框、官方侧栏、设置子页组。
+ * chat 树 block list（#64 行为 + #71 瘦身 + #202）：官方外框、官方侧栏、设置子页组。
  * 对话流卡片全保留（本树渲染它们）；composer hero 的 agent preset 与权限
  * 选择保留（新会话功能）；官方右栏系（ui-sidebar-right + 文件/终端/文档预览）
  * 不在此列——自有 frame 的 root 条目声明 `rightbar` 槽位并渲染它（#79 决策 B），
  * 这几件在这棵树上真生效。
+ *
+ * #202 起不含 `ui-settings-general`（理由见 SETTINGS_GENERAL 的注释）。
  */
 export const CHAT_BLOCK_LIST: ReadonlyArray<BlockedPlugin> = [
   UI_LAYOUT,
