@@ -1270,7 +1270,9 @@ export const SIDEBAR_SUITE: LabSuite = {
       const workspaceRow = page.locator('[data-dshone-tree-row="workspace"]').first()
       await workspaceRow.click({ button: 'right', position: { x: 60, y: 16 } })
       await page.waitForTimeout(300)
-      check.ok('功能 1：工作区行右键弹出菜单（带标题行）', (await bodyText(page)).includes('工作区:'), (await bodyText(page)).slice(0, 120))
+      // 文案从词典读（#206 普查）：期望值是菜单标题那条 `menu.workspaceTitle` 的前半截
+      // （`工作区: {name}` → `工作区:`），zh / en 两份都认（`hasText` 的「只写了前半句」那一支）。
+      check.ok('功能 1：工作区行右键弹出菜单（带标题行）', hasText(await bodyText(page), '工作区:'), (await bodyText(page)).slice(0, 120))
       await page.click('[data-dshone-tree-item="groups"]')
       await page.waitForTimeout(250)
       const menuText = await bodyText(page)
@@ -3081,7 +3083,10 @@ export const RECYCLE_TWO_LAYER_SUITE: LabSuite = {
         await page.waitForTimeout(400)
       })()
       const flashText = await page.textContent('[data-dshone-tree="flash"]')
-      check.ok('移入后飘一条回执提示', (flashText ?? '').includes('回收站'), String(flashText))
+      // 文案从词典读（#206 普查）：期望值 = 词典那条 `recycle.moved` 整句，条数用**页面上
+      // 实际说的那个数**（与上面 `search.hasMore` 同一路做法），zh / en 两份都认。
+      const movedNumber = /(\d+)/.exec(flashText ?? '')?.[1] ?? ''
+      check.ok('移入后飘一条回执提示', movedNumber !== '' && hasText(flashText, `已移入回收站（${movedNumber} 个会话）`), String(flashText))
       check.eq('移入的会话从我们树里消失', await contentCount(page, `[data-dshone-tree-session="${first}"]`), 0)
       const entryCount = async (): Promise<string | null> => page.getAttribute('[data-dshone-tree-action="recycle-toggle"]', 'data-dshone-tree-recycle-count')
       const afterFirstMoveState = (await hostRecycleBin(page)) as { version?: number; sessionIds?: string[] } | null
@@ -3261,7 +3266,13 @@ export const RECYCLE_TWO_LAYER_SUITE: LabSuite = {
       check.fact(`清空确认弹窗：按钮=${String(confirm.button)} 工作区块=${String(confirm.blocks)} 明细行=${String(confirm.rows)} 文案=${JSON.stringify(confirm.text.slice(0, 120))}`)
       check.ok('清空先开确认弹窗（不是直接执行）', confirm.button)
       check.ok('弹窗按工作区树形列明细（块 + 行都在）', confirm.blocks >= 1 && confirm.rows === 1)
-      check.ok('弹窗写明不可恢复（归档 = 删除）', hasText(confirm.text, '不能在这里恢复') || hasText(confirm.text, '删除'), confirm.text.slice(0, 120))
+      // 文案从词典读（#206 普查）：整句比（`archive.desc` 没有占位）。原来那两个碎片
+      // （`不能在这里恢复` / `删除`）都落在模板中段，`texts()` 配不上，等于只认中文。
+      check.ok(
+        '弹窗写明不可恢复（归档 = 删除）',
+        hasText(confirm.text, '归档 = 删除：这些会话会从列表里消失，不能在这里恢复（会话记录仍留在 dsh 上）。'),
+        confirm.text.slice(0, 120),
+      )
       screenshots.push(await shot(ctx, page, 'recycle-empty-confirm'))
       await page.keyboard.press('Escape')
       await page.waitForTimeout(300)
@@ -3390,7 +3401,11 @@ export const RECYCLE_TWO_LAYER_SUITE: LabSuite = {
       check.ok('多选操作条「归档」复用同一个确认弹窗（按工作区树形列明细）', batchModal.button && batchModal.blocks >= 1 && batchModal.rows >= 1)
       check.ok(
         '弹窗写明跳过数（与资格判定算出来的一致：有跳过就写明条数，没有就不出现这行）',
-        expectedSkipped === 0 ? batchModal.skipped === '' : hasText(batchModal.skipped, `另有 ${String(expectedSkipped)} 个`),
+        // 文案从词典读（#206 普查）：写整句（`archive.skipped`），碎片 `另有 {n} 个` 配不上
+        // 词典模板（截断只认整段边界），会退化成只认中文。
+        expectedSkipped === 0
+          ? batchModal.skipped === ''
+          : hasText(batchModal.skipped, `另有 ${String(expectedSkipped)} 个会话不符合归档条件，已跳过。`),
         `skipped=${JSON.stringify(batchModal.skipped)} expected=${String(expectedSkipped)}`,
       )
       await page.keyboard.press('Escape')
@@ -3403,7 +3418,13 @@ export const RECYCLE_TWO_LAYER_SUITE: LabSuite = {
       await page.waitForTimeout(600)
       const batchMoveFlash = await page.textContent('[data-dshone-tree="flash"]')
       const batchMoveState = (await hostRecycleBin(page)) as { sessionIds?: string[] } | null
-      check.ok('批量移入回收站：飘一条回执', (batchMoveFlash ?? '').includes('回收站'), String(batchMoveFlash))
+      // 文案从词典读（#206 普查）：判据与上面那条同形（整句 + 页面上实际说的条数）。
+      const batchMoveNumber = /(\d+)/.exec(batchMoveFlash ?? '')?.[1] ?? ''
+      check.ok(
+        '批量移入回收站：飘一条回执',
+        batchMoveNumber !== '' && hasText(batchMoveFlash, `已移入回收站（${batchMoveNumber} 个会话）`),
+        String(batchMoveFlash),
+      )
       check.eq('批量移入回收站：选中的都进了本地集合（按勾选顺序）', batchMoveState?.sessionIds ?? [], picked.map((entry) => entry.id))
       check.eq('批量移入回收站：动作完退出选择态（动作条消失）', await contentCount(page, '[data-dshone-tree="selection-bar"]'), 0)
       await page.waitForTimeout(1_200)
@@ -4199,7 +4220,12 @@ export const MULTI_SELECT_SUITE: LabSuite = {
       check.ok('「归档」是独立动作：开确认弹窗（不是立即执行）', batchModal.confirm && batchModal.blocks >= 1 && batchModal.rows >= 1)
       check.ok(
         '弹窗写明跳过数（与资格判定算出来的一致）',
-        expectedSkipped === 0 ? batchModal.skipped === '' : hasText(batchModal.skipped, `另有 ${String(expectedSkipped)} 个`),
+        // 文案从词典读（#206 普查）：写**整句**（`archive.skipped` 的 zh/en 两份都认）。
+        // 原来只写前半截 `另有 {n} 个`——`texts()` 的截断只认整段边界，中段带数字的碎片
+        // 配不上任何模板，于是退回「只认这一份字符串」，en 页上必红。
+        expectedSkipped === 0
+          ? batchModal.skipped === ''
+          : hasText(batchModal.skipped, `另有 ${String(expectedSkipped)} 个会话不符合归档条件，已跳过。`),
         `skipped=${JSON.stringify(batchModal.skipped)} expected=${String(expectedSkipped)}`,
       )
       screenshots.push(await shot(ctx, page, 'multi-select-batch-archive'))
@@ -4789,8 +4815,11 @@ export const SIDEBAR_EMPTY_FEEDBACK_SUITE: LabSuite = {
       check.fact(`分叉失败：夹具拦到的 fork 请求=${String(stats.forkCalls)} 飘提示=${JSON.stringify(forkFlash)}`)
       check.ok('分叉失败真的走过了那条 RPC（夹具拦到请求 = 没落到网关）', stats.forkCalls === 1, String(stats.forkCalls))
       check.ok(
+        // 期望值写成词典 `fork.failed`（`分叉会话失败：{message}`）里**占位之前的那一段**，
+        // 连那个全角冒号一起——只写「分叉会话失败」这四个字配不上词典模板（`texts()` 的截断
+        // 只认到段边界），于是它退化成「只认中文」，en 页上必红（#206 的 en 轮实测就是这条）。
         '分叉失败有一行可见反馈（原来静默吞掉）',
-        hasText(forkFlash, '分叉会话失败') && forkFlash.includes('fork rejected'),
+        hasText(forkFlash, '分叉会话失败：') && forkFlash.includes('fork rejected'),
         forkFlash,
       )
       screenshots.push(await shot(ctx, page, 'empty-fork-failed'))
@@ -4806,7 +4835,8 @@ export const SIDEBAR_EMPTY_FEEDBACK_SUITE: LabSuite = {
       check.ok('多开真的走过了宿主能力口', forcedCalls === 1, String(forcedCalls))
       check.ok(
         '多开失败有一行可见反馈（原来只往控制台写一行）',
-        hasText(tabFlash, '在新标签页打开失败'),
+        // 同上面那条：期望值取词典 `openInNewTab.failed` 里占位之前那一段（含全角冒号）。
+        hasText(tabFlash, '在新标签页打开失败：'),
         tabFlash,
       )
       screenshots.push(await shot(ctx, page, 'empty-multitab-failed'))
@@ -4852,8 +4882,20 @@ export const SIDEBAR_EMPTY_FEEDBACK_SUITE: LabSuite = {
         }))
         check.fact(`归档失败：夹具拦到的归档请求=${String(stats.archiveCalls)} 弹窗内联=${JSON.stringify(archive.alert)} 飘提示=${JSON.stringify(archive.flash)}`)
         check.ok('归档失败真的走过了那条 RPC（夹具拦到请求 = 没落到网关）', stats.archiveCalls === 1, String(stats.archiveCalls))
-        check.ok('归档失败在弹窗里有一行红字（原本只有这一处）', hasText(archive.alert, '归档失败'), archive.alert)
-        check.ok('归档失败另外飘一条可见反馈（关掉弹窗也看得到）', hasText(archive.flash, '归档失败'), archive.flash)
+        // 文案从词典读（#206）：这一处渲染的是 `archive.failed`（`{n} 个会话归档失败`）整句，
+        // 原来只写「归档失败」四个字——它配不上那条模板（模板以占位开头，`texts()` 要求输入
+        // 以数字开头才认），于是退化成只认中文。条数用页面上实际说的那个数。
+        const archiveNumber = /(\d+)/.exec(archive.alert)?.[1] ?? ''
+        check.ok(
+          '归档失败在弹窗里有一行红字（原本只有这一处）',
+          archiveNumber !== '' && hasText(archive.alert, `${archiveNumber} 个会话归档失败`),
+          archive.alert,
+        )
+        check.ok(
+          '归档失败另外飘一条可见反馈（关掉弹窗也看得到）',
+          archiveNumber !== '' && hasText(archive.flash, `${archiveNumber} 个会话归档失败`),
+          archive.flash,
+        )
         screenshots.push(await shot(ctx, page, 'empty-archive-failed'))
         await page.keyboard.press('Escape')
         await page.waitForTimeout(300)
@@ -4868,8 +4910,20 @@ export const SIDEBAR_EMPTY_FEEDBACK_SUITE: LabSuite = {
         .then(() => true)
         .catch(() => false)
       const loadingText = await page.textContent('[data-dshone-tree-empty="loading"]').catch(() => null)
-      check.fact(`加载态：出现=${String(loadingSeen)} 文案=${JSON.stringify(loadingText)}`)
-      check.ok('工作区快照没到时列表区出加载文案（原来整块空白）', loadingSeen && (loadingText ?? '').includes('加载中'), String(loadingText))
+      // 判据从词典读（#206）：期望值写成插件词典里那条中文（`empty.loading`），`hasText` 会把
+      // 它放宽到同一条键的 zh / en 两份取值（`加载中…` / `Loading…`），实测命中任一份即过。
+      //
+      // 为什么这条**必须**两份都认（#203 的并发实验里它 2/3 轮红过）：页面语言由实例的
+      // 设置文档钉住（见 `labGateway.ts` 的 `locale.preference`），而**设置文档送达之前**，
+      // 官方 locale 服务跑的是它自己的临时语言——由浏览器语言决定、兜底英文（出处见本条
+      // issue 的定性）。那一刻这条文案渲染的就是词典的 en 那份 `Loading…`。写死中文等于把
+      // 这个正常中间态判成红。
+      const loadingVariants = texts('加载中…')
+      const loadingVariant = loadingVariants.find((variant) => (loadingText ?? '').includes(variant)) ?? ''
+      check.fact(
+        `加载态：出现=${String(loadingSeen)} 文案=${JSON.stringify(loadingText)}（词典这条的两份取值 ${JSON.stringify(loadingVariants)} 里命中的是第 ${String(loadingVariants.indexOf(loadingVariant) + 1)} 份）`,
+      )
+      check.ok('工作区快照没到时列表区出加载文案（原来整块空白）', loadingSeen && hasText(loadingText, '加载中…'), String(loadingText))
       if (loadingSeen) screenshots.push(await shot(ctx, page, 'empty-loading'))
       await page.waitForSelector('[data-dshone-tree-empty="no-workspaces"]', { timeout: 15_000 })
       await page.waitForTimeout(600)
@@ -4888,8 +4942,12 @@ export const SIDEBAR_EMPTY_FEEDBACK_SUITE: LabSuite = {
       )
       check.ok('夹具真的改空了工作区清单的帧（否则这条空态无从谈起）', stats.emptiedFollowFrames > 0, String(stats.emptiedFollowFrames))
       check.ok(
+        // 文案从词典读（#206）：整句对（`empty.noWorkspaces` 那条没有占位，可整句比），
+        // 「用上方的 ＋」这件事由**那句本身**带着——zh 那句写的是全角 `＋`、en 那句写的是
+        // 半角 `+ button above`，所以这里不能另外写死一个 `＋`（原来那句 `includes('＋')`
+        // 在 en 页上必红，与同一行的词典碎片问题是两件事、同一处）。
         '零工作区空态文案写明用上方的 ＋（旧侧栏同款说法）',
-        hasText(zero.text, '还没有工作区') && zero.text.includes('＋'),
+        hasText(zero.text, '还没有工作区。用上方的 ＋ 添加已有文件夹，或创建新工作区。'),
         zero.text,
       )
       check.ok('文案指的入口真在场（顶栏的添加工作区）', zero.addButton)
@@ -5543,8 +5601,11 @@ export const SIDEBAR_MENUS_SUITE: LabSuite = {
           `[data-dshone-tree-row="workspace"][data-dshone-tree-key="${menuKey}"] [data-dshone-tree-action="workspace-remove"]`,
         )
         await page.waitForTimeout(400)
-        const removeDialog = await page.evaluate(() => document.body.textContent?.includes('从工作区列表中移除') ?? false)
-        check.ok('「从列表移除」先过确认弹窗（与旧侧栏同一处置）', removeDialog)
+        // 文案从词典读（#206 普查）：原来判的是弹窗正文里那句「从工作区列表中移除」——那是
+        // `delete.desc` 模板**中间**一截（后面还接着半句），`texts()` 的截断只支持从模板开头
+        // 起，配不上；改成按弹窗自己的标题那条 `delete.workspace` 认，zh / en 两份都有。
+        const removeDialogText = await page.evaluate(() => document.querySelector('[role="dialog"]')?.textContent ?? '')
+        check.ok('「从列表移除」先过确认弹窗（与旧侧栏同一处置）', hasText(removeDialogText, '删除工作区'), removeDialogText)
         await page.keyboard.press('Escape')
         await page.waitForTimeout(300)
       }

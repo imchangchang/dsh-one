@@ -127,8 +127,10 @@ async function killByPid(child: ChildProcess, graceMs = 5_000): Promise<void> {
  * `@deepseek-ai/dsh-llm-pi-ai` 的 schema 核过）：`apiKeyEnv` / `displayName` / `api` /
  * `baseURL` / `models` 必填，模型那几项显式补齐（contextWindow / maxTokens / input /
  * reasoningEfforts）。`apiKeyEnv` 指向的环境变量在起进程时给（见 `startLabGateway`）。
+ *
+ * `locale` = 页面语言（#206 加的参数，见 {@link StartLabGatewayOptions.locale}）。
  */
-function settingsYaml(mockUrl: string): string {
+function settingsYaml(mockUrl: string, locale: string): string {
   return `# 实验室隔离实例的设置文档（本次运行现写，随临时 DSH_HOME 一起删）。
 agent-default-model:
   provider: mock-llm
@@ -153,7 +155,7 @@ llm-pi-ai:
             max: "max"
 # 页面语言钉死：判据不许吃语言（#162 立的约束，这里把环境输入本身固定住）。
 locale:
-  preference: zh
+  preference: ${locale}
 `
 }
 
@@ -164,6 +166,15 @@ export interface StartLabGatewayOptions {
   readyTimeoutMs?: number
   /** 起来之后播种真数据（缺省播，见 `seed.ts`）。 */
   seed?: boolean
+  /**
+   * 页面语言（写进实例设置文档的 `locale.preference`），缺省 `zh`；`LAB_LOCALE` 同义。
+   *
+   * #206 加的。为什么要这个口子：判据一律从词典读、zh / en 两份都认（#162 立的约束），
+   * 但那条约束**只有在 en 页上真跑过一遍**才算数——写死中文的漏网断言在 zh 页上照样绿，
+   * 得换个语言才露出来。给了它就 `LAB_LOCALE=en node test/assembly-lab/verify.ts --suite …`，
+   * 与不改任何东西的 zh 轮共用同一套装置。
+   */
+  locale?: string
   /**
    * 把网关进程的 stdout / stderr **原样落一份到文件**（#203 的排障口子）。
    *
@@ -243,7 +254,7 @@ export async function startLabGateway(log: LogSink, options: StartLabGatewayOpti
   }
   try {
     llm = await startLabLlm()
-    await fsp.writeFile(path.join(home, 'settings.yaml'), settingsYaml(llm.url), 'utf8')
+    await fsp.writeFile(path.join(home, 'settings.yaml'), settingsYaml(llm.url, options.locale ?? process.env.LAB_LOCALE ?? 'zh'), 'utf8')
     await fsp.writeFile(path.join(home, 'cordis.patch.yml'), cordisPatchYaml(home), 'utf8')
     const env: NodeJS.ProcessEnv = { ...process.env, DSH_HOME: home, MOCK_LLM_KEY: 'lab-mock-key' }
     child = spawn('dsh', ['web', '--host', '127.0.0.1', '--port', String(requested), '--no-open'], {
