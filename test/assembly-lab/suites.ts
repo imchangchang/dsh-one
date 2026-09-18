@@ -108,6 +108,29 @@ async function contentCount(page: OpenedPage['page'], selector: string): Promise
   return page.evaluate((sel: string) => document.querySelectorAll(sel).length, selector)
 }
 
+/**
+ * 页面上「对话区落到了哪儿」的读数（#211 起 F-08 第三档用它判落点；判据全文在 F-62 的
+ * 第二、三档）：
+ * - `mask`：防闪帧遮罩还在不在（`[data-opening-mask]`）；
+ * - `scrollText`：对话区正文（官方 `[data-conversation-scroll]`，压缩空白后的前 200 字）；
+ * - `composerPlaceholder`：composer 上官方写的占位原文（`data-placeholder`，没有这一格时
+ *   null）——官方「新对话页」与「没有当前会话」的空态用的是两条不同的占位，空态那一档实测
+ *   连这一格都不写，所以它是「输入框到底能不能用」的判据。
+ */
+async function readChatLanding(
+  page: OpenedPage['page'],
+): Promise<{ mask: number; scrollText: string; composerPlaceholder: string | null }> {
+  return page.evaluate(() => {
+    const squeeze = (text: string | null | undefined): string => (text ?? '').replace(/\s+/g, ' ').trim()
+    const composer = document.querySelector('[data-slot="conversation.composer.bar"]')
+    return {
+      mask: document.querySelectorAll('[data-opening-mask]').length,
+      scrollText: squeeze(document.querySelector('[data-conversation-scroll]')?.textContent).slice(0, 200),
+      composerPlaceholder: composer?.querySelector('[contenteditable="true"]')?.getAttribute('data-placeholder') ?? null,
+    }
+  })
+}
+
 // ---------------------------------------------------------------------------
 // F-01 CONTRACT：底座契约完备性（AGENTS.md 铁律要求的常驻断言）
 // ---------------------------------------------------------------------------
@@ -1671,7 +1694,7 @@ export const MULTIOPEN_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '会话多开：会话行菜单「在新标签页打开」+ 多开 tab 的启动注入（MULTIOPEN 套件）',
   expect:
-    '侧栏树：会话行的 ⋯ 菜单里有「在新标签页打开」项（原有三项都在，每项都有文案），**行右键**弹出同一份菜单且菜单落点逐像素等于官方 `Menu` 自己的规则（锚在指针处 + 官方那套视口钳位，两种落点都判：900px 高的视口走「锚点 top + 4」，矮视口下走「视口高 − 菜单高 − 12」那条钳位线），Esc 关掉；点该项 → 页面经宿主能力口发出一次 `session.openInNewTab`，带的是**那一行**的真会话 id；点第二行得到第二个不同 id。chat 树：`?session=<id>` 的页面把该 id 注入 `__DSH_ONE_BOOT__` 并真的把它开成当前会话（boot-timing first-meta 等于该 id）；**同一个浏览器上下文（同一源、同一 localStorage，即真 VS Code 里多条 webview 的现场）里开第二个多开会话页**，两页各自开自己的会话、互不串；注入一个不存在的 id 时防闪帧遮罩在场（不闪官方空白态）。',
+    '侧栏树：会话行的 ⋯ 菜单里有「在新标签页打开」项（原有三项都在，每项都有文案），**行右键**弹出同一份菜单且菜单落点逐像素等于官方 `Menu` 自己的规则（锚在指针处 + 官方那套视口钳位，两种落点都判：900px 高的视口走「锚点 top + 4」，矮视口下走「视口高 − 菜单高 − 12」那条钳位线），Esc 关掉；点该项 → 页面经宿主能力口发出一次 `session.openInNewTab`，带的是**那一行**的真会话 id；点第二行得到第二个不同 id。chat 树：`?session=<id>` 的页面把该 id 注入 `__DSH_ONE_BOOT__` 并真的把它开成当前会话（boot-timing first-meta 等于该 id）；**同一个浏览器上下文（同一源、同一 localStorage，即真 VS Code 里多条 webview 的现场）里开第二个多开会话页**，两页各自开自己的会话、互不串；注入一个不存在的 id 时防闪帧遮罩在**打开期间**在场（不闪官方空白态；读数落在目标还没落定的那一刻，不等静置——#211 起目标开不了时这一页会落到官方新对话页并揭幕，等完再量量到的是落定之后的形态），落定之后遮罩揭开、对话区是官方新对话页（hero 标题 + 可用的 composer，不是空态）。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     // 真网关的会话清单（只读）：挑注入用的 id。
@@ -1902,15 +1925,33 @@ export const MULTIOPEN_SUITE: LabSuite = {
     }
 
     // ---------------------------------------------------------------------
-    // 三、注入一个不存在的会话：防闪帧遮罩在场（不闪官方空白态）
+    // 三、注入一个不存在的会话：防闪帧遮罩在场（不闪官方空白态）；#211 起落点必须是官方
+    //     新对话页，遮罩在那一刻也随之揭掉（别再盖着已经能用的页面）
     // ---------------------------------------------------------------------
     const ghost = 'session-lab-missing-000'
-    const opened = await openTreePage(ctx.browser, ctx.lab, route('chat'), { width: 1200, sessionId: ghost })
+    // `settleMs: 0`：遮罩的在场是「目标还没落定」期间的形态，读数必须落在那一刻，不能等
+    // 那 2.5 秒的静置（#211 起目标开不了时这一页 1.5 秒后就会落到新对话页并揭幕 —— 等完
+    // 静置再量，量到的是落定之后的形态，判据就判错了地方）。
+    const opened = await openTreePage(ctx.browser, ctx.lab, route('chat'), { width: 1200, sessionId: ghost, settleMs: 0 })
     try {
       const mask = await contentCount(opened.page, '[data-opening-mask]')
       check.fact(`不存在会话的注入：boot=${JSON.stringify(await bootSessionIdOf(opened.page))} 遮罩=${String(mask)} consoleError=${JSON.stringify(opened.capture.consoleErrors.slice(0, 2))}`)
       check.eq('不存在的会话 id 照原样注入（注入通道不替页面判断存在性）', await bootSessionIdOf(opened.page), ghost)
       check.ok('目标会话没到位时防闪帧遮罩在场', mask === 1, `mask=${String(mask)}`)
+      // #211：那一档的落点与揭幕（判据全文在 F-62 的 ②③ 两档，这里只钉「这一页不会一直
+      // 盖着」与「底下不是空态」——本条原本要防的就是官方空态被用户看见）。
+      await opened.page.waitForTimeout(4_000)
+      const after = await readChatLanding(opened.page)
+      check.fact(
+        `落定后：遮罩=${String(after.mask)} 对话区正文=${JSON.stringify(after.scrollText.slice(0, 120))} 占位=${JSON.stringify(after.composerPlaceholder)}`,
+      )
+      check.ok('目标开不了时遮罩在页面落定后揭开（不再盖着已经能用的页面）', after.mask === 0, `mask=${String(after.mask)}`)
+      check.ok(
+        '目标开不了时对话区落在官方新对话页（不是空态）',
+        texts('探索未至之境').some((text) => after.scrollText.includes(text)) &&
+          texts('描述你想要构建的内容, / 调用指令, @ 文件或对话').some((text) => (after.composerPlaceholder ?? '').includes(text)),
+        `对话区正文=${JSON.stringify(after.scrollText.slice(0, 160))}；占位=${JSON.stringify(after.composerPlaceholder)}`,
+      )
       screenshots.push(await shot(ctx, opened.page, 'multiopen-opening-mask'))
     } finally {
       await opened.context.close()

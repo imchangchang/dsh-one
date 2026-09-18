@@ -254,6 +254,14 @@ export const IDENTIFIER_DEPENDENCIES = [
     where: 'packages/dsh-workspace-tree/src/workspaceTree/types.ts:9',
   },
   {
+    names: ['startSession'],
+    scope: ['@deepseek-ai/dsh-client-ui-workspace'],
+    why:
+      '官方「新会话」入口：注入目标开不了时（不存在 / 已删除 / 在归档或回收站里）把对话面板落到新对话页靠它（#211）。' +
+      '这条依赖坏了是**静默**的——官方改名后我们那一步按「拿不到入口」跳过，面板又停在官方空态，只有真页面看得出来',
+    where: 'src/ui/assembly/shell/sessionBootPlugin.ts（landOnNewConversation）',
+  },
+  {
     names: ['sessionIds'],
     scope: ['@deepseek-ai/dsh-client-ui-workspace'],
     why: '工作区视图的成员会话 id 列（自有树按它分组）',

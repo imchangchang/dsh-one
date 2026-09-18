@@ -268,6 +268,24 @@ const bootSessionId = (): string | undefined => {
   return typeof raw === 'string' && raw !== '' ? raw : undefined
 }
 
+/**
+ * 这一页已经落到「新对话页」了没有（#211，写哨的是 session-boot 插件：目标开不了时它经
+ * 官方 `uiWorkspace.startSession` 把页面落到新对话页，见那边的 `landOnNewConversation`）。
+ *
+ * 遮罩据此揭幕：那一刻这一页已经有确定的落点（官方的新对话页），继续盖着只是白挡。
+ *
+ * **要事件、不只是这个全局**：全局只在渲染那一刻读得到，而「落到新对话页」这一下未必引起
+ * 一次重渲（目标开不了时官方那条 watcher 往往已经把一条空白会话选成当前会话，我们再选中
+ * 同一条，会话列表一个字节都不变）——只读全局的话遮罩会一直盖着（#211 实测踩到过）。
+ * 所以 session-boot 那边另外 `dispatchEvent`，这里 `useEffect` 收下并提一个 state。
+ * 全局仍然留着：ShellFrame 重新挂载时（React 卸载再挂）状态从它初始化，遮罩不会被盖回来。
+ */
+const bootLandedNewConversation = (): boolean =>
+  (globalThis as { __DSH_ONE_BOOT_NEW_CONVERSATION__?: unknown }).__DSH_ONE_BOOT_NEW_CONVERSATION__ === true
+
+/** 跨 bundle 的哨（session-boot 那边 `dispatchEvent`，见 bootLandedNewConversation）。 */
+const BOOT_NEW_CONVERSATION_EVENT = 'dsh-one:boot-new-conversation'
+
 function ShellFrame({ useStore, useSessions, usePanelInfo, actions, renderSlot, SessionProvider, conversationSeat, connectionState, t }: ShellFrameProps) {
   const panels = useStore((s) => s)
   // 容器实测宽（官方 AppFrame 同款：ResizeObserver + rAF 节流量自己的盒宽）——
@@ -327,6 +345,15 @@ function ShellFrame({ useStore, useSessions, usePanelInfo, actions, renderSlot, 
   // 抓出——原先只比 current !== bootId，运行时切到别的会话会让遮罩**重新罩上**
   // 直到 5s 兜底，表现为「切会话被白屏挡一下」）。
   const [bootReached, setBootReached] = useState(false)
+  // #211：目标开不了、这一页已经落到新对话页（state 初值从全局读，见
+  // bootLandedNewConversation——后挂载的 ShellFrame 也读得到哨）。
+  const [landedNewConversation, setLandedNewConversation] = useState<boolean>(bootLandedNewConversation())
+  useEffect(() => {
+    if (landedNewConversation) return
+    const onLanded = (): void => setLandedNewConversation(true)
+    window.addEventListener(BOOT_NEW_CONVERSATION_EVENT, onLanded)
+    return () => window.removeEventListener(BOOT_NEW_CONVERSATION_EVENT, onLanded)
+  }, [landedNewConversation])
   // 超时回调要读**当下**的到达状态（state 在回调闭包里是旧的），所以另存一份 ref。
   const bootReachedRef = useRef(false)
   useEffect(() => {
@@ -345,13 +372,24 @@ function ShellFrame({ useStore, useSessions, usePanelInfo, actions, renderSlot, 
       // 什么都说明不了（实验室实测：五种恢复键现场、页面全都正常渲染，五行 warn 一行
       // 不少）。目标为什么没落定由 session-boot 插件按实际读数另说一句。
       if (bootReachedRef.current) return
+      // #211：已经落到新对话页的页面上遮罩早揭了（见 opening），这里再报一次「超时揭幕」
+      // 是假的——那句话说的是「遮罩兜底到期」，而那一刻遮罩并不在。回调闭包里的 state 是
+      // 旧的，所以读全局那份事实（两边同一个哨）。
+      if (bootLandedNewConversation()) return
       console.warn(`[dsh-one] opening session ${bootId} timed out; revealing the shell anyway`)
       setRevealedByTimeout(true)
     }, OPENING_MASK_TIMEOUT_MS)
     return () => clearTimeout(timer)
   }, [bootId])
   const tr = t
-  const opening = bootId !== undefined && !bootReached && !revealedByTimeout && currentSession !== bootId
+  // #211：目标开不了时 session-boot 插件会把这一页落到新对话页并吹哨，那一刻遮罩就该揭——
+  // 继续盖着只会白挡一个已经能用的页面（遮罩原本要挡的是官方空态闪帧，而那时已经不是空态）。
+  const opening =
+    bootId !== undefined &&
+    !bootReached &&
+    !revealedByTimeout &&
+    currentSession !== bootId &&
+    !landedNewConversation
   // 会话面板渲染：0.1.6 线登记的是 keyed `main` 的 `conversation` 键（官方
   // AppFrame 的 MainPanel 同款取键方式：全局面板 id ?? 'conversation'）；
   // 0.1.2 线登记的是 single `conversation`。两版槽位都声明，实际渲染哪个由
