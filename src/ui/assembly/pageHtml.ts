@@ -6,10 +6,17 @@
  *
  * 页面结构照抄网关 `/` 的注入形态（spike #63 从真实网关 HTML 提取的契约）：
  *   <head>：base href（一切相对 URL 落回 mirror）→ 诊断探针（内联，仅 webview 激活）
- *   → 队列 facade（内联）→ modulepreload/CSS →
+ *   → 失败提示条（内联，#201，React 树整个被卸掉时页面不留白）→ 队列 facade（内联）
+ *   → modulepreload/CSS →
  *   __DSH_BOOT__ wire → 阻塞 bootstrap script → 主 bundle（type=module）→
  *   __DSH_TRANSPORT__ seam（内联）
  *   <body>：主题预置 → __DSH_BOOT_READY__ resolve → 版本门信息条（可选）→ #root
+ *
+ * **失败提示条**（#201，实现与理由见 `failureNotice.ts` 的文件头）：装配失败时官方渲染器
+ * 故意让 `SlotAssemblyError` 穿出所有 entry 边界（fail loud），React 18 随即把整棵 root
+ * 卸掉 —— 页面上一个可见的盒都不剩，而官方那套失败卡片只覆盖启动期、不覆盖挂载之后。
+ * 所以这一行由页面运行时自己出：捕获到错误就记下原文（并经探针写进宿主日志，不吞），
+ * `#root` 从「有过内容」变成「连续两拍一个可见的盒都没有」就落一行说明加一个「重新加载」。
  *
  * **本页不带 CSP**（#188，用户拍板）：官方 dsh 网页整页没有 CSP（网关 `/` 不带 CSP meta），
  * 装配页此前自带一份（`default-src 'none'` + 内联脚本 nonce + 受限的 img/font/media 源），
@@ -86,6 +93,7 @@ export interface AssemblyPageOptions {
 }
 
 import { assemblyProbeJs } from './probe.ts'
+import { failureNoticeJs } from './failureNotice.ts'
 import { hostSdkJs } from './hostSdk.ts'
 
 function escapeHtml(text: string): string {
@@ -372,6 +380,7 @@ export function assemblyPageHtml(options: AssemblyPageOptions): string {
     <meta charset="utf-8" />
     <title>DeepSeek Harness (assembled)</title>
     <script nonce="${cspNonce}">${assemblyProbeJs()}</script>
+    <script nonce="${cspNonce}">${failureNoticeJs()}</script>
     <script nonce="${cspNonce}">${QUEUE_FACADE_JS}</script>
     <script nonce="${cspNonce}">${hostSdkJs()}</script>${bodyReset}${bootGlobals}${preload}
 ${styles}
