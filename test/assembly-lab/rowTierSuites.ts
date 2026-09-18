@@ -12,9 +12,15 @@
  * ① 三档宽度（260/340/500）下工作区行 34px / 会话行 32px、行圆角 8px、行内边距 8px、标题 14px/20px；
  * ② 菜单项仍是紧凑档的 26px / 12px（#134 只放开了行家族，菜单没被顺手放开）；
  * ③ 行内图标位与状态槽在这些行盒里垂直居中、没有被行裁掉；
- * ④ 搜索结果行也是行家族一员，能出结果就按标准档量（出不来记一笔跳过）。
+ * ④ 搜索结果行也是行家族一员，能出结果就按标准档量（出不来记一笔跳过）；
+ * ⑤（#195 补）抽屉会话行与搜索结果行这两处**要数据才量得到**的：回收站里那两条由夹具放进
+ * 假宿主的 `recycle-bin`，搜索先点开折叠态的搜索框（#132）、查询词取标题首段整词——
+ * 这两件事原来在隔离实例上整套记事实跳过，补法与根因见下面 `plantRecycleBin` 与「④ 搜索结果行」
+ * 两处的注释。
  *
  * 本套件**完全不碰网关的写面**：只开菜单、敲一次只读的搜索、悬停行，不提交任何写请求。
+ * 唯一写的东西是**假宿主**的状态存储（`recycle-bin` 里放两条真会话 id，见 `plantRecycleBin`）
+ * ——那本来就是 dsh 自己目录里的本地状态，不是网关的数据。
  */
 import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
@@ -309,6 +315,35 @@ async function readSearchRow(page: OpenedPage['page']): Promise<SearchRowFacts> 
 }
 
 /**
+ * 往假宿主的回收站里放两条**真会话**（#195）：返回注入的会话 id（树上一条会话都没有时返回空）。
+ *
+ * 为什么要这一步：抽屉里那几区（会话行 / 分块块头 / 列表）要回收站里真有内容才渲染
+ * （空集合时抽屉只出一行状态文案），而 #177 把默认跑法换成自起的隔离实例之后，
+ * 「这一轮页面上有人往回收站挪过会话」这个前提不成立——本套件 ④ 那一条与 F-13 的三区 ×
+ * 三档（共 9 条）于是都只能记事实跳过（#193 的普查）。做法与 F-13 / F-45 同一条：取**树上
+ * 真实存在的会话 id** 注进假宿主的 `recycle-bin`（旧侧栏那份形状：`{version:1, sessionIds:[…]}`），
+ * 再重载一次让页面把状态读回来。只写假宿主的状态存储（那本来就是 dsh 自己目录里的本地
+ * 状态），**网关一个字节不动**；注入的 id 是真的，所以抽屉里的行、块头计数、分块归属
+ * 全部按真数据算，判据不因这份夹具而放宽。
+ */
+async function plantRecycleBin(page: OpenedPage['page']): Promise<readonly string[]> {
+  const ids = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('[data-dshone-tree-row="session"]'))
+      .slice(0, 2)
+      .map((row) => row.getAttribute('data-dshone-tree-session') ?? '')
+      .filter((id) => id !== ''),
+  )
+  if (ids.length === 0) return []
+  await page.addInitScript({
+    content: `(() => { globalThis.__LAB_HOST__.stateStore['recycle-bin'] = ${JSON.stringify({ version: 1, sessionIds: ids })} })()`,
+  })
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.waitForSelector(route('sidebar').readySelector, { timeout: 40_000 })
+  await page.waitForTimeout(2_500)
+  return ids
+}
+
+/**
  * F-35 ROW-TIER：行家族取官方标准档（#134）。编号说明：F-01…F-32 与 R-06 已占用，F-33 / F-34
  * 已被在途的另外两个套件（#125 的顶栏左缘 / #127 的弹窗紧凑档）取用，按「从未占用的继续」顺延。
  */
@@ -317,7 +352,7 @@ export const ROW_TIER_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '行家族取官方标准档（#134）：工作区行 34px / 会话行 32px / 行圆角 8px / 行内边距 8px / 标题 14px·20px，图标位与状态槽在行盒里居中，菜单项仍是紧凑档（ROW-TIER 套件）',
   expect:
-    '侧栏树在真实装配页上（真网关**只读** + 假宿主）：① **三档宽度（260/340/500）下逐项量行家族**——工作区行高 = 标准档 `projectRowHeight` 34px、会话行高 = `sessionRowHeight` 32px、两个行种的圆角 = `rowRadius` 8px、左右内边距 = `rowPaddingInline` 8px（期望值全部从 `workspaceTree/styles.ts` 的档位表读，不硬编码），且行的**实测矩形高**与写下来的高度一致（没被内容撑高）；工作区名与会话标题的字号 / 行高 = 标准档的 `titleFontSize` 14px / `titleLineHeight` 20px。② **菜单项仍是紧凑档**——顶栏「视图选项」或分组胶囊的菜单开一遍，官方 `Menu` 项的渲染高 26px / 最小高 26px / 字号 12px / 行高 18px / 圆角 5px / 间隙 6px / 内边距 3px 7px 逐项等于 `SCALE_TIERS.compact`（#134 只把行家族放到了标准档，菜单没被顺手放开）。③ **行内件不被行高带坏**——每一行里的**常规流**子件（图标位 / 状态槽 / 标题 / 时间 / 勾选框…）垂直中心与行中心之差 ≤ 1px、矩形整个落在行矩形里、行自身 `scrollHeight ≤ clientHeight + 1`（无裁切）；**行内图标位（16×20 那一格）单独点名**——它必须在、尺寸等于标准档的 `slotWidth`×`slotHeight`、且在行盒里居中（悬停出一排 16×16 动作图标时再量一遍，确认它们同样居中）。绝对定位层（行尾胶囊层）不参与居中判据，只记事实。④ **抽屉会话行同档**——点开回收站抽屉量一遍：高 32px / 圆角 8px / 行内边距 8px，与主树会话行一致。⑤ **搜索结果行**（行家族一员）能出结果就量：最小高 = 标准档 48px / 圆角 8px / 左右内边距 8px / 标题 14px·20px / 摘要行高 17px；这一轮出不来结果行（内容搜索不可用或查询无匹配）就记一笔事实跳过——搜索打的是真网关的只读路径。全程零 pageerror。',
+    '侧栏树在真实装配页上（真网关**只读** + 假宿主，**夹具把树上的真会话注进本地回收站**，两类东西才量得到；全程只往假宿主的本地状态里写那两条 id、不碰网关写面：#195）：① **三档宽度（260/340/500）下逐项量行家族**——工作区行高 = 标准档 `projectRowHeight` 34px、会话行高 = `sessionRowHeight` 32px、两个行种的圆角 = `rowRadius` 8px、左右内边距 = `rowPaddingInline` 8px（期望值全部从 `workspaceTree/styles.ts` 的档位表读，不硬编码），且行的**实测矩形高**与写下来的高度一致（没被内容撑高）；工作区名与会话标题的字号 / 行高 = 标准档的 `titleFontSize` 14px / `titleLineHeight` 20px。② **菜单项仍是紧凑档**——顶栏「视图选项」或分组胶囊的菜单开一遍，官方 `Menu` 项的渲染高 26px / 最小高 26px / 字号 12px / 行高 18px / 圆角 5px / 间隙 6px / 内边距 3px 7px 逐项等于 `SCALE_TIERS.compact`（#134 只把行家族放到了标准档，菜单没被顺手放开）。③ **行内件不被行高带坏**——每一行里的**常规流**子件（图标位 / 状态槽 / 标题 / 时间 / 勾选框…）垂直中心与行中心之差 ≤ 1px、矩形整个落在行矩形里、行自身 `scrollHeight ≤ clientHeight + 1`（无裁切）；**行内图标位（16×20 那一格）单独点名**——它必须在、尺寸等于标准档的 `slotWidth`×`slotHeight`、且在行盒里居中（悬停出一排 16×16 动作图标时再量一遍，确认它们同样居中）。绝对定位层（行尾胶囊层）不参与居中判据，只记事实。④ **抽屉会话行同档**——点开回收站抽屉量一遍：高 32px / 圆角 8px / 行内边距 8px，与主树会话行一致（回收站里那两条由夹具放进假宿主，见下文）。⑤ **搜索结果行**（行家族一员）能出结果就量：最小高 = 标准档 48px / 圆角 8px / 左右内边距 8px / 标题 14px·20px / 摘要行高 17px；查询词取**当天真会话标题的首段整词**、并先点开搜索框（#132 起默认折叠），这一轮出不来结果行（无匹配）才记一笔事实跳过——搜索打的是真网关的只读路径。全程零 pageerror。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const shot = async (page: OpenedPage['page'], name: string): Promise<string> => {
@@ -335,6 +370,22 @@ export const ROW_TIER_SUITE: LabSuite = {
           `圆角 ${SCALE_TIERS.standard.rowRadius} / 行内边距 ${SCALE_TIERS.standard.rowPaddingInline} / 标题 ${SCALE_TIERS.standard.titleFontSize}·${SCALE_TIERS.standard.titleLineHeight}；` +
           `菜单一侧仍是紧凑档 ${SCALE_TIERS.compact.rowHeight} / ${SCALE_TIERS.compact.fontSize}`,
       )
+
+      // ---- 夹具：回收站里放两条真会话（#195），④ 那一区才量得到 ----
+      const recycledIds = await plantRecycleBin(page)
+      if (recycledIds.length === 0) {
+        check.fact('树上一条会话行都没有（回收站夹具放不进东西）——④ 抽屉会话行那一条会按「没有这个元素」记事实')
+      } else {
+        const binBadge = await page.getAttribute(
+          '[data-dshone-tree-action="recycle-toggle"]',
+          'data-dshone-tree-recycle-count',
+        )
+        check.ok(
+          '回收站夹具接上了：入口角标 = 注入的会话数（抽屉里因此有真的可逆层条目）',
+          binBadge === String(recycledIds.length),
+          `角标=${String(binBadge)} 注入=${String(recycledIds.length)}（${recycledIds.join(', ')}）`,
+        )
+      }
 
       // ---- ① 三档宽度：行的几何 + 标题文字 ----
       for (const width of WIDTHS) {
@@ -493,26 +544,50 @@ export const ROW_TIER_SUITE: LabSuite = {
       }
 
       // ---- ④ 搜索结果行：行家族一员，出得来结果就按标准档量 ----
-      // 查询词取一条**当天真会话标题**的前 6 个字（网关只读：搜索不改任何数据）。出不来结果
-      // （内容搜索不可用 / 无匹配）就记一笔事实跳过——这一块的期望值仍是档位表的标准档。
+      // 两件事 #195 修（原来这一块在隔离实例上整套记事实跳过，8 条断言一条都跑不到）：
+      // ① **搜索框默认是折叠的**（#132 两态：折叠态只渲染那枚放大镜，`[data-dshone-tree="search-input"]`
+      //    根本不在 DOM 里）——所以得先点开它，否则连输入框都找不到；
+      // ② **查询词取标题的首段而不是前 6 个字**：官方内容索引按**词**匹配（FTS5 unicode61），
+      //    标题截出来的半截词（「Lab-Alpha task 1」截成「Lab-Al」）在里面一条文档都命中不了，
+      //    于是结果行只有本地标题匹配、**摘要那一段不渲染**——而摘要的行高正是这一块要判的一项。
+      //    首段整词则同时命中标题与内容（会话标题本来就从首条用户消息来的），摘要因此在场。
+      // 网关侧只读：查询不改任何数据。出不来结果行（无匹配）仍记一笔事实跳过。
+      const searchTrigger = await page.evaluate(
+        () => document.querySelectorAll('[data-dshone-tree-action="search"]').length,
+      )
+      if (searchTrigger > 0) {
+        await page.click('[data-dshone-tree-action="search"]')
+        await page.waitForTimeout(300)
+      }
       const query = await page.evaluate(() => {
         const title = document.querySelector('.dshOneTree_sessionRow .dshOneTree_title')?.textContent ?? ''
-        return title.trim().slice(0, 6)
+        return (title.trim().split(/\s+/)[0] ?? '').trim()
       })
       const searchInput = await page.evaluate(() => document.querySelectorAll('[data-dshone-tree="search-input"]').length)
+      check.fact(
+        `搜索框：触发器 ${String(searchTrigger)} 枚、展开后输入框 ${String(searchInput)} 个；查询词取标题首段 = ${JSON.stringify(query)}`,
+      )
       if (query.length < 2 || searchInput === 0) {
         check.fact('这一轮拿不到可用的查询词 / 搜索框不在——搜索结果行跳过')
       } else {
         await page.fill('[data-dshone-tree="search-input"]', query)
-        const deadline = Date.now() + 6000
+        // 等到**带摘要**的那一行出来，别一看到行就量：结果行先由本地标题匹配同步渲染出来，
+        // 内容搜索回来之后（250ms 去抖 + 一次打网关）才补上摘要那一段——只等「有行」会量到
+        // 还没补摘要的那一刻，上面那条摘要行高的判据就成了假红（#195 实测踩到过）。
+        const deadline = Date.now() + 10_000
         let searchRow = await readSearchRow(page)
-        while (!searchRow.present && Date.now() < deadline) {
+        while ((!searchRow.present || searchRow.snippetLineHeight === '') && Date.now() < deadline) {
           await page.waitForTimeout(250)
           searchRow = await readSearchRow(page)
         }
         if (!searchRow.present) {
-          check.fact(`搜索结果行：这一轮查询「${query}」没出结果行（内容搜索不可用或无匹配）——跳过`)
+          check.fact(`搜索结果行：这一轮查询「${query}」没出结果行（无匹配）——跳过`)
         } else {
+          check.fact(
+            `搜索结果行读数（查询「${query}」）：${JSON.stringify(searchRow)}；结果行总数 ` +
+              `${String(await page.evaluate(() => document.querySelectorAll('.dshOneTree_searchRow').length))}（带摘要的 ` +
+              `${String(await page.evaluate(() => document.querySelectorAll('.dshOneTree_searchRowSnippet').length))} 行）`,
+          )
           check.eq('搜索结果行：最小高 = 标准档 48px', searchRow.minHeight, SCALE_TIERS.standard.searchRowMinHeight)
           check.eq('搜索结果行：圆角 = 标准档 8px', searchRow.borderRadius, SCALE_TIERS.standard.rowRadius)
           check.eq('搜索结果行：左内边距 = 标准档 8px', searchRow.paddingLeft, SCALE_TIERS.standard.rowPaddingInline)

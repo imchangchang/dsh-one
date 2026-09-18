@@ -216,9 +216,13 @@ async function installApiFixtures(
             ok: true,
             value: {
               items: [
-                { id: targets.hit, snippet: HIT_SNIPPET },
-                { id: targets.miss, snippet: MISS_SNIPPET },
-                { id: targets.boundary, snippet: BOUNDARY_SNIPPET },
+                // 字段名按**官方 wire 形状**写（`sessionId`，见 dsh-api-session-controller 的
+                // `SessionSearchResultItem`）：#195 之前这里写成 `id`，而树那一侧也按 `id` 读，
+                // 两处一起把真回执的 `sessionId` 读成了 undefined——夹具与真货形状不一致，
+                // 正是这个 bug 能一直藏着的原因。对照的真回执实测见 #195 的 comment。
+                { sessionId: targets.hit, snippet: HIT_SNIPPET },
+                { sessionId: targets.miss, snippet: MISS_SNIPPET },
+                { sessionId: targets.boundary, snippet: BOUNDARY_SNIPPET },
               ],
               hasMore: false,
             },

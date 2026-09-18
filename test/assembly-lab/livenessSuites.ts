@@ -133,7 +133,7 @@ import {
 import { fakeHostScript } from './fakeHost.ts'
 import { LAB_TREES, type LabTreeRoute } from './labServer.ts'
 import { cookieHeader } from '../../src/server/assemblyMirror.ts'
-import { listSessions } from '../../src/server/dshRpc.ts'
+import { listSessions, sessionCompletedTurns } from '../../src/server/dshRpc.ts'
 import type { LabSuite, SuiteContext } from './suites.ts'
 
 const route = (name: string): LabTreeRoute => {
@@ -1008,6 +1008,22 @@ const CHAT_POINTS: ReadonlyArray<LivenessPoint> = [
       '空草稿时官方与我们的发送键都是禁用态，看的只是「它是禁用态」这一件事；而它的动作是**发消息**（写操作），轮不到为了覆盖去点它——万一哪天这一轮草稿不为空，点下去就是把一条消息送进真网关',
     expectDisabled: true,
   },
+  // #195：**这一条必须排在「轨迹」那一枚之前**——点「轨迹」会把整块对话流换成轨迹视图，
+  // 助手动作那一排跟着一起从 DOM 里消失，排在它后面就永远量不到（实测：排在最后时，
+  // 我们那页与官方页**两侧**都报「元素不在场」，而点「轨迹」之前那一排两枚按钮都在
+  // 场、`opacity: 1`、盒宽 28px）。所以它排在对话区那几枚旁边，而不是列表末尾。
+  {
+    label: '对话区 · 助手动作「好的回答」',
+    // 这一条**保持可点**（#163 复核过它会不会改用户状态，结论是不会）：点它的效果是开反馈
+    // 弹窗（客户端行为）。已经点过赞的那条消息上，这枚按钮的 `aria-label` 是官方词典里的
+    // 「取消标记」，本探针的选择器（`aria-label="好的回答"`）命中不到它，所以走不到官方那条
+    // **删掉用户反馈**的路径（`retract` → `remote.messageFeedback.delete`）；悬停与点击触发的
+    // `ensure()` 走的是 `remote.list`（读）。出处 `dsh-client-ui-message-feedback/lib/client.js`
+    // 的 `likeLabel` 与 `choose`。
+    selector: '[data-slot="conversation.chat.assistant-actions"] button[aria-label="好的回答"]',
+    expect: '弹出反馈弹层',
+    official: '[data-slot="conversation.chat.assistant-actions"] button[aria-label="好的回答"]',
+  },
   {
     label: '对话区页签 · 轨迹',
     selector: '[data-slot="conversation.session.header"] [role="tab"]:has-text("轨迹")',
@@ -1027,18 +1043,6 @@ const CHAT_POINTS: ReadonlyArray<LivenessPoint> = [
     selector: '[data-slot="conversation.session.header.corner"] button',
     expect: '右栏开合（DOM 结构变）',
     official: '[data-slot="conversation.session.header.corner"] button',
-  },
-  {
-    label: '对话区 · 助手动作「好的回答」',
-    // 这一条**保持可点**（#163 复核过它会不会改用户状态，结论是不会）：点它的效果是开反馈
-    // 弹窗（客户端行为）。已经点过赞的那条消息上，这枚按钮的 `aria-label` 是官方词典里的
-    // 「取消标记」，本探针的选择器（`aria-label="好的回答"`）命中不到它，所以走不到官方那条
-    // **删掉用户反馈**的路径（`retract` → `remote.messageFeedback.delete`）；悬停与点击触发的
-    // `ensure()` 走的是 `remote.list`（读）。出处 `dsh-client-ui-message-feedback/lib/client.js`
-    // 的 `likeLabel` 与 `choose`。
-    selector: '[data-slot="conversation.chat.assistant-actions"] button[aria-label="好的回答"]',
-    expect: '弹出反馈弹层',
-    official: '[data-slot="conversation.chat.assistant-actions"] button[aria-label="好的回答"]',
   },
 ]
 
@@ -1164,18 +1168,46 @@ async function conversationHeaderReady(page: Page): Promise<boolean> {
 }
 
 /**
+ * 页面上有没有**已结束助手回合**的那一排助手动作（#195）。
+ *
+ * 为什么要单独判这一件事：官方 `@deepseek-ai/dsh-client-ui-chat` 的 `TurnTailNodeView`
+ * 只在回合结束时才渲染这一排（`data.closing === null` 那条分支整块返回 `null`），
+ * 而空白会话（一条消息都没有）永远不合上回合——「对话区 · 助手动作『好的回答』」这一枚
+ * 就是死在这里的（隔离实例上客户端落脚的正好是播种出来的那条空白会话）。判据看的是
+ * 这一排动作的**座位**在不在，不是某一枚按钮的文案。
+ */
+async function assistantActionsPresent(page: Page): Promise<boolean> {
+  return page.evaluate(
+    () => document.querySelectorAll('[data-slot="conversation.chat.assistant-actions"]').length > 0,
+  )
+}
+
+/**
  * 这台网关上**服务得了**的会话候选（当作夹具用）。
  *
  * 为什么要挑：装配页默认开的是网关记着的「当前会话」，而那一条常常正被另一个 dsh
  * 进程占着写句柄（#145 的现场）——那种会话打开后只有半个界面（composer 在、会话头不在），
  * 拿它当夹具会让一批交互点「元素不在场」而空转。挑一条顶层、不在跑、非空的会话，
  * 逐条试到界面真渲染出来为止；挑不到就如实记事实（不判失败）。
+ *
+ * `sessionCompletedTurns(row) > 0` 这一条是 #195 加的：没有**已结束回合**的会话里，
+ * 官方那一排助手动作（`conversation.chat.assistant-actions`）压根不渲染，拿它当夹具
+ * 会让依赖这一排的交互点空转——而「完成过至少一轮」正是那个座位存在的充分前提
+ * （回合计数来自宿主 side 的 `sessionStats` 投影，见 `src/server/dshRpc.ts` 的
+ * `sessionCompletedTurns`）。
  */
 async function servableSessionCandidates(gateway: string): Promise<readonly string[]> {
   try {
     const rows = await listSessions(gateway)
     return rows
-      .filter((row) => row.origin !== 'subagent' && row.parentSessionId === undefined && !row.running && !row.blank)
+      .filter(
+        (row) =>
+          row.origin !== 'subagent' &&
+          row.parentSessionId === undefined &&
+          !row.running &&
+          !row.blank &&
+          sessionCompletedTurns(row) > 0,
+      )
       // 跳过最新的几条：正被用户开着的通常就是它们（会话日志是单写者，被别的 dsh 进程
       // 占着的会话服务不了，#145），挑稍早一点的更容易真拿到一条服务得了的。
       .slice(5, 9)
@@ -1209,6 +1241,29 @@ export const LIVENESS_SUITE: LabSuite = {
       for (const candidate of candidates) {
         const attempt = await openTreePage(ctx.browser, ctx.lab, chat, { ...viewport, sessionId: candidate })
         if (await conversationHeaderReady(attempt.page)) {
+          await chatPage.context.close()
+          chatPage = attempt
+          sessionFixture = await currentSessionId(attempt.page)
+          break
+        }
+        await attempt.context.close()
+      }
+    }
+    // #195：会话头在、但**没有已结束的助手回合**时同样要换一条会话当夹具——「对话区 ·
+    // 助手动作『好的回答』」那一排只在回合合上之后才渲染（官方 `TurnTailNodeView` 的
+    // `data.closing === null` 分支整块返回 null），而隔离实例上客户端落脚的正是播种出来的
+    // **空白**会话（每棵工作区一条，见 `seed.ts`），于是这一枚交互点整套「元素不在场」空转、
+    // 一条断言都判不到。这里按上面同一套候选（`servableSessionCandidates` #195 起只给
+    // 「完成过至少一轮」的会话）换一条真会话；**判据本身一个字没改**——换了夹具之后那一枚
+    // 还是按「点下去有可观测反应 / 官方点得动我们也得点得动」判。
+    if (!(await assistantActionsPresent(chatPage.page))) {
+      const candidates = await servableSessionCandidates(ctx.lab.gateway)
+      check.fact(
+        `默认那条会话（${sessionFixture === '' ? '读不到 id' : sessionFixture}）页面上没有那一排助手动作（没有已结束的助手回合）——按「完成过至少一轮」逐条试 ${String(candidates.length)} 条候选会话当夹具`,
+      )
+      for (const candidate of candidates) {
+        const attempt = await openTreePage(ctx.browser, ctx.lab, chat, { ...viewport, sessionId: candidate })
+        if ((await conversationHeaderReady(attempt.page)) && (await assistantActionsPresent(attempt.page))) {
           await chatPage.context.close()
           chatPage = attempt
           sessionFixture = await currentSessionId(attempt.page)

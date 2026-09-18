@@ -23,6 +23,10 @@
  * 实例的设置文档（`DSH_HOME/settings.yaml`）在**起进程之前**写好，两件事：
  * ① 页面语言钉死成 zh（语言是判据的环境输入，不钉住就会有「换台机器就红」的假失败）；
  * ② 模型指向本次现起的假模型端点（见 `labLlm.ts`），播种才能真跑出非 blank 的会话。
+ *
+ * 另外在起进程之前写一份**本实例的用户补丁层** `DSH_HOME/cordis.patch.yml`（见
+ * {@link cordisPatchYaml}）：内容搜索（官方 `session-query-sqlite`）在官方出厂配置里
+ * 是**关着**的，要显式打开（#195）。
  */
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import * as fsp from 'node:fs/promises'
@@ -162,6 +166,39 @@ export interface StartLabGatewayOptions {
 }
 
 /**
+ * 本实例的**用户补丁层**（`DSH_HOME/cordis.patch.yml`），起进程之前写好。
+ *
+ * 它要打开的是**内容搜索**（官方 `@deepseek-ai/dsh-session-query-sqlite`）。出处与做法：
+ *
+ * - 官方出厂配置里这一条是**关着**的。`@deepseek-ai/dsh-base/cordis.patch.yml` 里那一行的
+ *   注释原话：「web deployments keep the index off (the base row's `openAt: never`) …
+ *   while search calls fail with `SESSION_QUERY_SEARCH_DISABLED` and SQLite is never opened;
+ *   the Web sidebar search matches titles and workspace names only」，并写明打开方式
+ *   「Deployments enabling content search override `openAt` to `first-search` or `startup`
+ *   in a later patch layer (profile cordis.patch.yml or a `--patch` overlay), typically with
+ *   a durable `path`」——所以这是官方给的机制，不是绕过。
+ * - 用户补丁层的位置与生效顺序（`@deepseek-ai/dsh/lib/profile-boot-*.js` 的注释）：
+ *   「The home-level user patch layer (`$DSH_HOME/cordis.patch.yml`), applied …」，
+ *   即它排在 profile 自己的层**之后**，正好覆盖得了出厂那行 `openAt: never`。
+ * - 索引文件落在**这台实例自己的临时 `DSH_HOME`** 里（与用户日常那台实例在
+ *   `~/.dsh/profiles/web/cordis.patch.yml` 里配 `dshHomePath('session-query.sqlite')`
+ *   同一形状），随临时目录一起删。
+ *
+ * 为什么非打开不可（#195）：F-37 要量**搜索结果行**的几何，其中一条判据量的是结果里
+ * 那段摘要（snippet）的行高——摘要是内容搜索给出来的，搜索关着时结果行只有标题匹配、
+ * 没有摘要那一段。
+ */
+function cordisPatchYaml(home: string): string {
+  return `# 实验室隔离实例的用户补丁层（本次运行现写，随临时 DSH_HOME 一起删）。
+# 打开内容搜索（官方出厂配置里是 openAt: never；理由与出处见 labGateway.ts 的同名注释）。
+- id: session-query-sqlite
+  config:
+    path: ${JSON.stringify(path.join(home, 'session-query.sqlite'))}
+    openAt: first-search
+`
+}
+
+/**
  * 起一台隔离实例：临时 `DSH_HOME` + 随机端口 + `--no-open`（**必须**，否则会在用户
  * 桌面上弹一个浏览器窗口）+ 本次现起的假模型端点。
  */
@@ -186,6 +223,7 @@ export async function startLabGateway(log: LogSink, options: StartLabGatewayOpti
   try {
     llm = await startLabLlm()
     await fsp.writeFile(path.join(home, 'settings.yaml'), settingsYaml(llm.url), 'utf8')
+    await fsp.writeFile(path.join(home, 'cordis.patch.yml'), cordisPatchYaml(home), 'utf8')
     const env: NodeJS.ProcessEnv = { ...process.env, DSH_HOME: home, MOCK_LLM_KEY: 'lab-mock-key' }
     child = spawn('dsh', ['web', '--host', '127.0.0.1', '--port', String(requested), '--no-open'], {
       cwd: os.tmpdir(),
