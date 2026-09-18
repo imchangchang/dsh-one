@@ -39,6 +39,81 @@ npm run build      # 打出 dist/ 与 packages/*/lib/
 | `npm run verify:install-guide` | 用 Playwright 跑**宿主侧那两页**的冒烟（harness 在 `test/install-guide/`）：安装引导 tab（按钮/下拉含选中态与外链/命令随平台更换/复制成功与失败反馈/分段切换）与侧栏状态页（未安装/启动中/未运行/启动失败/装配失败各自画成什么样、按钮发什么消息），页面都由真实宿主代码渲染（`vscode` 顶上假实现），明暗两态各跑一遍并留截图。不需要网关（这两页都不参与装配树）；`SMOKE_LOCALE=zh-cn` 用真中文译文渲染，产物在 `test/install-guide/out/`（gitignored），细节见 `test/install-guide/README.md`。状态页跟随服务状态变化（宿主侧订阅）由 `npm test` 的 `test/sidebarStatusPage.test.ts` 覆盖。 |
 | `npm run package` | 先 build，再 `vsce package` 打出 `.vsix`（`.vscodeignore` 排除了 src/test/node_modules 等，VSIX 里只有 dist + 清单 + 图标等）。 |
 
+## 合入门禁（dev-merge 在 rebase 之前跑的静态自检）
+
+主线跑 `scripts/dev-merge.sh <slug>` 合入任务分支时，在 rebase 之前会依次跑两道静态自检；任一道不过就**拒绝合入**（不改分支、不留半个状态）。两道自检的**合并基点都跟随集成线**（`MERGE_TARGET`，默认 `main`）——不用 `COMPAT_BASE` / `I18N_BASE` 跟着换的话，合 `develop/*` 这类长期分支时会把整条分支与 `main` 之间的历史改动当成「本次新增」，造成成片的误报。
+
+- **i18n 自检**：`scripts/check-i18n.sh`（宿主层 `vscode.l10n.t` 的 key、webview 层 `t()` 的 key、`package.json` 的 `%key%`、对外 README、源码里的硬编码中文）。
+- **平台兼容性自检**（#6）：`scripts/check-platform-compat.sh`。
+
+两道都可以单跑（`bash scripts/check-platform-compat.sh <分支>`，exit 0 = 过、1 = 拒绝合入、2 = 用法错），要换基点用 `COMPAT_BASE=<分支>`：
+
+```bash
+scripts/check-platform-compat.sh agent/my-task                 # 基点默认 main
+COMPAT_BASE=develop/cordis-chat scripts/check-platform-compat.sh agent/my-task
+```
+
+### 平台兼容性自检要什么
+
+它只看**本次新增的代码行**（相对合并基点），命中下面两类形状时要求任务提交一份声明：
+
+1. **平台路径**：`process.platform` 分叉；平台专属命令（`lsof` / `netstat` / `wmic` / `/proc/` / `ps -p` / `taskkill` / `powershell` / `cmd.exe` / `ComSpec` 等）；进程信号（`process.kill`、`SIGTERM` 一类）；路径分隔符与平台 shim 后缀（`path.sep`、`path.win32/posix`、反斜杠归一化写法、`.cmd` / `.exe` / `.ps1`）；子进程 `stdio` 与输出相关开关（`windowsHide`、`detached: true`、`shell: true`）；行尾处理（`\r` / `os.EOL`）。
+   命中即要求**逐条**声明「这条平台路径在哪验证过」。这是「macOS 上开发测不出来」的直接对策：Windows 才现形的问题（就绪行时序、spawn 输出、`taskkill` 无优雅路径）只能靠写清覆盖来源来兜。
+2. **按状态变量分叉的逻辑**：`existsSync` / `statSync` / `accessSync` 一类存在性探测与条件分叉同文件出现；「探测有没有结果」的分叉（赋值自一次调用、紧跟着按 `undefined` / `null` / 真假分叉，函数名或变量名带 `record` / `owned` / `port` / `token` / `file` 这类状态词）；`switch` 带 2 个以上 `case`；以及上面第 1 类里的平台分叉。
+   命中即要求给出**分支矩阵**：把状态变量拆成几行，每行写清「分支条件 / 预期行为 / 验证方式」。`recover-token-no-record` 的教训就是只改了「有记录」那条分支、没走「无记录」那条，所以矩阵里任何一行写「未验证 / 待定」也会被拒。
+
+### 声明写在哪、长什么样
+
+一个任务一份，落在 `test/sandbox/verify.<slug>.platform.json`（`<slug>` 就是分支名去掉 `agent/` 前缀，与 [`test/sandbox/` 里的 ledger](../test/sandbox/README.md) 并排）。**没命中就不需要这个文件**。门禁拒绝时会直接把可复制的模板打出来：命中的 `file` / `rule` 已经填好，只需要换成实际内容。
+
+```json
+{
+  "branch": "agent/my-task",
+  "slug": "my-task",
+  "platformCoverage": [
+    {
+      "file": "src/server/spawnDsh.ts",
+      "rule": "child-stdio",
+      "path": "Windows 上 detached + pipe 取输出（不落日志文件）",
+      "verifiedBy": "real-machine",
+      "evidence": "Windows 11 真机装 rc.4：启动会话后输出正常、无控制台闪窗"
+    }
+  ],
+  "branchMatrix": {
+    "trigger": "platform",
+    "rows": [
+      {
+        "condition": "process.platform === 'win32'",
+        "expected": "走 .cmd shim，detached 起进程",
+        "verification": "Windows 真机（同上）"
+      },
+      {
+        "condition": "darwin / linux",
+        "expected": "直跑 node 入口，日志重定向到 logFile",
+        "verification": "macOS 真机 + 单测 parseDshCommand"
+      }
+    ]
+  }
+}
+```
+
+字段口径：
+
+- `platformCoverage[].file` / `.rule`：必须与门禁报出的命中**逐条对上**（`file` 是仓库相对路径，`rule` 就是门禁输出的 `rule=...`，即 `platform-branch` / `platform-command` / `signal` / `path-sep` / `child-stdio` / `line-endings`）。
+- `.path`：这条平台路径是什么（人话描述，方便人工审查时对照）。
+- `.verifiedBy`：**只能**填 `ci-runner`（CI runner 上跑过）/ `real-machine`（真机手动跑过）/ `unit-test`（平台解析或行为单测覆盖）/ `not-a-platform-path`（命中但确非平台路径，须同时给非空 `reason`；门禁会打 ⚠ 交人工复核，不算静默通过）。
+- `.evidence`：证据本身——CI 的 workflow / job 名、哪台真机与什么步骤、测试文件与用例名。空着会被拒。
+- `branchMatrix.rows[]`：`condition`（分支条件）/ `expected`（这条分支的预期行为）/ `verification`（怎么验证的）。三样缺一不可，`verification` 写「未验证 / 待定 / TBD」这类占位词也算缺。
+- `branch` 必须等于当前待合分支（防止把别的任务的声明抄过来）。
+- **只命中状态分叉、没有平台路径**时，`platformCoverage` 留空数组即可（模板会自动留空）；反过来只有平台路径、没有状态分叉时，`branchMatrix` 那段的 `rows` 留空也放行。
+
+已经声明过、但后来在新增行里消失的条目只告警不拦（多半是代码已改，声明该顺手删），门禁会把它们打出来供人扫一眼。
+
+### 命中判据是数据，不是硬编码
+
+规则写在 `scripts/platform-compat-rules.json`：每条规则带 `examples`（必须命中的真实写法）与 `counterExamples`（必须不命中的易误伤写法），扫描与校验的实现在 `scripts/platformCompatScan.mjs`（纯函数），两者由 `npm test` 的 `test/platformCompatGate.test.ts` 钉住——那份测试还包含**端到端负向对照**（在临时 git 仓库里造分支，跑真门禁脚本，断言「命中没声明 → 拒绝」「补上 → 放行」「不命中 → 不受影响」「缺矩阵 → 拒绝」）。匹配前会先剥注释（TypeScript / JavaScript 走整文件状态机，shell 与 PowerShell 按 `#` 逐行剥），所以注释里提到 `taskkill`、`process.platform` 不会命中；`docs/`、`test/`、`.md`、构建产物不在扫描范围内（文档里的命令举例、测试夹具不算平台路径）。要加平台写法（比如新出现某个平台专属命令），改规则数据 + 补一条用例即可。
+
+
 ## 调试（F5 Extension Development Host）
 
 仓库带了 `.vscode/launch.json`。流程：

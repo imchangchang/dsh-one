@@ -25,7 +25,9 @@
 
 完整流程见 skill **`worktree-dev-flow`**（正本在 `.agents/skills/worktree-dev-flow/`，随仓库走，DSH 等项目级 skill 机制自动加载；`scripts/` 下五个脚本已按本仓库适配，含 `main-lock.sh` 主线写锁——任何会写 main 的操作必须先拿锁，`dev-merge.sh` 已内置）。不支持 skill 的环境：直接读那个目录里的 `SKILL.md`，或跑 `scripts/dev-start.sh --help` 起步。
 
-**worktree 开发 session 只开发、不合入**：dev-finish（自测 + 生成测试报告 + done 标记）通过后即止，合入由主线 agent 跑 `dev-merge.sh`。**合入门禁 = 测试报告审查**：报告由 `test/sandbox/` 的 ledger + `report.mjs` 产出（新增功能项在前、现有功能回归在后，每项带期望/截图/通过或失败结论），人工审查通过再合入；对功能有疑问才人工开窗 `dev-ui-test.sh` 验收。
+**worktree 开发 session 只开发、不合入**：dev-finish（自测 + 生成测试报告 + done 标记）通过后即止，合入由主线 agent 跑 `dev-merge.sh`。**合入门禁 = 静态自检 + 测试报告审查**：`dev-merge.sh` 在 rebase 之前依次跑两道静态自检（i18n、平台兼容性，见下），报告由 `test/sandbox/` 的 ledger + `report.mjs` 产出（新增功能项在前、现有功能回归在后，每项带期望/截图/通过或失败结论），人工审查通过再合入；对功能有疑问才人工开窗 `dev-ui-test.sh` 验收。
+
+**平台兼容性自检**（#6，2026-09-18 起，`scripts/check-platform-compat.sh`）：待合入分支相对集成线的新增行里出现平台相关代码（`process.platform` 分叉、平台专属命令如 `lsof`/`netstat`/`taskkill`/`powershell`/`/proc/`、信号 `process.kill`/`SIGTERM`、路径分隔符与 `.cmd`/`.exe`/`.ps1` shim、子进程 `stdio`/`windowsHide`）时，任务**必须**提交 `test/sandbox/verify.<slug>.platform.json`，逐条声明「这条平台路径在哪验证过」（`verifiedBy` = `ci-runner` / `real-machine` / `unit-test`）；新增行里出现**按状态变量分叉**的逻辑（存在性探测 + 条件分叉、探测结果「有/无」分叉、`switch` 多分支、平台分叉）时，同一份声明里还要给 `branchMatrix.rows`（每行：分支条件 / 预期行为 / 验证方式，写「未验证」这类占位词同样拒绝）。缺项**拒绝合入、不降级**，脚本会打印命中位置、缺什么、以及可复制的模板。格式、判据与本地跑法见 `docs/development.md` 的「合入门禁」一节。
 
 **动了 workspaces 面就要装依赖**（#187，2026-09-18 实测踩过）：插件包之间按**包名**互相引用（`@dsh-one/dsh-plugin-kit/<模块>`），这些链接由 `npm install` 建在 `node_modules/@dsh-one/` 下。所以**新增插件包 / 改包名 / 改包内子路径导出**之后，任务 worktree 里必须**先 `npm install` 再自测**（否则 build 挂在 `Could not resolve "@dsh-one/…"`；只在自己装过依赖的机器上自测会得到假绿）。`dev-merge.sh` 侧已内置：合入范围动过 `package.json` / `package-lock.json` / `packages/*/package.json` 时它会先 `npm install` 再重建产物，重建失败会**响亮报错并指出修法**（不会留下"已合入但产物没重建"的静默坏状态）。
 
@@ -39,7 +41,7 @@
 
 **上游契约面由每日探针覆盖（2026-09-16）**：`scripts/dsh-upstream-watch/` 的探针现含 22 项，其中**客户端契约面 4 项**（关键 slot 名、root 级 hooks 及其 `use*` props、我们取用过的官方标识符）与**官方产物面 1 项**（本机已安装官方包里的内部标识符，查的是静默失效型依赖）——失败信息带版本、缺失名、期望出处与我方使用点。每次上游发版另跑 `npm run verify:lab` 与 `npm run verify:host-half`。结论：**契约漂移由探针在 CI 发现，而不是由用户日常使用撞见**。已实测版本见 README「dsh 版本兼容跟踪」（0.1.2-rc.1 / 0.1.6-alpha.1）。
 
-**集成线**：默认 `main`。`#11` 系列（Preact 迁移 + 对齐官方 dsh web）已于 2026-09-10 归档关闭：改动整线保留在 `develop/dsh-web-alignment`（远端同名分支），**仅作参考代码，不再开发、不再合入**；该系列 issue（#2/#11/#29/#40-#58 中相关条目）已关闭，真实问题重新梳理顶层结构后另立新 issue。`scripts/dev-merge.sh` 的 `MERGE_TARGET=<分支>` 能力保留（默认 `main`），`check-i18n.sh` 的合并基点跟随目标分支。
+**集成线**：默认 `main`。`#11` 系列（Preact 迁移 + 对齐官方 dsh web）已于 2026-09-10 归档关闭：改动整线保留在 `develop/dsh-web-alignment`（远端同名分支），**仅作参考代码，不再开发、不再合入**；该系列 issue（#2/#11/#29/#40-#58 中相关条目）已关闭，真实问题重新梳理顶层结构后另立新 issue。`scripts/dev-merge.sh` 的 `MERGE_TARGET=<分支>` 能力保留（默认 `main`），两道静态自检（`check-i18n.sh` / `check-platform-compat.sh`）的合并基点都跟随目标分支。
 
 **验证线 `develop/cordis-chat`**（2026-09-14 起）：对话区官方 cordis 组件装配的验证线（#60 v1 整壳嵌入验收失败退回 `b:open` 后另立），条目 = #63（spike）→ #64（goal 1：对话区官方组件装配、侧栏保持自研）→ #65（goal 2：特有功能插件化）→ #66（goal 3：通用组件上游化）。该线任务合入用 `MERGE_TARGET=develop/cordis-chat`；`main` 保持自研 vanilla 前端不动，发布仍从 `main`。
 

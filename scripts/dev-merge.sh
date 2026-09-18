@@ -64,6 +64,19 @@ if ! I18N_BASE="$TARGET" bash "$SCRIPT_DIR/check-i18n.sh" "$BRANCH"; then
   exit 1
 fi
 
+# 平台兼容性合入门禁（#6）：新增行命中平台相关代码（process.platform / 平台专属命令 /
+# 信号 / 路径分隔符 / 子进程 stdio）或按状态变量分叉的逻辑时，要求任务提交
+# test/sandbox/verify.<slug>.platform.json，逐条声明「这条平台路径在哪验证过」
+# （ci-runner / real-machine / unit-test）并给出状态分支矩阵（分支条件 / 预期行为 /
+# 验证方式）；缺项拒绝合入，脚本会打印缺口与可复制的模板。
+# 与 i18n 门禁并列、同在 rebase 之前：判据看的是「待合入的新增行」，
+# 基点同样必须跟着 MERGE_TARGET 走（COMPAT_BASE），否则 develop 线会误报。
+echo "== 平台兼容性合入门禁自检（基点 ${TARGET}）=="
+if ! COMPAT_BASE="$TARGET" bash "$SCRIPT_DIR/check-platform-compat.sh" "$BRANCH"; then
+  echo "平台兼容性检查未通过，拒绝合入。" >&2
+  exit 1
+fi
+
 echo "== rebase $BRANCH 到最新 $TARGET =="
 # --rebase-merges：保留分支内的 merge 提交结构。普通 rebase 会把 merge 提交
 # 展开重放——若任务分支已预 merge 过集成线（如开发期间手动同步），展开会让
