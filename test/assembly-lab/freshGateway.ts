@@ -34,6 +34,12 @@ export interface FreshGateway {
   readonly version?: string
   /** 进程 pid（收尾按它杀）。 */
   readonly pid: number | undefined
+  /**
+   * 只收进程，**保留**临时 `DSH_HOME`（#202）：同一台实例要在**同端口同 HOME** 上
+   * 再起一次（这就是「重启实例」这个断开方式的实现），HOME 收了 cookie 签名密钥
+   * 就没了、页面重连会 401。
+   */
+  stop(): Promise<void>
   dispose(): Promise<void>
 }
 
@@ -42,6 +48,10 @@ export interface FreshGatewayOptions {
   timeoutMs?: number
   /** 每一行启动输出的去处（诊断用；缺省不输出）。 */
   onLine?: (line: string) => void
+  /** 端口（缺省 0 = 内核挑一个）。#202 的同端口重启要显式给上一次那个端口。 */
+  port?: number
+  /** 复用现成的 `DSH_HOME`（缺省现 mkdtemp 一个）。#202 的两次启动共用同一份 HOME。 */
+  home?: string
 }
 
 /** 启动横幅里那行 `dsh web: http://127.0.0.1:PORT/?token=TOKEN`。 */
@@ -63,14 +73,24 @@ function dshVersion(): string | undefined {
  *
  * 起不来（`dsh` 不在 PATH、版本不兼容、端口起不来）时抛错，错误信息里带上它
  * 打过的全部输出——这种失败必须看得见，不能让它变成「套件悄悄跳过」。
+ *
+ * `port` / `home` 两个可选参数是 #202 加的：那一套要演的现场是「**同端口同
+ * `DSH_HOME`** 重启实例」（同一份 HOME 才保得住 cookie 的签名密钥，同一个端口才
+ * 让已经开着的页面重连得回来），所以第二次调用把第一次的 `home` 与端口原样传回来，
+ * 并在两次之间用 `stop()`（只收进程、不删 HOME）。
  */
 export async function startFreshGateway(options: FreshGatewayOptions = {}): Promise<FreshGateway> {
-  const home = await scratchDir('dsh-lab-fresh-home-')
-  const child: ChildProcess = spawn(DSH, ['web', '--host', '127.0.0.1', '--port', '0', '--no-open'], {
-    cwd: os.tmpdir(),
-    env: { ...process.env, DSH_HOME: home },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
+  const created = options.home === undefined
+  const home = options.home ?? (await scratchDir('dsh-lab-fresh-home-'))
+  const child: ChildProcess = spawn(
+    DSH,
+    ['web', '--host', '127.0.0.1', '--port', String(options.port ?? 0), '--no-open'],
+    {
+      cwd: os.tmpdir(),
+      env: { ...process.env, DSH_HOME: home },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    },
+  )
 
   const output: string[] = []
   let settled = false
@@ -110,7 +130,9 @@ export async function startFreshGateway(options: FreshGatewayOptions = {}): Prom
 
   if (started === null) {
     await kill(child)
-    await fsp.rm(home, { recursive: true, force: true })
+    // 只删我们自己建的那个临时目录：`home` 由调用方给（重启同一台实例）时，那份
+    // HOME 是它的东西，不该由一次失败的启动顺手删掉。
+    if (created) await fsp.rm(home, { recursive: true, force: true })
     throw new Error(`fresh gateway 起不来：\n${output.join('')}`)
   }
 
@@ -120,6 +142,9 @@ export async function startFreshGateway(options: FreshGatewayOptions = {}): Prom
     token: started.token,
     version: dshVersion(),
     pid: child.pid,
+    stop: async (): Promise<void> => {
+      await kill(child)
+    },
     dispose: async (): Promise<void> => {
       await kill(child)
       await fsp.rm(home, { recursive: true, force: true })

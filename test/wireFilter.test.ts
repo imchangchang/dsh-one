@@ -294,6 +294,25 @@ test('block list 逐条复核（#180）：槽位在 sidebar 树**真被声明**�
   assert.ok(SIDEBAR_BLOCKED_IDS.includes('@deepseek-ai/dsh-client-ui-settings-general'))
 })
 
+test('block list 逐条复核（#202）：chat 树不再下线 ui-settings-general（它注册的槽位那棵树一处都没声明）', () => {
+  // 官方 ui-settings-general 的槽位贡献全挂在 `sidebar.settings` 这个槽位下（它的
+  // `SettingsRoot`），而 `sidebar.settings` 只有官方**侧栏壳**声明——chat 树没有侧栏壳，
+  // 所以放行它是整件停车、零渲染（#202 在实验室实测：放行前后元素集合 65 项逐项相同、
+  // 设置槽位锚点两边都是零枚，combo 里却真的多了它）。挂着它只是白背一个官方 id 依赖。
+  assert.ok(!CHAT_BLOCKED_IDS.includes('@deepseek-ai/dsh-client-ui-settings-general'))
+  // 同一件在 sidebar 树继续下线（那里槽位声明得了，它的 SettingsRoot 会真注册进来）。
+  assert.ok(SIDEBAR_BLOCKED_IDS.includes('@deepseek-ai/dsh-client-ui-settings-general'))
+  // settings 树本来就不下线它（那正是设置页的内容）。
+  assert.ok(!SETTINGS_BLOCKED_IDS.includes('@deepseek-ai/dsh-client-ui-settings-general'))
+  // 设置子页组里另外两件（Plugins / plugin-inventory）在 chat 树继续下线：#202 的
+  // 整改范围是「承载断线提示的那一件」，这两件不在里面。留一句给下一次逐条复核：
+  // 它们注册的槽位同样全在 `sidebar.settings` 之下，形状与本件一致——按同一条判据
+  // 它们也停车、放行同样零渲染，摘不摘都不改今天的观感（复核时按 #180 的判据处理）。
+  for (const id of ['@deepseek-ai/dsh-client-ui-settings-plugins', '@deepseek-ai/dsh-client-ui-settings-plugin-inventory']) {
+    assert.ok(CHAT_BLOCKED_IDS.includes(id), `${id} 本次不动（#202 只摘 ui-settings-general）`)
+  }
+})
+
 // ---------------------------------------------------------------------------
 // #165：官方把 application 阶段切成好几批时的口径
 // ---------------------------------------------------------------------------

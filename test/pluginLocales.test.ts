@@ -2,7 +2,8 @@
  * 插件词典一致性（#65 返修 8）：装配线各插件用 cordis locale 注册自有词典，
  * 少写一个语言的键就会让界面在那种语言下回退成另一种语言的文案（实测踩过：
  * 菜单「已复制」只写了 en，中文界面显示 Copied）。这里直接扫源码里的
- * `locale.register('<ns>', { zh: {...}, en: {...} })` 块，逐命名空间比对键集。
+ * `locale.register('<ns>', { zh: {...}, en: {...} })` 块（#202 起也认「词典抽成模块级
+ * 常量、再 `locale.register('<ns>', DICT)` 交给注册」那种写法），逐命名空间比对键集。
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -46,6 +47,48 @@ function keySetOf(block: string): string[] {
   return [...block.matchAll(/(?:^|[\s,{])([A-Za-z][A-Za-z0-9_]*)\s*:/g)].map((m) => m[1])
 }
 
+/**
+ * 从 `{` 开始做一次大括号配对，取这个对象字面量的源码（含首尾括号）。
+ *
+ * 为什么需要它（#202）：`zh: {…}` / `en: {…}` 各自都是一个对象字面量，正则取
+ * 「到下一个行首 `}`」在**只有一层嵌套**时够用，但外层还有个 `export const X = { … }`，
+ * 这时要拿到「这个 const 自己的那块」就必须配对括号。跳过引号串里的括号（词典的
+ * 值就是 `'…'` 串，串里的 `{n}` 这类占位会破坏计数）。
+ */
+function objectLiteralAt(text: string, open: number): string | undefined {
+  let depth = 0
+  for (let i = open; i < text.length; i += 1) {
+    const ch = text[i]
+    if (ch === "'" || ch === '"') {
+      const quote = ch
+      i += 1
+      while (i < text.length && text[i] !== quote) {
+        if (text[i] === '\\') i += 1
+        i += 1
+      }
+      continue
+    }
+    if (ch === '{') depth += 1
+    else if (ch === '}') {
+      depth -= 1
+      if (depth === 0) return text.slice(open, i + 1)
+    }
+  }
+  return undefined
+}
+
+/** 一份 `{ zh: {…}, en: {…} }` 的两份键集；不是这个形状时返回 undefined。 */
+function dictKeysOf(body: string | undefined): { zh: string[]; en: string[] } | undefined {
+  if (body === undefined) return undefined
+  const zhAt = body.indexOf('zh:')
+  const enAt = body.indexOf('en:')
+  if (zhAt < 0 || enAt < 0) return undefined
+  const zh = objectLiteralAt(body, body.indexOf('{', zhAt))
+  const en = objectLiteralAt(body, body.indexOf('{', enAt))
+  if (zh === undefined || en === undefined) return undefined
+  return { zh: keySetOf(zh), en: keySetOf(en) }
+}
+
 /** 每个源码根下的顶层 `.ts` 文件（与搬家前的扫法一致：不递归进子目录）。 */
 function sourceFiles(): Array<{ label: string; full: string }> {
   const files: Array<{ label: string; full: string }> = []
@@ -67,6 +110,25 @@ function collectLocaleBlocks(): LocaleBlock[] {
       const zh = /zh:\s*\{([\s\S]*?)\n?\s*\}/.exec(m[2])?.[1] ?? ''
       const en = /en:\s*\{([\s\S]*?)\n?\s*\}/.exec(m[2])?.[1] ?? ''
       blocks.push({ file: label, ns: m[1], zh: keySetOf(zh), en: keySetOf(en) })
+    }
+    // 另一种写法：词典抽成模块级常量、**同一个文件里**用 `locale.register('ns', DICT)`
+    // 按引用交给注册（`packages/dsh-workspace-tree/src/workspaceTreePlugin.ts` 就是这一形）。
+    // 为什么要支持它（#202）：浏览器验证的套件要拿**同一份值**断言页面上的文案
+    // （写死中文会得到「换台机器就红」的假失败，见 harness 的 `texts()`），chat 树
+    // frame 的词典因此从 register 的内联字面量变成了 `shellLocale.ts` 这个纯数据模块，
+    // 而它**不在同一个文件里**——所以下面除了认「同文件的按引用注册」，还认
+    // 「同一个扫描面里的纯词典模块」（`src/ui/assembly/shell/*.ts` 下的 `*.ts`）：
+    // 只要那个文件里有一份 `{ zh: {…}, en: {…} }` 形状的模块级常量就算一份词典。
+    // 判据（zh/en 键必须一致）一个字不放宽，只是多认两种写法。
+    //
+    // 认法：找 `const <名> = {`（允许 `const X: Dict = {` 这种类型标注），用括号配对
+    // 取出这个对象字面量本身，只有在**它自己里面**同时有 `zh: {` 与 `en: {` 时才算
+    // 词典（否则文件里别处的 zh:/en: 会被误配成一份词典，实测踩过）。
+    for (const m of text.matchAll(/(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\s*(?::[^=]+?)?=\s*\{/g)) {
+      const open = text.indexOf('{', m.index + m[0].length - 1)
+      const keys = dictKeysOf(objectLiteralAt(text, open))
+      if (keys === undefined) continue
+      blocks.push({ file: label, ns: m[1], zh: keys.zh, en: keys.en })
     }
   }
   return blocks

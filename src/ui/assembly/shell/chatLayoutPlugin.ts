@@ -15,6 +15,11 @@
  * - ShellFrame：主区会话面板 + details 面板 + 官方右栏槽位 + shell.overlay 层；
  *   切会话时关 details（官方 AppFrame 语义，无侧栏/拖拽维度）。右栏几何照官方
  *   AppFrame 的两步解算（frameShared.computeColumns），呈现上报走 ctx.layout。
+ * - ConnectionHint（#202）：对话区底部那一行断线提示。官方那枚提示只有
+ *   `ui-settings-general` 的 `SettingsRoot` 一个承载件，而那要 `sidebar.settings`
+ *   槽位（chat 树没有官方侧栏壳 ⇒ 官方提示在这棵树上永不渲染），所以这一行由本插件
+ *   自己出：读官方 `connection.state`（机制层 2），离开 `connected` 就显示一行、
+ *   回来就消失。理由与判据见 ConnectionHint 上方的注释。
  *
  * 构建：esbuild 打成官方同格式自注册 IIFE（clientEntry.ts + banner/footer
  * 包出 window.__ModuleLoader__.load({id, factory})）；react / react/jsx-runtime /
@@ -35,6 +40,7 @@ import {
   type ThemeSnapshot,
 } from './frameShared'
 import { installExternalLinkShim } from './externalLinkShim'
+import { SHELL_LOCALE } from './shellLocale'
 
 // ---------------------------------------------------------------------------
 // 类型（本地最小面；cordis ctx / 框架槽位的真实形态在私有包里，不跨包引用）
@@ -56,6 +62,27 @@ interface SeatMirror {
   subscribe(listener: () => void): () => void
 }
 
+/**
+ * 连接状态（官方的 `ConnectionState`）与它的只读镜像。
+ *
+ * 机制分层：**第 2 层（官方服务 API）**——官方 `connection` 服务把恢复生命周期
+ * 发布成 `state`（官方类型 `ConnectionStateSource`：`getSnapshot()` + `subscribe()`，
+ * 出处官方 `@deepseek-ai/dsh-client-connection` 的
+ * `lib/types/client/index.d.ts` 里 `readonly state: ConnectionStateSource`）。
+ * 官方 ui-settings-general 的 `SettingsRoot` 读的就是这一份（它的
+ * `useConnectionState` 钩子），我们照同一个口读，不碰 DOM、不猜官方内部状态。
+ */
+type ConnectionState = 'connected' | 'disconnected' | 'connecting'
+
+interface ConnectionStateSource {
+  getSnapshot(): ConnectionState | undefined
+  subscribe(listener: () => void): () => void
+}
+
+interface ConnectionService {
+  state: ConnectionStateSource
+}
+
 interface ShellFrameProps {
   useStore: <R>(selector: (state: ShellLayoutState) => R) => R
   useSessions: <R>(selector: (state: SessionsSnapshot) => R) => R
@@ -68,6 +95,8 @@ interface ShellFrameProps {
   t: (key: string) => string
   /** 会话面板槽位名（见 SeatMirror，root 注册的 inject 面注入）。 */
   conversationSeat: SeatMirror
+  /** 官方连接状态源（见 ConnectionStateSource，root 注册的 inject 面注入）。 */
+  connectionState: ConnectionStateSource
 }
 
 interface RootSlotEntry {
@@ -75,7 +104,7 @@ interface RootSlotEntry {
   children: Record<string, { kind: 'single' | 'list' | 'keyed'; scope: 'root' | 'session' | 'session-maybe' }>
   store: () => unknown
   locale?: string
-  inject: (actions: PanelActions) => { conversationSeat: SeatMirror }
+  inject: (actions: PanelActions) => { conversationSeat: SeatMirror; connectionState: ConnectionStateSource }
 }
 
 interface SlotEntryLite {
@@ -86,6 +115,8 @@ interface ShellContext {
   effect(body: () => (() => void) | void, label?: string): void
   on(event: 'theme/change', listener: (snapshot: ThemeSnapshot) => void): () => void
   reflect: { provide(name: string, service: unknown): () => void }
+  /** 官方服务取用（`inject` 里声明过的才取，见 sessionBridgePlugin 同款写法）。 */
+  get(name: 'connection'): ConnectionService
   slots: {
     register(entry: RootSlotEntry, component: unknown): () => void
     /** 官方 root 槽位钩子/数据发布口（ui-layout 的 panelInfo 同款调用点）。 */
@@ -110,12 +141,24 @@ function createConversationSeatMirror(ctx: ShellContext): SeatMirror {
   }
 }
 
+/**
+ * 连接状态镜像：把官方 `connection.state` 原样转出去（同 conversationSeat 的做法，
+ * 本文件不自己造状态）。`inject` 里声明过 `connection`，所以 apply 跑起来时它必然在场。
+ */
+function connectionStateOf(ctx: ShellContext): ConnectionStateSource {
+  return ctx.get('connection').state
+}
+
 
 // ---------------------------------------------------------------------------
 // 样式（官方 css-module 注入形态的本地版：data-plugin-css 防重）
 // ---------------------------------------------------------------------------
 
-const CSS = '.dshOneShell_frame{background:var(--dsw-alias-bg-base);height:100%;display:flex;flex-direction:column;overflow:hidden;position:relative}.dshOneShell_row{flex:1;min-height:0;display:flex}.dshOneShell_main{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden}.dshOneShell_details{border-left:.5px solid var(--dsw-alias-border-l3);min-width:0;overflow:hidden;background:var(--dsw-alias-bg-base)}.dshOneShell_rightbarCol{flex:none;position:relative;overflow:visible}.dshOneShell_openingMask{z-index:15;position:absolute;top:0;left:0;right:0;bottom:0;background:var(--dsw-alias-bg-base);align-items:center;justify-content:center;color:var(--dsw-alias-label-secondary);font-size:14px;line-height:22px;display:flex}.dshOneShell_overlay{z-index:20;pointer-events:none;position:absolute;inset:0}'
+const CSS = '.dshOneShell_frame{background:var(--dsw-alias-bg-base);height:100%;display:flex;flex-direction:column;overflow:hidden;position:relative}.dshOneShell_row{flex:1;min-height:0;display:flex}.dshOneShell_main{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden}.dshOneShell_details{border-left:.5px solid var(--dsw-alias-border-l3);min-width:0;overflow:hidden;background:var(--dsw-alias-bg-base)}.dshOneShell_rightbarCol{flex:none;position:relative;overflow:visible}.dshOneShell_openingMask{z-index:15;position:absolute;top:0;left:0;right:0;bottom:0;background:var(--dsw-alias-bg-base);align-items:center;justify-content:center;color:var(--dsw-alias-label-secondary);font-size:14px;line-height:22px;display:flex}.dshOneShell_overlay{z-index:20;pointer-events:none;position:absolute;inset:0}' +
+  // 断线提示那一行（#202）：飘在对话区底部中间的浮条，样式与侧栏的飘提示
+  // （dsh-workspace-tree 的 dshOneTree_flash）同款，只是字号取对话区这一档。
+  // z-index 16 > 开场遮罩的 15：遮罩盖着的时候若正好断线，这行事实仍然看得见。
+  '.dshOneShell_connectionHint{z-index:16;max-width:90%;background:var(--dsw-alias-bg-elevated,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-primary);border:.5px solid var(--dsw-alias-border-l3);border-radius:8px;padding:6px 10px;font-size:13px;line-height:20px;position:absolute;bottom:8px;left:50%;transform:translateX(-50%)}'
 // composer dock 的统计行**不再覆写字号**（#181 撤除；此前是 #71 验收时压到 11px 的）。
 //
 // 撤除的理由：那一处覆写依赖两个**官方内部 CSS 变量名**（--dsh-content-font-size-secondary /
@@ -155,6 +198,62 @@ function DocumentTitle({ title, productTitle }: { title?: string; productTitle: 
 }
 
 // ---------------------------------------------------------------------------
+// ConnectionHint（#202）：对话区那行断线提示
+// ---------------------------------------------------------------------------
+
+/**
+ * 对话区为什么会需要我们自己的一行提示（#202）：
+ *
+ * 官方那枚断线提示（`ConnectionIndicator`，「连接中断，正在重试，点击立即重连」那一条）
+ * 官方安装里**只有一个承载件**：`@deepseek-ai/dsh-client-ui-settings-general` 的
+ * `SettingsRoot`（该包 `lib/client.js` 里 `ConnectionIndicator` 的唯一调用点，就在设置
+ * 入口那一行的 triggerRow 里）。而 `SettingsRoot` 是 `sidebar.settings` 槽位上的贡献，
+ * 那个槽位只有**官方侧栏壳**声明——chat 树没有官方侧栏壳，于是那枚提示在这棵树上
+ * 永远不渲染（#202 实测：`settings.trigger` 槽位锚点零枚、放行 ui-settings-general 也
+ * 一样）。后果是**整段重启窗口里页面上一条恢复提示都没有**：内容会自己回来，用户却
+ * 不知道刚才断过（#10 诉求 2「别静默」）。
+ *
+ * 所以这一行由我们自己出，且只读官方状态、不自己维护连接状态：
+ * - **官方服务 API（机制分层第 2 层）**：读 `connection.state`
+ *   （`ConnectionStateSource`，见 ConnectionStateSource 的注释）；官方恢复生命周期
+ *   本身就是 `connected` / `connecting` / `disconnected` 三态，我们只做呈现。
+ * - **为什么不做成可移植的 `@dsh-one/dsh-*` 包**：官方 web 上这枚提示本来就有
+ *   （官方侧栏壳在），带过去只会和官方那条重复；它的存在理由就是「我们这棵装配树
+ *   没有官方侧栏壳」，属于我们自己这棵树上的适配，所以留在 chat 树自己的 frame 插件里。
+ *
+ * 显示条件（只显事实、不猜）：**曾经连上过**（`connected`）之后，状态离开 `connected`
+ * 就显示，回到 `connected` 就消失。首屏从未连上过时不显示——那种情况下页面多半压根
+ * 装不起来（整包与资产都从网关取），显示一行提示没有意义。
+ */
+function ConnectionHint({ connectionState, t }: { connectionState: ConnectionStateSource; t: (key: string) => string }): unknown {
+  const tr = t
+  const [, setTick] = useState(0)
+  // 订阅驱动重渲（与 conversationSeat 同一种做法）：官方状态源没有 React 绑定。
+  useEffect(() => connectionState.subscribe(() => setTick((n) => n + 1)), [connectionState])
+  const state = connectionState.getSnapshot()
+  const [everConnected, setEverConnected] = useState(false)
+  useEffect(() => {
+    if (state === 'connected') setEverConnected(true)
+  }, [state])
+  if (state === undefined || state === 'connected' || !everConnected) return null
+  return h(
+    'div',
+    {
+      className: 'dshOneShell_connectionHint',
+      // role=status：这行是「页面自己报告的状态」，读屏走 live region（官方
+      // ConnectionIndicator 的 recovered 那一档用的也是 role="status"）。
+      role: 'status',
+      // 自有标记：断言与截图上认它（官方那枚的类名是 css-module 哈希，认不得）。
+      'data-dshone-connection-hint': state,
+    },
+    // 两种非连接态各自一句（官方那两档的文案见 ui-settings-general 的
+    // connection.connecting / connection.error）：`disconnected` = 浏览器报离线、
+    // 自动重试已挂起，此时说「正在重试」是假的。
+    tr(state === 'disconnected' ? 'connectionOffline' : 'connectionLost'),
+  )
+}
+
+// ---------------------------------------------------------------------------
 // ShellFrame：框架注入槽位的最小消费——主区 conversation + details 面板 +
 // shell.overlay 层；切会话时关 details（官方 AppFrame 语义，无侧栏/拖拽维度）
 // ---------------------------------------------------------------------------
@@ -169,7 +268,7 @@ const bootSessionId = (): string | undefined => {
   return typeof raw === 'string' && raw !== '' ? raw : undefined
 }
 
-function ShellFrame({ useStore, useSessions, usePanelInfo, actions, renderSlot, SessionProvider, conversationSeat, t }: ShellFrameProps) {
+function ShellFrame({ useStore, useSessions, usePanelInfo, actions, renderSlot, SessionProvider, conversationSeat, connectionState, t }: ShellFrameProps) {
   const panels = useStore((s) => s)
   // 容器实测宽（官方 AppFrame 同款：ResizeObserver + rAF 节流量自己的盒宽）——
   // 右栏宽度偏好按它推导，所以必须在槽位挂载前尽量到位（首帧量一次）。
@@ -291,16 +390,17 @@ function ShellFrame({ useStore, useSessions, usePanelInfo, actions, renderSlot, 
       ),
     ),
     opening && h('div', { className: 'dshOneShell_openingMask', 'data-opening-mask': '' }, tr('opening')),
+    h(ConnectionHint, { connectionState, t: tr }),
     h('div', { className: 'dshOneShell_overlay', 'data-shell-overlay': true }, renderSlot('shell.overlay', {})),
   )
 }
 
 // ---------------------------------------------------------------------------
-// cordis 插件面：inject ['slots','theme']；apply = layout 服务 + root 注册
-// + ThemePresenter（均挂 ctx.effect，照抄官方两段的结构与 label 语义）
+// cordis 插件面：inject ['slots','theme','locale','connection']；apply = layout 服务
+// + root 注册 + ThemePresenter（均挂 ctx.effect，照抄官方两段的结构与 label 语义）
 // ---------------------------------------------------------------------------
 
-export const inject = ['slots', 'theme', 'locale']
+export const inject = ['slots', 'theme', 'locale', 'connection']
 
 export function apply(ctx: ShellContext): void {
   // selectPanel 的合法性判据照官方取 keyed `main` 的实时注册表（本树里官方
@@ -308,6 +408,7 @@ export function apply(ctx: ShellContext): void {
   // frameShared.LayoutController）。
   const layout = new LayoutController((panelId) => ctx.slots.entries('main').some((entry) => entry.options.key === panelId))
   const conversationSeat = createConversationSeatMirror(ctx)
+  const connectionState = connectionStateOf(ctx)
   ctx.effect(() => {
     const disposeService = ctx.reflect.provide('layout', layout)
     // 官方 root 槽位钩子 panelInfo（机制层 1：官方槽位机制，调用点逐字对齐
@@ -334,16 +435,14 @@ export function apply(ctx: ShellContext): void {
         locale: 'dshOneShell',
         inject: (actions: PanelActions) => {
           layout.attachPanels(actions)
-          return { conversationSeat }
+          return { conversationSeat, connectionState }
         },
       },
       ShellFrame,
     )
-    // 遮罩文案自有词典（zh 转义过 i18n 门禁的字面量扫描）。
-    const disposeLocale = ctx.locale.register('dshOneShell', {
-      zh: { opening: '\u6b63\u5728\u6253\u5f00\u4f1a\u8bdd…' },
-      en: { opening: 'Opening session…' },
-    })
+    // 遮罩与断线提示的自有词典（zh 转义过 i18n 门禁的字面量扫描；词典本体在
+    // shellLocale.ts——浏览器验证的套件要拿同一份值断言页面上那行文案）。
+    const disposeLocale = ctx.locale.register('dshOneShell', SHELL_LOCALE)
     return () => {
       disposeRegistration()
       disposeLocale()

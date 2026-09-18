@@ -69,6 +69,7 @@ import { COMBO_CACHE_KEY_SUITE } from './comboCacheKeySuites.ts'
 import { ADD_WORKSPACE_SUITE } from './addWorkspaceSuites.ts'
 import { HTML_PREVIEW_HEIGHT_SUITE } from './htmlPreviewHeightSuites.ts'
 import { GIT_CARD_CWD_SUITE } from './gitCardCwdSuites.ts'
+import { RECONNECT_HINT_SUITE } from './reconnectHintSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
@@ -6449,4 +6450,8 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // #182 git 卡片的工作目录取值两路来源都必须留（F-60：F-01…F-59 与 R-06 已占，按
   // 「从未占用的继续」顺延；套件本体在 gitCardCwdSuites.ts，同为独立文件，少一处合入热点）。
   GIT_CARD_CWD_SUITE,
+  // #202 对话区断线那一刻有一行可见的事实（F-61：F-01…F-60 与 R-06 已占，按
+  // 「从未占用的继续」顺延；套件本体在 reconnectHintSuites.ts，同为独立文件，少一处合入热点。
+  // 它自己起两台同端口同 DSH_HOME 的临时实例，见那个文件头）。
+  RECONNECT_HINT_SUITE,
 ]
