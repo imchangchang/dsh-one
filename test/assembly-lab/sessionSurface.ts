@@ -152,20 +152,22 @@ export function surfaceSummary(readings: readonly SurfaceReading[]): string[] {
     }
   }
   if (pages.length > 0) {
-    const rows = pages.map((reading) => reading.page?.sessionRows ?? -1)
-    const min = Math.min(...rows)
-    const at = pages[rows.indexOf(min)] as SurfaceReading
-    const zeros = pages.filter((reading) => (reading.page?.sessionRows ?? -1) === 0)
+    // 只把「**分组在、会话行没了**」算归零：chat / settings / 官方对照档那几页本来就没有
+    // 自有的会话行（读数是 0），F-55 那种空态页连分组都是 0——把它们算进来，这条判据
+    // 每一轮都会响，等于没有判据。现场那份读数（「5 个分组、每组 rows:0」）正是
+    // 「分组行 > 0、会话行 = 0」。
+    const trees = pages.filter((reading) => (reading.page?.workspaceRows ?? 0) > 0)
+    const zeros = trees.filter((reading) => (reading.page?.sessionRows ?? -1) === 0)
     const first = pages[0] as SurfaceReading
     const last = pages[pages.length - 1] as SurfaceReading
     lines.push(
-      `时间线（页面侧会话行，共 ${String(pages.length)} 个读数点）：` +
-        `首个 ${String(first.page?.sessionRows ?? -1)} 行（${first.where}）、末个 ${String(last.page?.sessionRows ?? -1)} 行（${last.where}）、最小值 ${String(min)} 行（${at.where}）`,
+      `时间线（页面侧会话行，共 ${String(pages.length)} 个读数点，其中 ${String(trees.length)} 个是「有分组行」的树页面）：` +
+        `首个 ${String(first.page?.sessionRows ?? -1)} 行（${first.where}）、末个 ${String(last.page?.sessionRows ?? -1)} 行（${last.where}）`,
     )
     lines.push(
       zeros.length === 0
-        ? '整轮没有出现过「会话行 0 行」的页面读数'
-        : `会话行为 0 的页面读数 ${String(zeros.length)} 次：${zeros.slice(0, 8).map((reading) => `${reading.where}@${reading.seconds.toFixed(0)}s`).join('、')}`,
+        ? '整轮没有出现过「分组行在、会话行归零」的页面读数'
+        : `「分组行在、会话行归零」的页面读数 ${String(zeros.length)} 次：${zeros.slice(0, 8).map((reading) => `${reading.where}@${reading.seconds.toFixed(0)}s`).join('、')}`,
     )
     const unavailable = pages.reduce((sum, reading) => sum + (reading.page?.unavailable ?? 0), 0)
     lines.push(`页面控制台里「服务不可用」行合计 ${String(unavailable)} 条`)

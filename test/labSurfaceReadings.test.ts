@@ -42,9 +42,22 @@ test('surfaceSummary：读出「哪一步之前行数一直是 22、哪一步之
   const summary = surfaceSummary(readings).join('\n')
   assert.match(summary, /首个读数 22 条（suite:F-01）/)
   assert.match(summary, /末个读数 22 条（suite:F-60）/)
-  assert.match(summary, /最小值 0 行（page:F-60\/sidebar）/)
-  assert.match(summary, /会话行为 0 的页面读数 1 次：page:F-60\/sidebar@40s/)
+  assert.match(summary, /「分组行在、会话行归零」的页面读数 1 次：page:F-60\/sidebar@40s/)
   assert.match(summary, /网关侧 session\.list 整轮零失败/)
+})
+
+test('surfaceSummary：本来就该是 0 的页面（没分组 / 别的树）不算归零', () => {
+  // chat / settings / 官方对照档那几页没有自有的会话行；空态页连分组都是 0。
+  const readings = [
+    page(10, 'page:F-02/chat', 0, 0),
+    page(20, 'page:F-02/settings', 0, 0),
+    page(30, 'page:F-20/sidebar-official', 0, 0),
+    page(40, 'page:F-55/sidebar', 0, 0),
+    page(50, 'page:F-12/sidebar', 5, 5),
+  ]
+  const summary = surfaceSummary(readings).join('\n')
+  assert.match(summary, /整轮没有出现过「分组行在、会话行归零」的页面读数/)
+  assert.match(summary, /共 5 个读数点，其中 1 个是「有分组行」的树页面/)
 })
 
 test('surfaceSummary：网关侧失败会把失败点与网关原话一并列出来', () => {
