@@ -55,7 +55,9 @@ export function declPathFor(slug) {
 }
 
 export function slugFromBranch(branch) {
-  return branch.startsWith('agent/') ? branch.slice('agent/'.length) : branch
+  const raw = branch.startsWith('agent/') ? branch.slice('agent/'.length) : branch
+  // 分支名里的 `/` 等字符不能进文件名（独立跑门禁时分支可能不叫 agent/*）。
+  return raw.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '')
 }
 
 // ---------- 扫描范围 ----------

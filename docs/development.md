@@ -105,6 +105,7 @@ COMPAT_BASE=develop/cordis-chat scripts/check-platform-compat.sh agent/my-task
 - `.evidence`：证据本身——CI 的 workflow / job 名、哪台真机与什么步骤、测试文件与用例名。空着会被拒。
 - `branchMatrix.rows[]`：`condition`（分支条件）/ `expected`（这条分支的预期行为）/ `verification`（怎么验证的）。三样缺一不可，`verification` 写「未验证 / 待定 / TBD」这类占位词也算缺。
 - `branch` 必须等于当前待合分支（防止把别的任务的声明抄过来）。
+- **只命中状态分叉、没有平台路径**时，`platformCoverage` 留空数组即可（模板会自动留空）；反过来只有平台路径、没有状态分叉时，`branchMatrix` 那段的 `rows` 留空也放行。
 
 已经声明过、但后来在新增行里消失的条目只告警不拦（多半是代码已改，声明该顺手删），门禁会把它们打出来供人扫一眼。
 

@@ -38,7 +38,8 @@ BASE=$(git merge-base "$BASE_REF" "$BRANCH")
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(git rev-parse --show-toplevel)
-SLUG="${BRANCH#agent/}"
+# slug 与 node 侧 slugFromBranch 保持同一口径（分支名里的 `/` 等不能进文件名）。
+SLUG=$(printf '%s' "${BRANCH#agent/}" | sed -E 's/[^A-Za-z0-9._-]+/-/g; s/^-+|-+$//g')
 DECL="test/sandbox/verify.${SLUG}.platform.json"
 
 DIFF_FILE=$(mktemp)
