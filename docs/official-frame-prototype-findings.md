@@ -1,9 +1,12 @@
 # 原型评估：官方 AppFrame 渲染 root + 只做 VS Code 形态适配（#89）
 
-决策记录。原型与跑测代码在 `test/assembly-lab/prototypes/officialFrame/`，
-**不改任何生产文件、不进任何生产装配树**。实机数据出处：`test/assembly-lab/out/proto/`
-（`official-frame.ledger.json` 台账、`official-frame.report.html` 单文件报告、`shots/*.png`），
-全部可重跑（跑法见该目录 `README.md`）。环境：本机真实 dsh 网关 0.1.6-alpha.1（只读）、
+决策记录。原型与跑测代码曾在 `test/assembly-lab/prototypes/officialFrame/`（**不改任何生产文件、
+不进任何生产装配树**），该目录已随 #189 删除——它回答的问题已有结论（见下文），原型里那两处
+脆弱写法（`:has()` 结构规则、把 bootstrap 批当第一批的 `batches[0]`）也不再是正式实现的做法，
+留着只会继续示范废弃写法。要回看代码请查 git 历史（删除前的最后一个提交）。
+实机数据出处：`test/assembly-lab/out/proto/`（`official-frame.ledger.json` 台账、
+`official-frame.report.html` 单文件报告、`shots/*.png`）是 gitignored 的一次性产物，
+截图副本保留在 `docs/official-frame-shots/`。环境：本机真实 dsh 网关 0.1.6-alpha.1（只读）、
 Playwright chromium、假宿主。
 
 ## 一句话结论
@@ -132,6 +135,9 @@ AppFrame 路线的已知缺陷（要修得先搞清 cordis 事件投递顺序，
 之后补一次 apply）。
 
 ## 五、风险清单：官方改 AppFrame 结构时，这些覆盖散在哪几处
+
+本节列的是**原型那几条覆盖**的落点与失效方式（原型代码已随 #189 删除，这里只留清单作为
+「这条路线的代价」的存档）；生产代码里没有这些覆盖。
 
 1. **`plugins/chatShape.ts`**：内联轨道改写的假设（三轨、顺序 侧栏/中/右、侧栏轨是运行时偏好值）。
    官方改成 CSS 变量或调整列顺序 → 改写函数静默不生效（页面变成「侧栏列还在」）。
