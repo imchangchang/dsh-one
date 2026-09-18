@@ -32,11 +32,56 @@ export interface Assertion {
  * 判据一个字没放宽：能对上的永远是**同一个键**的那两种语言取值。
  */
 /**
- * 官方命名空间的几条（我们的弹窗经官方 `t()` 取，值不归 `workspaceTree/locale.ts` 管）：
- * 值取自官方词典本身（zh 页 / en 页各实测一次）。套件判这些文案时同样要两种语言都认。
+ * 官方命名空间的几条（我们的弹窗与官方件自己的控件经官方 `t()` 取，值不归
+ * `workspaceTree/locale.ts` 管）：值取自官方词典本身（zh 页 / en 页各实测一次）。
+ * 套件判这些文案时同样要两种语言都认。
+ *
+ * **每条的出处（哪份官方包、哪个键）写在条目上，zh 与 en 都必须是那一版里的真值**：
+ * 词典里查不到的东西一律不许写进来（缺一份 = 那一份语言上这条判据静默失效，这正是
+ * #208 要堵的那类缺口）。来源都是本机装着的官方包 `@deepseek-ai/dsh@0.1.6-alpha.1`
+ * 里的 `lib/client.js`（键名与取值逐字抄自那份产物）。
+ *
+ * 缺值时的行为（口径）：`OFFICIAL_EXTRA` 里没有的文案，`texts()` 就回到我们自己那份
+ * 词典里找；两边都没有时**原样返回一条**（只有中文那一份）——所以**加进这张表的每条都要
+ * 给全两份**，不然那一份语言上等于白写。
  */
 const OFFICIAL_EXTRA: Readonly<Record<string, readonly [string, string]>> = {
+  // 官方内置 `common` 命名空间的 `cancel` 键（我们的弹窗那枚「取消」走的是它）。
+  // 出处：`@deepseek-ai/dsh-client-locale` 的 `lib/client.js`。
   取消: ['取消', 'Cancel'],
+  // 官方对话区 composer 的几枚（键 `input.commands` / `input.send`）。出处：
+  // `@deepseek-ai/dsh-client-ui-conversation` 的 `lib/client.js`。
+  '添加文件或调用指令': ['添加文件或调用指令', 'Add files or run commands'],
+  发送消息: ['发送消息', 'Send message'],
+  // 上下文用量那一枚的 `aria-label`（键 `context.aria`）——**带百分比**的模板，两份语言里占位
+  // 的位置还不一样（zh 在句末、en 在句首），所以这里给的是**模板**、不是成品句；选择器怎么按它
+  // 拼见 `livenessSuites.ts` 的 `CONTEXT_METER_BUTTON`。（同一件里还有一条 `context.used`
+  // = 「上下文已用」/「of context used」，那是展开后那个面板自己的 `aria-label`，探针不点它，
+  // 没有收进来。）
+  '上下文已用 {percent}': ['上下文已用 {percent}', '{percent} of context used'],
+  // 助手动作那枚（键 `action.like`）。出处：`@deepseek-ai/dsh-client-ui-message-feedback` 的 `lib/client.js`。
+  好的回答: ['好的回答', 'Good response'],
+  // 对话区页签（键 `view.trajectory`）。出处：`@deepseek-ai/dsh-client-ui-trajectory` 的 `lib/client.js`。
+  轨迹: ['轨迹', 'Trajectory'],
+  // 会话头那枚分裂按钮的标题（键 `open.title`，模板带 `{app}`）。出处：
+  // `@deepseek-ai/dsh-client-ui-open-in-app` 的 `lib/client.js`——应用名由那件自己填
+  // （`app.finder` 等），所以是**模板**而不是成品句。
+  '在 {app} 中打开工作目录': ['在 {app} 中打开工作目录', 'Open workspace in {app}'],
+  // 设置页分节导航里官方那一节（键 `general.nav`）。出处：
+  // `@deepseek-ai/dsh-client-ui-settings-general` 的 `lib/client.js`。
+  通用设置: ['通用设置', 'General'],
+  // 权限预设（键 `preset.workspaceWrite`）。出处：
+  // `@deepseek-ai/dsh-client-ui-permission-presets` 的 `lib/client.js`。
+  工作区内修改: ['工作区内修改', 'Workspace Write'],
+  // 官方 ui-theme 的字号步进器（键 `fontSize.increase`）。出处：
+  // `@deepseek-ai/dsh-client-ui-theme` 的 `lib/client.js`。
+  增大字号: ['增大字号', 'Increase font size'],
+  // 语言下拉那枚按钮上显示的是**当前语言用它自己的说法**写的名字，不是词典键：
+  // 官方语言目录 `BUILT_IN_LOCALE_METADATA`（`zh.label = "中文"` / `en.label = "English"`，
+  // 见其上方注释「The two locales and dictionaries shipped by this package」）。
+  // 于是同一个按钮在 zh 页上是「中文」、在 en 页上是「English」——两份都得认。
+  // 出处：`@deepseek-ai/dsh-client-locale` 的 `lib/client.js`。
+  中文: ['中文', 'English'],
 }
 
 export function texts(zhText: string): string[] {
