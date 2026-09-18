@@ -127,6 +127,7 @@ import type { BrowserContext, Page } from 'playwright'
 import {
   capturePage,
   openTreePage,
+  texts,
   withoutKnownNoise,
   type Check,
 } from './harness.ts'
@@ -974,13 +975,64 @@ interface LivenessPoint {
 
 const COMPOSER = '[data-slot="conversation.composer.bar"]'
 
+/**
+ * 交互点表里**按文案认控件**的那些选择器是怎么拼出来的（#208）。
+ *
+ * 每个交互点都先靠一条**文案**认出那个控件（`aria-label`、页签文字、按钮文字），而文案会随
+ * **页面语言**变：zh 页上是词典里那条中文，en 页上是同一条键的英文。所以选择器不写死中文，
+ * 而是把那条文案交给 {@link texts} 换出 zh / en 两份取值，各拼一条选择器再用逗号并起来
+ * （Playwright 的选择器列表是「或」）——哪一份语言都命得中。
+ *
+ * 为什么必须这么拼：这一套每一步的起手就是「选择器命中的控件在不在场」，命不中即按
+ * 「元素不在场 → 记事实跳过」放过去，**报告里看着全绿而覆盖面静默缩水**。实测（#208）：
+ * `LAB_LOCALE=en` 跑 F-54 是 22/29，比 zh 那一轮少掉约二十条断言。页面语言是运行环境的
+ * 输入（`LAB_LOCALE`，缺省 zh），判据不许依赖它。
+ *
+ * 文案的出处：我们自己的控件走 `workspaceTree/locale.ts`（`texts()` 反查键名）；官方件的
+ * 标签在 `harness.ts` 的 `OFFICIAL_EXTRA`，逐条写着「哪份官方包、哪个键」。两边都查不到时
+ * `texts()` 原样返回那一条中文（等于 en 页上又会落空），所以往表里加文案前先确认它有出处。
+ */
+function textSelector(zhText: string, build: (variant: string) => string): string {
+  return texts(zhText).map(build).join(', ')
+}
+
+/** composer 的 ＋：表里与「＋ 专件」那三条断言用同一个选择器，先算一次，免得两处各写各的。 */
+const COMPOSER_COMMANDS = textSelector('添加文件或调用指令', (label) => `${COMPOSER} button[aria-label="${label}"]`)
+
+/**
+ * 会话头那枚官方 open-in-app 分裂按钮：它的 `aria-label` 是官方 `open.title` 渲染出来的
+ * 「在 {app} 中打开工作目录」/「Open workspace in {app}」，`{app}` 由宿主报的已装应用填
+ * （本机上是「访达」/「Finder」，也可能是终端等）。所以取模板里 `{app}` **之前那一段**做
+ * 前缀匹配——应用名换了照样命中，两种语言各一条。
+ */
+const OPEN_IN_APP_BUTTON = textSelector(
+  '在 {app} 中打开工作目录',
+  (title) =>
+    `[data-slot="conversation.session.header.utilities"] button[aria-label^="${title.split('{app}')[0] ?? ''}"]`,
+)
+
+/**
+ * composer 的上下文用量那一枚：它的 `aria-label` 是官方 `context.aria` 带**百分比**渲染出来的，
+ * 而两种语言里占位的位置不一样——zh「上下文已用 {percent}」占位在句末、en「{percent} of context used」
+ * 在句首。所以按模板里那段字面量拼：占位后面还有字就用**前缀**匹配，占位在最前面就用**后缀**匹配
+ * （两种语言各一条，页面是哪一份语言都命得中，判据的宽严与写死中文时逐字相同）。
+ */
+const CONTEXT_METER_BUTTON = texts('上下文已用 {percent}')
+  .map((template) => {
+    const [head = '', tail = ''] = template.split('{percent}').map((part) => part.trim())
+    return head === ''
+      ? `${COMPOSER} button[aria-label$="${tail}"]`
+      : `${COMPOSER} button[aria-label^="${head}"]`
+  })
+  .join(', ')
+
 /** chat 树（对话区）：官方页有全部同一批控件，逐个与官方对照。 */
 const CHAT_POINTS: ReadonlyArray<LivenessPoint> = [
   {
     label: 'composer 的 ＋（添加文件或调用指令）',
-    selector: `${COMPOSER} button[aria-label="添加文件或调用指令"]`,
+    selector: COMPOSER_COMMANDS,
     expect: '弹出指令候选菜单（官方 `/` 源）',
-    official: `${COMPOSER} button[aria-label="添加文件或调用指令"]`,
+    official: COMPOSER_COMMANDS,
   },
   {
     label: 'composer 的权限选择（访问模式）',
@@ -996,13 +1048,13 @@ const CHAT_POINTS: ReadonlyArray<LivenessPoint> = [
   },
   {
     label: 'composer 的上下文用量',
-    selector: `${COMPOSER} button[aria-label^="上下文已用"]`,
+    selector: CONTEXT_METER_BUTTON,
     expect: '弹出上下文用量详情',
-    official: `${COMPOSER} button[aria-label^="上下文已用"]`,
+    official: CONTEXT_METER_BUTTON,
   },
   {
     label: 'composer 的发送（空草稿）',
-    selector: `${COMPOSER} button[aria-label="发送消息"]`,
+    selector: textSelector('发送消息', (label) => `${COMPOSER} button[aria-label="${label}"]`),
     expect: '禁用态：本来就无反应',
     observeOnly:
       '空草稿时官方与我们的发送键都是禁用态，看的只是「它是禁用态」这一件事；而它的动作是**发消息**（写操作），轮不到为了覆盖去点它——万一哪天这一轮草稿不为空，点下去就是把一条消息送进真网关',
@@ -1015,26 +1067,27 @@ const CHAT_POINTS: ReadonlyArray<LivenessPoint> = [
   {
     label: '对话区 · 助手动作「好的回答」',
     // 这一条**保持可点**（#163 复核过它会不会改用户状态，结论是不会）：点它的效果是开反馈
-    // 弹窗（客户端行为）。已经点过赞的那条消息上，这枚按钮的 `aria-label` 是官方词典里的
-    // 「取消标记」，本探针的选择器（`aria-label="好的回答"`）命中不到它，所以走不到官方那条
-    // **删掉用户反馈**的路径（`retract` → `remote.messageFeedback.delete`）；悬停与点击触发的
-    // `ensure()` 走的是 `remote.list`（读）。出处 `dsh-client-ui-message-feedback/lib/client.js`
-    // 的 `likeLabel` 与 `choose`。
-    selector: '[data-slot="conversation.chat.assistant-actions"] button[aria-label="好的回答"]',
+    // 弹窗（客户端行为）。已经点过赞的那条消息上，这枚按钮的 `aria-label` 换成官方词典里
+    // 另一条键（已经赞过就显示「取消标记」那种），本探针认的是「还没表态」那一条
+    // （官方 `action.like`，「好的回答」/「Good response」）——它命中不到已表态那一枚，所以
+    // 走不到官方那条**删掉用户反馈**的路径（`retract` → `remote.messageFeedback.delete`）；
+    // 悬停与点击触发的 `ensure()` 走的是 `remote.list`（读）。出处
+    // `dsh-client-ui-message-feedback/lib/client.js` 的 `likeLabel` 与 `choose`。
+    selector: textSelector('好的回答', (label) => `[data-slot="conversation.chat.assistant-actions"] button[aria-label="${label}"]`),
     expect: '弹出反馈弹层',
-    official: '[data-slot="conversation.chat.assistant-actions"] button[aria-label="好的回答"]',
+    official: textSelector('好的回答', (label) => `[data-slot="conversation.chat.assistant-actions"] button[aria-label="${label}"]`),
   },
   {
     label: '对话区页签 · 轨迹',
-    selector: '[data-slot="conversation.session.header"] [role="tab"]:has-text("轨迹")',
+    selector: textSelector('轨迹', (label) => `[data-slot="conversation.session.header"] [role="tab"]:has-text("${label}")`),
     expect: '切到轨迹视图（DOM 结构变）',
-    official: '[data-slot="conversation.session.header"] [role="tab"]:has-text("轨迹")',
+    official: textSelector('轨迹', (label) => `[data-slot="conversation.session.header"] [role="tab"]:has-text("${label}")`),
   },
   {
     label: '会话头 · 在访达中打开工作目录',
-    selector: '[data-slot="conversation.session.header.utilities"] button[aria-label^="在"]',
+    selector: OPEN_IN_APP_BUTTON,
     expect: '官方 open-in-app 的分裂按钮：点它=把工作目录交给本机文件管理器',
-    official: '[data-slot="conversation.session.header.utilities"] button[aria-label^="在"]',
+    official: OPEN_IN_APP_BUTTON,
     observeOnly:
       '这枚是官方 `@deepseek-ai/dsh-client-ui-open-in-app` 的分裂按钮，点一下就往**真网关**发 `POST /open-in-app/open`（app + 工作目录路径），宿主侧再跑 macOS 的 `open <工作目录>`——实验室连的是用户真机上的网关，点它等于真在用户桌面上拉起一次访达（#163 的现场：每跑一轮整轮就拉一次，用户看到的是「怎么总是有个进程用 Finder 打开文件夹」）',
   },
@@ -1046,30 +1099,50 @@ const CHAT_POINTS: ReadonlyArray<LivenessPoint> = [
   },
 ]
 
-/** sidebar 树：这几枚是自有实现（官方页没有同形件），期望固定。 */
+/** sidebar 树：这几枚是自有实现（官方页没有同形件），期望固定；文案都取我们自己的词典。 */
 const SIDEBAR_POINTS: ReadonlyArray<LivenessPoint> = [
   {
     label: '侧栏 · 分组过滤胶囊',
-    selector: '[data-slot="sidebar.workspaces"] button[aria-label^="按分组过滤"]',
+    selector: textSelector('按分组过滤', (label) => `[data-slot="sidebar.workspaces"] button[aria-label^="${label}"]`),
     expect: '弹出分组过滤菜单',
   },
-  { label: '侧栏 · 搜索（收起态放大镜）', selector: 'button[aria-label="搜索会话"]', expect: '展开搜索框' },
+  {
+    label: '侧栏 · 搜索（收起态放大镜）',
+    selector: textSelector('搜索会话', (label) => `button[aria-label="${label}"]`),
+    expect: '展开搜索框',
+  },
   {
     label: '侧栏 · 折叠 / 展开全部',
-    selector: 'button[aria-label="折叠所有工作区"], button[aria-label="展开所有工作区"]',
+    // 折叠态与展开态各一条文案，两份语言都要认（一枚按钮，提示随态翻）。
+    selector: [
+      textSelector('折叠所有工作区', (label) => `button[aria-label="${label}"]`),
+      textSelector('展开所有工作区', (label) => `button[aria-label="${label}"]`),
+    ].join(', '),
     expect: '树整体收起或展开',
   },
-  { label: '侧栏 · 添加工作区', selector: 'button[aria-label="添加工作区"]', expect: '弹出两项菜单' },
-  { label: '侧栏 · 设置齿轮', selector: 'button[aria-label="设置"]', expect: '经宿主能力口打开设置页' },
-  { label: '侧栏 · 批量选择', selector: 'button[aria-label="批量选择"]', expect: '进入多选态' },
+  {
+    label: '侧栏 · 添加工作区',
+    selector: textSelector('添加工作区', (label) => `button[aria-label="${label}"]`),
+    expect: '弹出两项菜单',
+  },
+  {
+    label: '侧栏 · 设置齿轮',
+    selector: textSelector('设置', (label) => `button[aria-label="${label}"]`),
+    expect: '经宿主能力口打开设置页',
+  },
+  {
+    label: '侧栏 · 批量选择',
+    selector: textSelector('批量选择', (label) => `button[aria-label="${label}"]`),
+    expect: '进入多选态',
+  },
   {
     label: '侧栏 · 回收站入口',
-    selector: '[data-slot="sidebar.footer.action"] button[aria-label^="回收站"]',
+    selector: textSelector('回收站', (label) => `[data-slot="sidebar.footer.action"] button[aria-label^="${label}"]`),
     expect: '开回收站抽屉',
   },
   {
     label: '侧栏 · 清空回收站（计数 0）',
-    selector: 'button[aria-label="清空回收站"]',
+    selector: textSelector('清空回收站', (label) => `button[aria-label="${label}"]`),
     expect: '禁用态：本来就无反应',
     observeOnly:
       '回收站计数为 0 时这两枚动作就是禁用态（见 F-15 / F-38），能看的只是「它是禁用态」；它的动作是**永久归档回收站里的会话**（终点动作、不可逆），一旦哪一轮夹具不为空就会真去写网关',
@@ -1085,16 +1158,35 @@ const SETTINGS_POINTS: ReadonlyArray<LivenessPoint> = [
   // 会在别的实例上「元素不在场 → 跳过」，跟着「导航回通用设置」那一条也就成了空点
   // （当时已经在通用设置上，点下去当然没有反应——#177 实测红过一条）。
   { label: '设置 · 导航到另一节', selector: 'button.dshOneSettingsShell_navCell:not([aria-current])', expect: '切到该节内容' },
-  { label: '设置 · 导航回「通用设置」', selector: 'button:has-text("通用设置")', expect: '切回该节内容' },
   {
+    // 「通用设置」是**官方**那一节的名字（`general.nav`）：设置页的节由装着的那件官方插件
+    // 注册、标题取它自己的词典，所以这条文案归 `OFFICIAL_EXTRA`。
+    label: '设置 · 导航回「通用设置」',
+    selector: textSelector('通用设置', (label) => `button:has-text("${label}")`),
+    expect: '切回该节内容',
+  },
+  {
+    // 下拉上显示的是**当前那个**权限预设的名字（官方 `preset.workspaceWrite` = 工作区内修改 /
+    // Workspace Write），所以两种语言各一条。
     label: '设置 · 权限预设下拉',
-    selector: '[data-slot="settings.general.item"] button:has-text("工作区内修改")',
+    selector: textSelector('工作区内修改', (label) => `[data-slot="settings.general.item"] button:has-text("${label}")`),
     expect: '弹出预设选项',
   },
-  { label: '设置 · 语言下拉', selector: '[data-slot="settings.general.item"] button:has-text("中文")', expect: '弹出语言选项' },
+  {
+    // 语言下拉那枚按钮显示的是**当前语言用它自己的说法**写的名字（官方语言目录里的常量，
+    // 不是词典键）：zh 页上是「中文」、en 页上是「English」——只认中文的话，en 页上这一步
+    // 会整条落空（#208）。
+    label: '设置 · 语言下拉',
+    selector: textSelector('中文', (label) => `[data-slot="settings.general.item"] button:has-text("${label}")`),
+    expect: '弹出语言选项',
+  },
   {
     label: '设置 · 增大字号',
-    selector: 'button[aria-label="增大字号"], button[aria-label="增大字体"]',
+    // 只认官方 ui-theme 的 `fontSize.increase`（增大字号 / Increase font size），按词典取两份。
+    // （原来还挂着一条 `aria-label="增大字体"` 的兜底写法，本次去掉：本机装着的官方包
+    // `@deepseek-ai/dsh-client-ui-theme/lib/client.js` 里只有 `fontSize.increase` 这一个键、
+    // 取值是「增大字号」，那条兜底在任何一版官方产物里都查不到出处，留着只会让人以为它有用。）
+    selector: textSelector('增大字号', (label) => `button[aria-label="${label}"]`),
     expect: '官方 ui-theme 的字号步进器：写用户的设置文档',
     observeOnly:
       '官方 `@deepseek-ai/dsh-client-ui-theme` 的字号步进器点一下就 `theme.setFontSize(px)` → `host.set("fontSize", px)`，也就是**经网关把新字号写进用户的设置文档**（出处 `lib/client.js` 的 setFontSize 注释「the only font-size write entry … written through the settings scope」）——哪怕这一轮它是禁用态（只记事实），它是不是禁用取决于用户当前的设置，所以整条只观察不点',
@@ -1332,7 +1424,9 @@ export const LIVENESS_SUITE: LabSuite = {
       }
 
       // ── ＋ 的专件 ────────────────────────────────────────────────────
-      const addSelector = `${COMPOSER} button[aria-label="添加文件或调用指令"]`
+      // 与交互点表里那一条**同一个**选择器（`COMPOSER_COMMANDS`，zh / en 两份都认）：
+      // 这里要是另写一份、只认中文，en 页上这三条专件断言会一起落空（#208）。
+      const addSelector = COMPOSER_COMMANDS
       // 下面三条判的都是**菜单真的开了**（结构变了），所以固定按那四路判（不看文字与属性）——#170
       // 补的文字/属性两路不进这里，这三条的判据与补观察粒度之前逐字等价（不许被放松）。
       const addOurs = await probeClick(chatPage.page, 'composer ＋', addSelector, { signals: STRUCTURAL_SIGNALS })
