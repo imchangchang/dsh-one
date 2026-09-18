@@ -164,6 +164,15 @@ export interface StartLabGatewayOptions {
   readyTimeoutMs?: number
   /** 起来之后播种真数据（缺省播，见 `seed.ts`）。 */
   seed?: boolean
+  /**
+   * 把网关进程的 stdout / stderr **原样落一份到文件**（#203 的排障口子）。
+   *
+   * 为什么加：网关自己的日志（配置层重载、插件加载、服务卸载）是「会话面为什么没了」这类
+   * 问题的第一手证据，而默认只在**进程退出**时把最后几行打给 logger——一轮跑完正常收尾时
+   * 那段日志就跟着临时目录一起没了。给了这个路径就全程留一份（跟着产物目录走，不进仓库）。
+   * 缺省不给 = 与 #203 之前逐字相同。
+   */
+  logPath?: string
 }
 
 /**
@@ -213,10 +222,21 @@ export async function startLabGateway(log: LogSink, options: StartLabGatewayOpti
   let llm: MockLlm | undefined
   let child: ChildProcess | undefined
   let log1 = ''
+  // 调试日志（`logPath`，见 StartLabGatewayOptions）：全程留一份，缺省不给就不留。
+  const debugLog = options.logPath === undefined ? undefined : fsp.open(options.logPath, 'a').catch(() => undefined)
   const onData = (chunk: Buffer): void => {
     log1 = (log1 + chunk.toString('utf8')).slice(-8_000)
+    if (debugLog !== undefined) {
+      void debugLog.then((handle) => {
+        if (handle !== undefined) void handle.write(chunk).catch(() => undefined)
+      })
+    }
   }
   const dispose = async (): Promise<void> => {
+    if (debugLog !== undefined) {
+      const handle = await debugLog.catch(() => undefined)
+      await handle?.close().catch(() => undefined)
+    }
     if (child !== undefined) await killByPid(child)
     if (llm !== undefined) await llm.close().catch(() => undefined)
     await fsp.rm(home, { recursive: true, force: true }).catch(() => undefined)

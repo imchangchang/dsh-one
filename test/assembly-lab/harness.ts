@@ -10,6 +10,7 @@ import { chromium, type Browser, type BrowserContext, type Page } from 'playwrig
 import { installLabDataset, type DatasetStats, type LabDataset } from './dataset.ts'
 import { EN, ZH } from '../../packages/dsh-workspace-tree/src/workspaceTree/locale.ts'
 import { fakeHostScript } from './fakeHost.ts'
+import { readPageSurface, type PageSurface } from './sessionSurface.ts'
 import type { LabServer, LabTreeRoute } from './labServer.ts'
 
 /** 一条断言的结论。 */
@@ -336,6 +337,28 @@ let currentSuite: { id: string; name: string } = { id: '（套件之外）', nam
 
 export function setLabSuite(id: string, name: string): void {
   currentSuite = { id, name }
+}
+
+/** 一条页面侧的会话面读数（#203）：`where` 指名道姓，`page` 是那次读数（见 sessionSurface.ts）。 */
+export interface PageSurfaceReading {
+  where: string
+  url: string
+  page: PageSurface
+}
+
+/**
+ * 会话面读数的收集器（#203）：**默认没装**（一条都不读）。
+ *
+ * 装了之后，每次经 `openTreePage` / `openTreePageAlongside` 开好一页都记一条读数，
+ * 时间线由装上它的人（`verify.ts` 的 `--diag-surface`）负责攒与落盘。为什么挂在开页
+ * 这个既有点上：长轮次里退化的是「整片会话行」，而会话行只在这类页面上量得到——跟着
+ * 开页记，既不额外开页、也不额外点任何控件。
+ */
+export type PageSurfaceSink = (reading: PageSurfaceReading) => void
+let pageSurfaceSink: PageSurfaceSink | null = null
+
+export function setPageSurfaceSink(sink: PageSurfaceSink | null): void {
+  pageSurfaceSink = sink
 }
 
 /** 清空计数（同一进程里跑第二遍时用；`verify.ts` 整轮只跑一遍）。 */
@@ -989,6 +1012,18 @@ async function openPageIn(
     ready = false
   }
   await page.waitForTimeout(options.settleMs ?? 2_500)
+  // 会话面读数（#203）：一页开好、静置完之后顺手记一条（自有树的会话行数 + 这一页到此刻
+  // 为止的「服务不可用」控制台行）。**只有装了收集器才读**（`--diag-surface`），默认这条
+  // 分支根本不进——默认跑法的行为与 #203 之前逐字相同。
+  if (pageSurfaceSink !== null) {
+    try {
+      const surface = await readPageSurface(page, capture.all)
+      pageSurfaceSink({ where: `${currentSuite.id}/${route.route}`, url, page: surface })
+    } catch (err) {
+      // 读数只是诊断，读不到不该让套件红（页面可能已被套件自己关掉）。
+      process.stderr.write(`test/assembly-lab: 会话面读数失败（${route.route}）：${err instanceof Error ? err.message : String(err)}\n`)
+    }
+  }
   return { context, page, capture, url, ready, ...(datasetStats === undefined ? {} : { dataset: datasetStats }) }
 }
 
