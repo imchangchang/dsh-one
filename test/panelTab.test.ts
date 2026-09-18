@@ -69,6 +69,6 @@ test('标题里不再有「（装配）」这类内部词', () => {
   }
 })
 
-test('图标路径是扩展根下的现成资源（与 package.json 的 icon 同一份）', () => {
-  assert.equal(PANEL_TAB_ICON_PATH, 'assets/icon.png')
+test('图标路径是扩展根下的现成资源（dsh 官方品牌 favicon，与 #68 之前那版实现同一份）', () => {
+  assert.equal(PANEL_TAB_ICON_PATH, 'assets/dsh-favicon.svg')
 })

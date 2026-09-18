@@ -19,9 +19,13 @@ export const PANEL_TAB_SEPARATOR = ' · '
 
 /**
  * 标签页图标相对扩展根的位置（`assets/` 不在 `.vscodeignore` 里，随 vsix 一起发布）。
- * 与 `package.json` 的扩展图标是同一份资源。
+ *
+ * 用的是 **dsh 官方品牌 favicon**（`assets/dsh-favicon.svg`，拷自已安装的
+ * `@deepseek-ai/dsh-web-frontend/dist/favicon.svg`）——**与 #68 下线旧自研聊天区之前
+ * 那一版实现用的是同一份资源**（出处 `14fbb136` 的 `panel.iconPath`）。不新造图、
+ * 也不做 `{ light, dark }` 主题变体：当年用的就是这一个，没有出过主题下的可见性问题。
  */
-export const PANEL_TAB_ICON_PATH = 'assets/icon.png'
+export const PANEL_TAB_ICON_PATH = 'assets/dsh-favicon.svg'
 
 /** 三个面板共用的标题格式：`dsh · <主体>`。 */
 export function panelTabTitle(subject: string): string {

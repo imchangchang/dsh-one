@@ -222,12 +222,11 @@ test('两份 l10n bundle 里不再有「（装配）」这类标题 key', () => 
   }
 })
 
-test('图标是真资源、与扩展图标同一份，且不会被 .vscodeignore 排除', () => {
+test('图标是真资源、是 dsh 官方品牌 favicon，且不会被 .vscodeignore 排除', () => {
   const iconAbs = path.join(ROOT, PANEL_TAB_ICON_PATH)
   assert.ok(fs.existsSync(iconAbs), `图标文件不在：${PANEL_TAB_ICON_PATH}`)
 
-  const pkg = JSON.parse(read('package.json')) as { icon?: string }
-  assert.equal(pkg.icon, PANEL_TAB_ICON_PATH, '扩展图标与面板图标不再指向同一份资源')
+  assert.equal(PANEL_TAB_ICON_PATH, 'assets/dsh-favicon.svg', '面板图标不再是 dsh 官方品牌 favicon（#212 的口径：与 #68 之前那版实现同一份）')
 
   const lines = read('.vscodeignore').split('\n').map((line) => line.trim())
   const excluding = lines.filter((line) => line !== '' && !line.startsWith('#') && line.startsWith('assets'))
