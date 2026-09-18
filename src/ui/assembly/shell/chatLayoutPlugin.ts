@@ -185,6 +185,12 @@ if (typeof document !== 'undefined' && document.querySelector(`style[data-plugin
 
 // ---------------------------------------------------------------------------
 // DocumentTitle（ui-layout client.js 逐字）：会话标题投影进浏览器标题
+//
+// 与宿主侧**标签页标题**的关系（#212）：两处**故意不统一**。VS Code 标签页上显示的是
+// 宿主设的 `panel.title`（口径见 `src/pure/panelTab.ts`：短、`dsh · <主体>`），它不读
+// 这里的 `document.title`；这里的 `document.title` 是页面自己的浏览器标题，逐字照官方
+// ui-layout 的行为（官方 web 在浏览器标签上就写 `<会话标题> — dsh`）。要统一就得改官方
+// 行为、而收益只是「两处字符串一样」，不划算，所以各自保持原样。
 // ---------------------------------------------------------------------------
 
 function DocumentTitle({ title, productTitle }: { title?: string; productTitle: string }): null {

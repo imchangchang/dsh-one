@@ -12,6 +12,8 @@ import { assemblyPageHtml } from './assembly/pageHtml.ts'
 import { defaultHostBridgeDeps, subscribeHostCalls, type HostBridgeDeps } from './assembly/hostBridge.ts'
 import { createGatewayWorkspaceRoots } from './assembly/hostWorkspaceRoots.ts'
 import { panelOpenSessionIds, panelSessionsMessage, routeSelection } from '../pure/sessionPanelRouting.ts'
+import { chatPanelTabTitle, panelTabTitle } from '../pure/panelTab.ts'
+import { panelTabIconPath } from './panelIcon.ts'
 import { assignSessionTab, hasSessionTab, releaseSessionTab, sessionTabOf } from '../pure/sessionTabs.ts'
 import { listSessions } from '../server/dshRpc.ts'
 import { workspaceRootsOfSessionRows } from '../pure/workspaceRoots.ts'
@@ -482,6 +484,29 @@ async function prepareChatPanel(
 }
 
 /**
+ * 对话面板标签页标题的当前值（#212）：会话标题 → 工作区名 → 「对话」，格式与图标口径
+ * 都在 `pure/panelTab.ts`。**不再退到会话 id 片段**——用户看不出 `session-47…` 是哪条会话。
+ */
+function chatTitle(sessionTitle?: string): string {
+  return chatPanelTabTitle({
+    sessionTitle,
+    workspaceName: titleWorkspaceName(),
+    chatLabel: vscode.l10n.t('Chat'),
+  })
+}
+
+/**
+ * 标题兜底用的工作区名：`vscode.workspace.name` 优先（单文件夹窗口就是文件夹名），
+ * 没有（未打开任何文件夹、未命名工作区）时取第一个文件夹的目录名。
+ */
+function titleWorkspaceName(): string | undefined {
+  const name = vscode.workspace.name?.trim()
+  if (name !== undefined && name !== '') return name
+  const folder = vscode.workspace.workspaceFolders?.[0]
+  return folder === undefined ? undefined : path.basename(folder.uri.fsPath)
+}
+
+/**
  * 面板的共用接线与首帧：探针、活跃上报（标题跟随）、宿主调用通道、主题广播登记，
  * 以及 dispose 时按形态回收（多开面板释放自己那一格映射；单例面板才记
  * 「用户关过」）。两种形态只差这些登记动作，页面本身是同一份装配页。
@@ -504,6 +529,11 @@ function mountChatPanel(params: {
   // 地图变了就下发一次（#147）：新面板注入的会话当场就是「面板里开着它」。
   if (sessionId !== undefined) broadcastPanelSessions()
   const probeSub = subscribeAssemblyProbe(panel.webview, logger)
+  // 标签页外观（#212）：刚装起来这一刻只有「人话」可给（会话标题还没上报上来），先按
+  // 口径标名；图标在这里重挂一次是给恢复路径用的——VS Code 经 serializer 交回来的面板
+  // 是个空壳，标题与图标都不随状态回来。
+  panel.title = chatTitle()
+  panel.iconPath = panelTabIconPath(context.extensionUri)
   // 活跃/标题上报（session-boot 插件）：维护映射 + 面板标题跟随会话标题。
   const metaSub = panel.webview.onDidReceiveMessage((msg: unknown) => {
     if (typeof msg !== 'object' || msg === null) return
@@ -517,7 +547,7 @@ function mountChatPanel(params: {
     // 页面内切走 / 切到另一条会话 = 地图变了，下发一次（#147）。同 id 的重复上报
     //（官方每次重挂都会报一次）不发，免得白白重推。
     if (moved) broadcastPanelSessions()
-    if (typeof m.title === 'string' && m.title !== '') panel.title = `dsh: ${m.title}`
+    if (typeof m.title === 'string' && m.title !== '') panel.title = chatTitle(m.title)
   })
   // 宿主调用通道（#65 批 1）：页面插件（git 卡片/右键菜单/多开入口等）经它取 git 数据、
   // 开多开标签页与 VS Code 动作；白名单 + 参数校核在 hostBridge 内收口。
@@ -593,10 +623,11 @@ async function createChatPanel(
   }
   const panel = vscode.window.createWebviewPanel(
     ASSEMBLED_CHAT_VIEW_TYPE,
-    sessionId === undefined ? vscode.l10n.t('dsh Chat (assembled)') : `dsh: ${sessionId.slice(0, 13)}`,
+    chatTitle(),
     vscode.ViewColumn.Active,
     { enableScripts: true, retainContextWhenHidden: true },
   )
+  panel.iconPath = panelTabIconPath(context.extensionUri)
   active = { panel, mirror: setup.mirror }
   chatSingleton = { panel }
   if (sessionId !== undefined && pendingSessionOpen === sessionId) pendingSessionOpen = undefined
@@ -626,10 +657,11 @@ export async function openSessionInNewTab(sessionId: string): Promise<void> {
     const setup = prepared.setup
     const panel = vscode.window.createWebviewPanel(
       ASSEMBLED_CHAT_VIEW_TYPE,
-      `dsh: ${sessionId.slice(0, 13)}`,
+      chatTitle(),
       vscode.ViewColumn.Active,
       { enableScripts: true, retainContextWhenHidden: true },
     )
+    panel.iconPath = panelTabIconPath(deps.context.extensionUri)
     deps.logger.info(`assembled chat tab: ${setup.mirror.origin} session=${sessionId.slice(0, 13)}`)
     deps.logger.info(`chat panel created: kind=tab session=${shortSession(sessionId)}`)
     mountChatPanel({
@@ -703,7 +735,7 @@ function restoreChatPanel(
     const type = (msg as { type?: unknown }).type
     if (type === 'assembly:retry') void run()
     else if (type === 'assembly:start') void startThenRun()
-    else if (type === 'assembly:openInstallGuide') openInstallGuide(logger)
+    else if (type === 'assembly:openInstallGuide') openInstallGuide(logger, context.extensionUri)
   })
   panel.onDidDispose(() => messageSub.dispose())
   return run()
@@ -739,8 +771,7 @@ async function mountRestoredChatPanel(
       // 成普通标签页，不顶掉已经在的那一个。
       { singletonOpen: chatSingleton !== undefined || active !== undefined || creatingPanel !== undefined },
     )
-    panel.title =
-      sessionId === undefined ? vscode.l10n.t('dsh Chat (assembled)') : `dsh: ${sessionId.slice(0, 13)}`
+    panel.title = chatTitle()
     if (placement === 'singleton') {
       active = { panel, mirror: setup.mirror }
       chatSingleton = { panel }
@@ -988,7 +1019,7 @@ class AssembledSidebarProvider implements vscode.WebviewViewProvider, vscode.Dis
       const type = (msg as { type?: unknown }).type
       if (type === 'assembly:retry') void this.assemble(view)
       else if (type === 'assembly:start') this.startFromStatusPage(view)
-      else if (type === 'assembly:openInstallGuide') openInstallGuide(this.logger)
+      else if (type === 'assembly:openInstallGuide') openInstallGuide(this.logger, this.context.extensionUri)
       else if (type === 'dshOne.sessionSelected') {
         const sessionId = (msg as { sessionId?: unknown }).sessionId
         if (typeof sessionId === 'string' && sessionId !== '') void openSessionChat(sessionId)
@@ -1189,10 +1220,11 @@ export function registerAssembledSettings(
     }
     const panel = vscode.window.createWebviewPanel(
       'dshOne.assembledSettings',
-      vscode.l10n.t('dsh Settings (assembled)'),
+      panelTabTitle(vscode.l10n.t('Settings')),
       vscode.ViewColumn.Active,
       { enableScripts: true, retainContextWhenHidden: true },
     )
+    panel.iconPath = panelTabIconPath(context.extensionUri)
     activeSettings = { panel, mirror }
     logger.info(`assembled settings: ${mirror.origin}`)
     const probeSub = subscribeAssemblyProbe(panel.webview, logger)

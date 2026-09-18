@@ -573,7 +573,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // 安装引导：打开我们自己的引导 tab（#100，单例：已开则聚焦）——引导内容
     // （平台下拉 + 一键命令 + 复制）窄侧栏放不下，独立成一个编辑器 tab；官方
     // 安装文档作为 tab 里的一条入口保留。
-    vscode.commands.registerCommand('dshOne.openInstallPage', () => openInstallGuide(logger)),
+    vscode.commands.registerCommand('dshOne.openInstallPage', () => openInstallGuide(logger, context.extensionUri)),
     // #90 状态栏点击 = 打开动作面板：动作清单与悬停气泡同一份表
     // （src/pure/statusActions.ts），这里只负责把它渲染成原生 QuickPick 并转发命令。
     vscode.commands.registerCommand('dshOne.statusPanel', async () => {
