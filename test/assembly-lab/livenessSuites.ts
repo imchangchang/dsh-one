@@ -1167,7 +1167,7 @@ const SETTINGS_POINTS: ReadonlyArray<LivenessPoint> = [
   },
   {
     // 下拉上显示的是**当前那个**权限预设的名字（官方 `preset.workspaceWrite` = 工作区内修改 /
-    // Workspace Write），所以两张语言各一条。
+    // Workspace Write），所以两种语言各一条。
     label: '设置 · 权限预设下拉',
     selector: textSelector('工作区内修改', (label) => `[data-slot="settings.general.item"] button:has-text("${label}")`),
     expect: '弹出预设选项',
