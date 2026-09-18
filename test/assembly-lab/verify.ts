@@ -30,6 +30,11 @@
  *   --headed          开有界面的浏览器（人工看现场用）
  *   --keep            跑完不关实验室服务器（配合 --headed 人工点页面）
  *   --no-report       只写 ledger，不渲染 HTML 报告
+ *   --diag-surface    记会话面读数（#203 的定量诊断）：每个套件边界读一次网关的
+ *                     `session.list`、每次开页读一次页面上的会话行数，时间线写进产物
+ *                     目录（`session-surface.json` / `.txt`）。默认**不记**——判据与
+ *                     产物与不开它时逐字相同。机器现场（并发/独占）那一行不在它管下，
+ *                     任何时候都记（见 machineLoad.ts）
  *
  * `--empty` 已退役（#177）：那套跑法就是现在的默认跑法，只是实例里现在会播种真数据。
  * 老参数仍然认，但直接报错退出——免得有人以为跑的是「空实例」。
@@ -44,8 +49,10 @@ import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Browser } from 'playwright'
-import { Check, NATIVE_SIDE_EFFECT_ROUTES, apiMethodCounts, apiOriginCounts, launchBrowser, nativeSideEffectCalls, setLabSuite } from './harness.ts'
+import { Check, NATIVE_SIDE_EFFECT_ROUTES, apiMethodCounts, apiOriginCounts, launchBrowser, nativeSideEffectCalls, setLabSuite, setPageSurfaceSink } from './harness.ts'
 import { startLabGateway, portListening, type LabGateway } from './labGateway.ts'
+import { readGatewaySurface, readingLine, surfaceSummary, type SurfaceReading } from './sessionSurface.ts'
+import { concurrencyLabel, describeMachineLoad, readMachineLoad } from './machineLoad.ts'
 import {
   consoleLogger,
   defaultPluginsDir,
@@ -163,6 +170,8 @@ interface Args {
   keep: boolean
   report: boolean
   quiet: boolean
+  /** 记会话面读数（#203）；缺省 false = 一条都不记。 */
+  diagSurface: boolean
 }
 
 /** `--empty` 退役后的说明（老脚本还在用它，所以认这个参数、但明确报错）。 */
@@ -190,6 +199,7 @@ function parseArgs(argv: readonly string[]): Args {
     keep: argv.includes('--keep'),
     report: !argv.includes('--no-report'),
     quiet: argv.includes('--quiet'),
+    diagSurface: argv.includes('--diag-surface'),
   }
 }
 
@@ -611,6 +621,19 @@ async function main(): Promise<number> {
   const everydayBefore = watchEveryday ? await probeReadOnly(EVERYDAY_GATEWAY, undefined, log) : undefined
   const externalBefore = args.gateway === undefined ? undefined : await probeReadOnly(gateway, args.token, log)
   const readonly = new Check()
+  // ---- #203 的两条观测（都不判任何断言）----
+  // ① 机器现场（并发 / 独占）：整轮都记，读数进报告抬头那张表与 R-06 的观测行。
+  const machineBefore = readMachineLoad(isolated?.pid)
+  // ② 会话面读数（`--diag-surface` 才记）：套件边界读网关、每次开页读页面，
+  //    用来在长轮次里看出会话面是「越跑越少」还是「某一步之后归零」。
+  const surface: SurfaceReading[] = []
+  const roundStart = Date.now()
+  const surfaceSeconds = (): number => (Date.now() - roundStart) / 1000
+  if (args.diagSurface) {
+    setPageSurfaceSink((reading) => {
+      surface.push({ seconds: surfaceSeconds(), where: `page:${reading.where}`, url: reading.url, page: reading.page })
+    })
+  }
   try {
     for (const suite of suites) {
       const check = new Check()
@@ -618,6 +641,10 @@ async function main(): Promise<number> {
       // 给观测点指名道姓的能力（#175）：进套件前打标记，这一套里发出的原生副作用调用
       // 都会带上它的 id 与名字。
       setLabSuite(suite.id, suite.name)
+      // 会话面读数的第一个采样点：**进套件之前**（边界采样，退化落在哪一条边界上才看得出）。
+      if (args.diagSurface) {
+        surface.push({ seconds: surfaceSeconds(), where: `suite:${suite.id}`, gateway: await readGatewaySurface(gateway) })
+      }
       let screenshots: string[] = []
       let crash: string | undefined
       try {
@@ -649,8 +676,12 @@ async function main(): Promise<number> {
     // 跑后那一次探测（同一次只读口径）。
     const everydayAfter = watchEveryday ? await probeReadOnly(EVERYDAY_GATEWAY, undefined, log) : undefined
     const externalAfter = args.gateway === undefined ? undefined : await probeReadOnly(gateway, args.token, log)
+    // 会话面读数的收尾采样点，以及落盘（`--diag-surface` 才有）。
+    if (args.diagSurface) surface.push({ seconds: surfaceSeconds(), where: 'suite:（末尾）', gateway: await readGatewaySurface(gateway) })
     nativeSideEffectCheck(readonly)
     for (const line of gatewayCallFacts()) readonly.fact(line)
+    readonly.fact(describeMachineLoad(machineBefore))
+    for (const line of args.diagSurface ? surfaceSummary(surface) : []) readonly.fact(line)
     readonlyCheck(readonly, {
       ...(args.gateway === undefined ? {} : { external: args.gateway }),
       gateway,
@@ -694,6 +725,23 @@ async function main(): Promise<number> {
   })
 
   const { branch, commit } = gitInfo()
+  const machineAfter = readMachineLoad(isolated?.pid)
+  if (args.diagSurface) {
+    const jsonPath = path.join(args.out, 'session-surface.json')
+    const txtPath = path.join(args.out, 'session-surface.txt')
+    await fsp.writeFile(jsonPath, `${JSON.stringify({ readings: surface }, null, 2)}\n`, 'utf8')
+    await fsp.writeFile(
+      txtPath,
+      [
+        '# 会话面读数时间线（#203，--diag-surface）',
+        `# 机器现场：${describeMachineLoad(machineBefore)}`,
+        ...surface.map(readingLine),
+        '',
+      ].join('\n'),
+      'utf8',
+    )
+    process.stdout.write(`会话面时间线: ${txtPath}（${String(surface.length)} 个读数点）\n`)
+  }
   const ledgerPath = path.join(args.out, 'verify.lab.ledger.json')
   await fsp.writeFile(
     ledgerPath,
@@ -710,6 +758,7 @@ async function main(): Promise<number> {
           dsh: lab.dshVersion ?? '（未知）',
           gateway,
           lab: lab.origin,
+          machine: `${concurrencyLabel(machineBefore)}；${describeMachineLoad(machineBefore)}；跑完时：${describeMachineLoad(machineAfter)}`,
           driver: `playwright chromium + test/assembly-lab/verify.ts（${String(items.length)} 个套件）`,
           date: new Date().toISOString(),
         },
