@@ -1,5 +1,6 @@
 /**
- * 沙箱 srcdoc 帧的内容高度撑开（#185，HTML-PREVIEW-HEIGHT 套件；#193 补自足的夹具卡层）。
+ * 沙箱 srcdoc 帧的处境与官方页一致（#185 立、#193 补自足的夹具卡层、#196 补两个属性写入顺序
+ * 那一维、**#188 把判据改成「帧内脚本真的执行」这一组**）。
  *
  * 独立成一个文件、不写进 `suites.ts` 的理由与 `sidebarHScrollSuites.ts` /
  * `comboTopbarRightInsetSuites.ts` 同一条：那个文件是本批开发的合入热点，新套件放外面能
@@ -12,29 +13,41 @@
  * HTML 路径」）在**官方 web 页**里按内容撑开、在 **VS Code 装配页的对话区**里被压成
  * 一条窄框（只露出内容最上面一小条 + 自带滚动条）。
  *
- * 根因（#185 实测）：**Chromium 把本页的 CSP 继承给 `srcdoc` 帧**（`srcdoc` 是 local
- * scheme，帧文档没有自己的来源可寻址），于是本页那句 `script-src 'nonce-…'` 也管到帧
- * 里面去；而帧的 HTML 是插件自己生成的、拿不到本页 nonce，帧内内联脚本**一律被判违规**。
- * 这类卡片的撑高协议恰好全靠一句帧内内联脚本（量 `document.documentElement.scrollHeight`
- * 再 `parent.postMessage` 回父页），脚本一被挡住，卡片就永远停在这个插件自己的最小高度上
- * （48px）——官方网关页整页**没有 CSP**，同一句脚本在官方页照常执行，所以官方页正常、
- * 装配页压扁。
+ * 根因是**装配页当时自带的那份 CSP**（#185 实测）：Chromium 把本页的 CSP 继承给 `srcdoc`
+ * 帧（`srcdoc` 是 local scheme，帧文档没有自己的来源可寻址），于是本页那句
+ * `script-src 'nonce-…'` 也管到帧里面去；而帧的 HTML 是插件自己生成的、拿不到本页 nonce，
+ * 帧内内联脚本**一律被判违规**。这类卡片的撑高协议恰好全靠一句帧内内联脚本（量
+ * `document.documentElement.scrollHeight` 再 `parent.postMessage` 回父页），脚本一被挡住，
+ * 卡片就永远停在这个插件自己的最小高度上（48px）——官方网关页整页**没有 CSP**，同一句脚本
+ * 在官方页照常执行。
  *
- * 修法在 `src/ui/assembly/pageHtml.ts` 的 `srcdocNonceJs`：写 `srcdoc` 时给**声明了隔离
- * 沙箱的帧**（`sandbox` 带 `allow-scripts`、不带 `allow-same-origin`）里每个 `<script>`
- * 打上本页 nonce，与本页自己的内联脚本走同一条政策（「script 必须带 nonce」）；没有
- * `sandbox` 或带 `allow-same-origin` 的帧与本页同源，一个字节都不改（守边界，见下面的
- * 守卫断言）。
+ * #185 当时用「给隔离沙箱帧补本页 nonce」修掉了它（`pageHtml.ts` 里的 `srcdocNonceJs`）。
+ * **#188 起那份 CSP 本身去掉了**（用户拍板：装配页与官方页同处境，见 `docs/architecture.md`
+ * 的「webview CSP」一节），补 nonce 那层随之一起下线——它当年唯一的用处就是匹配我们自己那条
+ * `script-src`（理由写在 `pageHtml.ts` 原处）。
+ *
+ * 于是本套件按 #188 换口径：判**用户看到的结果**——帧内脚本照常执行、卡片按内容撑开、与官方页
+ * 同值、本页一个字节都不改插件写下的帧；「是否带 nonce」降级为**事实记录**（今天两侧都不带，
+ * 报告里逐条记清）。判据一条没删：原来那几条非正面的（同源帧 / 不带 `sandbox` 的帧不许被改、
+ * 改档之后不许留痕）换成同一件事的更严版本——**本页对所有帧的 `srcdoc` 都一个字节不动**，
+ * 那才是与官方页同处境的直接含义。
  *
  * ## 套件怎么判（三层，都不许写成「高度 > 0」那种橡皮图章）
  *
- * **① 机制层（自足）**：往两个页面里各插一个**同样的探针帧**——可见、
- * `sandbox="allow-scripts"`、`srcdoc` 里一个 500px 高的方块 + 一句上报内联脚本。判据：
- * 装配页上探针帧的 `srcdoc` 带上了本页 nonce（机制在场）、并且**真的上报了内容高度 500**
- * （脚本真的跑了）；官方页同一条上报 500（两侧同值）。另外两个守卫帧
- * （`allow-scripts allow-same-origin`、完全不带 `sandbox`）**不许**被打 nonce、也**不许**
- * 上报——这条把「只对隔离沙箱帧补 nonce、本页顶层脚本政策不放开」钉死，防止将来为了
- * 图省事把 `script-src` 整体放宽。
+ * **① 机制层（自足）**：往两个页面里各插**七档探针帧**——六档判「帧内脚本真的执行」，一档
+ * 判「帧里的内联事件属性真的响应」。判据：
+ *   - **两侧都没有 CSP meta**：本页那份是 #188 去掉的，官方页本来就没有（这一条从「我们知道
+ *     官方页没有」升级成对两侧的断言）；
+ *   - **六档探针帧的内联脚本全部执行**（各自上报内容高度 500，并逐帧与官方页同值 ±2px）：
+ *     改前只有两个隔离沙箱帧跑得起来，同源帧与不带 `sandbox` 的帧被本页 `script-src` 挡住——
+ *     这一组读数就是「CSP 走了」的可执行版本；
+ *   - **本页一个字节都不改第三方帧的 `srcdoc`**（逐帧与插件写下的那一份逐字相等）：改前六帧
+ *     全被打上本页 nonce（#185 的修法），现在与官方页一样原样不动；
+ *   - **帧里的内联事件属性（`onclick=`）真的响应**：点一下父页收到上报，官方页同样收到。这是
+ *     #188 里那一类「按 CSP 规则只能靠 `'unsafe-inline'` 放行、nonce/hash 对它无效」的差异；
+ *   - **远端资源不再被本页挡**（#186 里那条 F-09 的红就是它）：页面上挂一个非本机源的图片，
+ *     判「浏览器真的去发那条请求了」（改前 `img-src` 只放行 loopback 与 data:/blob:，请求根本
+ *     发不出去、页面上只多一条 CSP 违规）＋「全程零 CSP 违规」。
  *
  * **② 夹具卡层（自足，默认跑法里就覆盖用户报的那一层）**：见下面「夹具卡」那一节。
  *
@@ -42,8 +55,9 @@
  * 预览卡（两侧按 `iframe@sandbox` + 非空 `srcdoc` 认，按 `title` 配对），先让帧在**可见**
  * 状态下重新载入（先点开它所在的 `turn-process` 折叠组，再重写一次 `srcdoc` 属性——同一
  * 动作两侧各做一遍），然后逐卡比较：卡片高度 = 帧文档的内容高度（±2px）、卡片高度 =
- * 官方页那一份（±2px，两侧先按视口把卡片宽度调到一致，宽度不同内容高度本来就不同）、
- * 装配页那份的 `srcdoc` 带 nonce 而官方页那份不带。
+ * 官方页那一份（±2px，两侧先按视口把卡片宽度调到一致，宽度不同内容高度本来就不同）。
+ * 「装配页那份带 nonce 而官方页那份不带」当年是这一层的一条断言，#188 起降级为事实
+ * （并同时记下两侧 `srcdoc` 是否逐字相同）。
  *
  * **为什么真实卡片层只在外部实例模式跑**：那一层要当天网关上有 `@dsh-external/dsh-visualize`
  * 这类第三方插件渲染出来的卡片，而默认跑法的隔离实例里只有官方插件与我们的插件——它在那
@@ -59,11 +73,11 @@
  * 的 `src/shell.ts` 与 `src/client/VisualizeCard.tsx`，版本 0.1.2）。同形的关键点逐条列出：
  *
  * - **帧的沙箱声明**：`sandbox="allow-scripts"` 一个 token，不带 `allow-same-origin`
- *   ——正是本页补 nonce 覆盖的那一档（也是唯一能覆盖的档：同源帧不碰）。
+ *   ——正是这类卡片的写法（#196 那一维里也是本页当年唯一会补 nonce 的那一档）。
  * - **帧文档的形状**：自带一份 `<meta http-equiv="Content-Security-Policy">`（含
  *   `script-src 'unsafe-inline'`）、内联 `<style>`、内容片段，末尾一句内联 `<script>`。
- *   帧自己的 CSP 允许内联脚本，但**本页的 CSP 是继承进来一起判的**——这正是坏点所在，
- *   少了这份自带 CSP 就假不出真插件的处境。
+ *   帧自己那份 CSP 允许内联脚本，但**当年本页的 CSP 会继承进来一起判**——这正是坏点所在，
+ *   少了这份自带 CSP 就假不出真插件的处境（今天两侧都没有政策可违，这一份仍然照真插件写）。
  * - **帧内那句脚本**：`post()` 量 `document.documentElement.scrollHeight` 再
  *   `parent.postMessage({type:'dsh-visualize:height', token, height}, '*')`，并
  *   `new ResizeObserver(post).observe(document.documentElement)` + `addEventListener('load', post)`
@@ -77,7 +91,7 @@
  *   与真卡片同处一条布局链（对话区滚动体 + 我们外框的 flex 列）——不是插在一个与对话区
  *   无关的浮层里。
  * - **写 `srcdoc` 的路径**：`frame.setAttribute('srcdoc', …)`，与 React 渲染
- *   `srcDoc` 属性走的是同一条被补 nonce 补丁覆盖的路径。
+ *   `srcDoc` 属性走的是同一条路径。
  *
  * **为什么夹具的高度不随宽度变**：片段是一块固定高 600px 的方块（真插件的片段是图片，
  * 高度会随宽度变），所以两侧不必先对齐卡片宽度就能直接比高度——判据少一处抖动的来源，
@@ -89,34 +103,21 @@
  *
  * ## 再加上「两个属性谁先写」这一维（#196）
  *
- * 上面这条修法原来只在**写 `srcdoc` 那一刻**读一次 `sandbox`：先写 `sandbox`、后写
- * `srcdoc`（React 按 JSX 属性顺序渲染的结果，真插件与我们造的夹具卡都是这样）那一档读得到；
- * 插件**反过来写**的那一档，写 `srcdoc` 那一刻读到的 `sandbox` 还是 `null`，帧被当成
- * 「没沙箱的帧」放过——帧内脚本照旧被挡住、卡片又停回 48px。现在补这一次有三个落点（都汇到
- * 同一个复核，同一条判据）：写 `srcdoc` 的那一刻先判一次；那一刻还判不出来（`sandbox` 没来）
- * 就在这一轮任务结束时再判一次（同一个任务里写的 `sandbox` 那时已经在了）；帧挂在文档里时，
- * `sandbox` 的任何改动由盯这条属性的属性观察再复核一次（见 `src/ui/assembly/pageHtml.ts` 的
- * `srcdocNonceJs`）。
- *
- * 本套件把这一维也钉住，用的是同一批判据、只把写属性的顺序倒过来（顺带把「沙箱怎么写的」
- * 也覆盖全：正序那批走 `setAttribute`、倒序那批走令牌表 `frame.sandbox.add(...)`——两条
- * 写路径各有一档探针，修法里对应两处不同的时机）：
- *
- * - **机制层**多三个探针帧：一个隔离沙箱（`sandbox="allow-scripts"`）但**先写 `srcdoc`
- *   后写 `sandbox`**（沙箱那一笔走令牌表）——它也要被打上 nonce、也要上报内容高度 500；
- *   一个同源（`allow-scripts allow-same-origin`）的倒序探针——它同样**不许**被改、
- *   **不许**上报，用来钉「换了判据时机并没有放宽口径」；还有一个先按隔离档写（当场被补上
- *   nonce）、读数之后再**用令牌表**改成同源档——补上去的 nonce 那时候必须被摘回来
- *   （补一次的动作现在两个方向都会写：只许往隔离档补、不许在同源帧上留痕）。
- * - **夹具卡层**多一张**倒序卡**：同一段片段、同一句上报脚本、同一条父页协议、同一个挂载点，
- *   只有写属性的顺序不一样。它也要被打上 nonce、帧内脚本也要跑、卡片也要按内容撑开，
- *   **并且与顺序正常那张同高（±2px）**——写属性的顺序不该改变结果。
- *
- * **改前这一层必红**（负向对照读数见 README）：撤掉「sandbox 落地后回头补一次」那一段，
- * 倒序探针与倒序卡那几条当场红，顺序正常的那一批与两条守卫照旧绿。
+ * React 按 JSX 属性顺序渲染（`.tsx` 里 `sandbox` 写在 `srcDoc` 前面），插件也可能反过来写，
+ * 当年这两档在本页的命运不同（写 `srcdoc` 那一刻读到的 `sandbox` 还是 `null`，那一帧就漏补
+ * 了 nonce、卡片又停回 48px）。这一维**仍然全部覆盖**，只是判的东西跟着 #188 换了：
+ * 两种写属性顺序各有一档探针帧（倒序那一档的沙箱走令牌表 `frame.sandbox.add(...)`，只被属性
+ * 观察看得见——两条写路径各钉一档）＋夹具卡层一张倒序卡。它们要判的是**结果一样**：
+ * 都要挂进对话区、帧内脚本都要跑、都要按内容撑开、都不能停在 48px、都要与正序那张同高；
+ * 而「本页补没补 nonce」当年那条断言，今天与其它帧一样只作事实记录（本页对所有帧一个字节
+ * 都不改）。另有一帧先按隔离档写、读数之前再改用令牌表变成同源档——判据同样是「它的 `srcdoc`
+ * 一个字节没被动过」。
  *
  * **判据不许放宽的地方**：夹具卡那一层的每一条都是**无条件**断言——挂不上、帧不报、卡
  * 停在最小高度，都会红；「当天网关上没有这类卡片」这件事**不再**能让任何一条悄悄消失。
+ * #188 换口径时逐条核过：非正面的那几条（不许被改 / 不许留痕）换成了更严的一条
+ * （本页一个字节都不改任何帧的 `srcdoc`），正面那几条（脚本执行、卡片撑开、两侧同值）
+ * 一条没动，另新加了对两侧 CSP meta 与远端资源的判据。
  */
 import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
@@ -144,7 +145,7 @@ const VIEWPORT_HEIGHT = 900
 /** chat 装配页起手宽度（真实卡片层比高度前会按官方那一份校正，见 matchCardWidth）。 */
 const CHAT_START_WIDTH = 1050
 /** 本套件自己造的帧（探针帧 + 夹具卡）的 `title` 前缀：真实卡片层认卡片时要跳过它们。 */
-const LAB_FRAME_TITLE_PREFIXES = ['lab-185-', 'lab-193-', 'lab-196-'] as const
+const LAB_FRAME_TITLE_PREFIXES = ['lab-185-', 'lab-188-', 'lab-193-', 'lab-196-'] as const
 
 /** 一个帧是不是本套件自己造的（探针帧 / 夹具卡）。 */
 function isLabFrame(title: string | null): boolean {
@@ -162,72 +163,116 @@ type AttributeOrder = 'sandbox-first' | 'srcdoc-first'
 /** 沙箱怎么写（#196）：`attribute` 走 `setAttribute`（React 与普通 DOM 都走它），`tokenList` 走令牌表（`frame.sandbox.add(...)`，**不**经过 `setAttribute`）。 */
 type SandboxWrite = 'attribute' | 'tokenList'
 
+/** 这一档帧是干什么用的：`report` = 帧内内联脚本上报内容高度（判「脚本真的执行了」），`inline` = 帧里挂一句内联事件属性（`onclick=`）等一次点击。 */
+type ProbeKind = 'report' | 'inline'
+
+interface ProbeSpec {
+  name: string
+  sandbox: string | null
+  order: AttributeOrder
+  via: SandboxWrite
+  kind: ProbeKind
+}
+
 /**
- * 探针帧的六档（token 与 title 都按 name 派生，各帧各判各的）：两档隔离沙箱帧差两维——
- * 写属性的顺序（`srcdoc-first` 那一档用令牌表写沙箱，因此把「谁先写」与「沙箱怎么写的」
- * 两条写路径各钉一档），另三档是守卫（同源两种写属性顺序各一档、完全不带 `sandbox`）。
- * `sameOriginReversed` 这一档是 #196 新加的：判据换了时机之后，紧挨着隔离档的那个同源档
- * 同样不许被碰。另有一帧 `reclassified` 用来判「隔离档改成同源档」那条边（见 `runProbes`）。
+ * 探针帧的七档（token 与 title 都按 name 派生，各帧各判各的）。前六档判「帧内脚本真的执行」：
+ * 两档隔离沙箱帧差两维——写属性的顺序（`srcdoc-first` 那一档用令牌表写沙箱，因此把「谁先写」
+ * 与「沙箱怎么写的」两条写路径各钉一档），另三档是同源与不带 `sandbox` 的写法（#188 之前它们
+ * 的脚本被本页 `script-src` 挡住、今天照常执行——这正是这一轮要判的东西），再加一帧
+ * `reclassified`（先按隔离档写、读数之前改用令牌表变成同源档，判「本页一个字节都不改它」）。
+ * 最后一档 `inlineHandler` 判帧里的内联事件属性（#188 记的那一类差异）。
  */
-const PROBE_SPECS: readonly { name: string; sandbox: string | null; order: AttributeOrder; via: SandboxWrite }[] = [
-  { name: 'isolated', sandbox: 'allow-scripts', order: 'sandbox-first', via: 'attribute' },
-  { name: 'isolatedReversed', sandbox: 'allow-scripts', order: 'srcdoc-first', via: 'tokenList' },
-  { name: 'sameOrigin', sandbox: 'allow-scripts allow-same-origin', order: 'sandbox-first', via: 'attribute' },
-  { name: 'sameOriginReversed', sandbox: 'allow-scripts allow-same-origin', order: 'srcdoc-first', via: 'tokenList' },
-  { name: 'bare', sandbox: null, order: 'sandbox-first', via: 'attribute' },
-  { name: 'reclassified', sandbox: 'allow-scripts', order: 'sandbox-first', via: 'attribute' },
+const PROBE_SPECS: readonly ProbeSpec[] = [
+  { name: 'isolated', sandbox: 'allow-scripts', order: 'sandbox-first', via: 'attribute', kind: 'report' },
+  { name: 'isolatedReversed', sandbox: 'allow-scripts', order: 'srcdoc-first', via: 'tokenList', kind: 'report' },
+  { name: 'sameOrigin', sandbox: 'allow-scripts allow-same-origin', order: 'sandbox-first', via: 'attribute', kind: 'report' },
+  { name: 'sameOriginReversed', sandbox: 'allow-scripts allow-same-origin', order: 'srcdoc-first', via: 'tokenList', kind: 'report' },
+  { name: 'bare', sandbox: null, order: 'sandbox-first', via: 'attribute', kind: 'report' },
+  { name: 'reclassified', sandbox: 'allow-scripts', order: 'sandbox-first', via: 'attribute', kind: 'report' },
+  { name: 'inlineHandler', sandbox: 'allow-scripts', order: 'sandbox-first', via: 'attribute', kind: 'inline' },
 ]
 
-/** 那一帧（`reclassified`）会被改成同源档，用来判「补上去的 nonce 要摘回来」。 */
+/** 判「帧内脚本真的执行」的那六帧（`report` 档）。 */
+const REPORT_PROBES = PROBE_SPECS.filter((spec) => spec.kind === 'report')
+/** 那一帧（`reclassified`）会被改成同源档：读数之前换档，判它的 `srcdoc` 有没有被动过。 */
 const RECLASSIFIED_PROBE = 'lab-185-reclassified'
+/** 内联事件属性那一帧（#188）的按钮 id 与上报类型。 */
+const INLINE_PROBE = 'lab-188-inlineHandler'
+const INLINE_BUTTON_ID = 'lab-188-go'
+const INLINE_MESSAGE_TYPE = 'lab-188'
+/** 远端资源探针用的地址：`.invalid` 顶级域保证解析不出来，只判「请求有没有发出去」。 */
+const REMOTE_RESOURCE_URL = 'https://lab-188.invalid/lab-188.png'
+const REMOTE_RESOURCE_ID = 'lab-188-remote-image'
 /** 探针帧的内容高度（判据按它算，不写「> 0」）。 */
 const PROBE_CONTENT_HEIGHT = 500
 
 /**
- * 一个探针帧的 srcdoc：500px 的方块 + 一句量高上报的内联脚本。
- * token 按帧名派生，父页就能分开判「哪一帧上报了」。
+ * 一个探针帧的 srcdoc。`report` 档 = 500px 的方块 + 一句量高上报的内联脚本（token 按帧名
+ * 派生，父页就能分开判「哪一帧上报了」）；`inline` 档 = 与真插件同形的一份帧文档（自带一份
+ * 允许内联脚本的 CSP meta）+ 一个只靠内联事件属性 `onclick=` 反应的按钮。
  */
-function probeSrcdoc(name: string): string {
+function probeSrcdoc(spec: ProbeSpec): string {
+  if (spec.kind === 'inline') {
+    return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data: blob:">
+<title>lab-188 inline handler</title></head>
+<body style="margin:0"><button id="${INLINE_BUTTON_ID}" style="width:120px;height:40px" onclick="parent.postMessage({type:'${INLINE_MESSAGE_TYPE}',token:'${INLINE_PROBE}'},'*')">go</button></body></html>`
+  }
   return (
     `<body style="margin:0"><div style="width:120px;height:${String(PROBE_CONTENT_HEIGHT)}px;background:#345"></div>` +
-    `<script>parent.postMessage({type:"lab-185",token:"lab-185-${name}",height:document.documentElement.scrollHeight},"*")<\/script></body>`
+    `<script>parent.postMessage({type:"lab-185",token:"lab-185-${spec.name}",height:document.documentElement.scrollHeight},"*")<\/script></body>`
   )
 }
 
 interface ProbeResult {
-  /** 各探针帧的 srcdoc 里有没有本页 nonce。 */
+  /** 各探针帧的 `srcdoc` 有没有被动过（与插件写下的那一份逐字相等 = false）。 */
+  rewrote: Record<string, boolean>
+  /** 各探针帧的 `srcdoc` 里有没有带 `nonce=`（#188 起只作事实记录：本页不再补 nonce）。 */
   stamped: Record<string, boolean>
   /** 各探针帧上报的内容高度（没上报就是 -1）。 */
   reported: Record<string, number>
-  /** 本页 CSP meta 里的 nonce（没有 CSP 时为 null）。 */
-  pageNonce: string | null
+  /** 内联事件属性那一帧被点之后父页收到的上报条数（0 = 没响应）。 */
+  inlineReports: number
+  /** 本页有没有 CSP meta（`content` 原文；空串 = 没有）。 */
+  cspMeta: string
 }
 
 /**
- * 往页面里插六个探针帧（#185 三档 + #196 两档 + 一档「隔离改成同源」）：隔离沙箱的两档
- * （`isolated` / `isolatedReversed`：`sandbox="allow-scripts"`，前者按「先 sandbox 后
- * srcdoc + `setAttribute`」写、后者按「先 srcdoc 后 sandbox + 令牌表」写，两维各钉一档）、
- * 同源的两档（`sameOrigin` / `sameOriginReversed`：`allow-scripts allow-same-origin`）、
- * `bare`（完全不带 `sandbox`）与 `reclassified`（先按隔离档写、读一遍读数之后再**用令牌表**
- * 改成同源档，判「补上去的 nonce 有没有摘回来」）。
+ * 往页面里插七档探针帧并读回读数（#185 三档 + #196 两档 + #188 一档内联事件属性）：
+ * 隔离沙箱的两档（`isolated` / `isolatedReversed`：`sandbox="allow-scripts"`，前者按
+ * 「先 sandbox 后 srcdoc + `setAttribute`」写、后者按「先 srcdoc 后 sandbox + 令牌表」写，
+ * 两维各钉一档）、同源的两档（`sameOrigin` / `sameOriginReversed`：`allow-scripts
+ * allow-same-origin`）、`bare`（完全不带 `sandbox`）、`reclassified`（先按隔离档写、读数之前
+ * **用令牌表**改成同源档，判「本页有没有动它的 `srcdoc`」）与 `inlineHandler`（帧里挂一句
+ * `onclick=`）。
  *
- * 六个都插在**固定定位、可见**的容器里——帧的撑高协议只在载入那一刻量一次，藏在
+ * 七帧都插在**固定定位、可见**的容器里——帧的撑高协议只在载入那一刻量一次，藏在
  * 折叠内容里的帧量到的是 0（见文件头），所以探针必须是载入即可见的。属性都写在**挂进
  * 文档之前**（`make` 里写完才 `appendChild`），插件先建节点再插进去时就是这么走的。
+ *
+ * 分三步走（安装 → 点那一帧的内联事件属性 → 读回）：`inlineHandler` 是**不透明来源**的
+ * 沙箱帧，页面自己的脚本碰不到它的 DOM（没有 `allow-same-origin`），所以那一下必须由
+ * Playwright 从外面点进去。
  */
 async function runProbes(page: OpenedPage['page']): Promise<ProbeResult> {
-  return page.evaluate(async (probes) => {
+  await page.evaluate(async (probes) => {
+    type Store = { heights: Map<string, number>; inlineReports: number }
+    const store: Store = { heights: new Map(), inlineReports: 0 }
+    ;(globalThis as unknown as { __LAB_188__?: Store }).__LAB_188__ = store
+    window.addEventListener('message', (event) => {
+      const data = event.data as { type?: string; token?: string; height?: number } | null
+      if (data === null || typeof data !== 'object') return
+      if (data.type === 'lab-185' && typeof data.height === 'number') {
+        store.heights.set(String(data.token), data.height)
+        return
+      }
+      if (data.type === 'lab-188') store.inlineReports += 1
+    })
     const holder = document.createElement('div')
     holder.id = 'lab-185-probes'
     holder.style.cssText = 'position:fixed;left:0;bottom:0;width:200px;z-index:2147483000'
     document.body.appendChild(holder)
-    const heights = new Map<string, number>()
-    window.addEventListener('message', (event) => {
-      const data = event.data as { type?: string; token?: string; height?: number } | null
-      if (data === null || typeof data !== 'object') return
-      if (data.type !== 'lab-185' || typeof data.height !== 'number') return
-      heights.set(String(data.token), data.height)
-    })
     const make = (probe: { name: string; sandbox: string | null; order: string; via: string; srcdoc: string }): void => {
       const frame = document.createElement('iframe')
       frame.setAttribute('title', probe.name)
@@ -235,7 +280,7 @@ async function runProbes(page: OpenedPage['page']): Promise<ProbeResult> {
       const sandbox = (): void => {
         if (probe.sandbox === null) return
         // 沙箱怎么写的也是两条不同的路径，各有一档探针：`setAttribute`（React 与普通 DOM 都走它）
-        // 与令牌表 `frame.sandbox.add(...)`（不走 `setAttribute`，只有属性观察看得见）。
+        // 与令牌表 `frame.sandbox.add(...)`（不走 `setAttribute`）。
         if (probe.via === 'tokenList') {
           for (const token of probe.sandbox.split(' ')) frame.sandbox.add(token)
         } else {
@@ -257,33 +302,122 @@ async function runProbes(page: OpenedPage['page']): Promise<ProbeResult> {
     }
     for (const probe of probes.frames) make(probe)
     await new Promise((resolve) => setTimeout(resolve, 2500))
-    // 那一帧从隔离档改成同源档：补上去的 nonce 这时候要摘掉（边界两侧都不留痕）。
-    // 用令牌表改（不走 `setAttribute`）——这一档只有「盯 sandbox 属性的属性观察」看得见。
+    // 那一帧从隔离档改成同源档：本页仍然一个字节都不许动它的 `srcdoc`。用令牌表改
+    // （不走 `setAttribute`）——这一档是「最容易被误伤」的那一种（属性后写、节点已挂上）。
     const reclassifiedFrame = holder.querySelector(`iframe[title="${probes.reclassified}"]`)
     if (reclassifiedFrame instanceof HTMLIFrameElement) reclassifiedFrame.sandbox.add('allow-same-origin')
-    await new Promise((resolve) => setTimeout(resolve, 500))
-    const meta = document.querySelector('meta[http-equiv="Content-Security-Policy"]')?.getAttribute('content') ?? ''
-    const nonce = /'nonce-([^']+)'/.exec(meta)?.[1] ?? null
-    const stamped: Record<string, boolean> = {}
-    const reported: Record<string, number> = {}
-    for (const probe of probes.frames) {
-      const frame = holder.querySelector(`iframe[title="${probe.name}"]`)
-      const srcdoc = frame?.getAttribute('srcdoc') ?? ''
-      stamped[probe.name] = nonce !== null && srcdoc.includes(`nonce="${nonce}"`)
-      reported[probe.name] = heights.get(probe.token) ?? -1
-    }
-    return { stamped, reported, pageNonce: nonce }
+    await new Promise((resolve) => setTimeout(resolve, 400))
   }, {
     reclassified: RECLASSIFIED_PROBE,
     frames: PROBE_SPECS.map((spec) => ({
       name: `lab-185-${spec.name}`,
-      token: `lab-185-${spec.name}`,
       sandbox: spec.sandbox,
       order: spec.order,
       via: spec.via,
-      srcdoc: probeSrcdoc(spec.name),
+      srcdoc: probeSrcdoc(spec),
     })),
   })
+  // 点那一帧自己的按钮：帧是不透明来源，只有从外面点得进去。点不到（帧没挂上 / 按钮不在）
+  // 不让这一步抛错——读回来的 `inlineReports` 就是结论，由断言判红。
+  await page
+    .frameLocator(`iframe[title="lab-185-inlineHandler"]`)
+    .locator(`#${INLINE_BUTTON_ID}`)
+    .click({ timeout: 5_000 })
+    .catch(() => undefined)
+  await page.waitForTimeout(600)
+  return page.evaluate((probes) => {
+    type Store = { heights: Map<string, number>; inlineReports: number }
+    const store = (globalThis as unknown as { __LAB_188__?: Store }).__LAB_188__
+    const holder = document.querySelector('#lab-185-probes')
+    const rewrote: Record<string, boolean> = {}
+    const stamped: Record<string, boolean> = {}
+    const reported: Record<string, number> = {}
+    for (const probe of probes.frames) {
+      const frame = holder?.querySelector(`iframe[title="${probe.name}"]`) ?? null
+      const srcdoc = frame?.getAttribute('srcdoc') ?? ''
+      rewrote[probe.name] = srcdoc !== probe.expected
+      stamped[probe.name] = srcdoc.includes('nonce=')
+      reported[probe.name] = store?.heights.get(probe.token) ?? -1
+    }
+    return {
+      rewrote,
+      stamped,
+      reported,
+      inlineReports: store?.inlineReports ?? 0,
+      cspMeta: document.querySelector('meta[http-equiv="Content-Security-Policy"]')?.getAttribute('content') ?? '',
+    }
+  }, {
+    frames: PROBE_SPECS.map((spec) => ({
+      name: `lab-185-${spec.name}`,
+      token: `lab-185-${spec.name}`,
+      expected: probeSrcdoc(spec),
+    })),
+  })
+}
+
+/** 一次远端资源探针的读数。 */
+interface ResourceProbeReading {
+  /** 浏览器有没有真的去发那条请求（有请求事件或失败事件 = 发过）。 */
+  attempted: boolean
+  /** 这条请求最终有没有拿到响应（加载成不成功只看网络，记事实用）。 */
+  responded: boolean
+  /** 探针挂上去之后这一页新出现的 CSP 违规条数（没 CSP 就是 0）。 */
+  violations: number
+}
+
+/** 数一份页面捕获里与控制台 CSP 违规有关的行（`capturePage` 存的是逐行文本）。 */
+function cspViolationLines(capture: { all: string[] }): string[] {
+  return capture.all.filter((line) => /content security policy/i.test(line))
+}
+
+/**
+ * 远端资源探针（#188 的另一类差异）：往页面上挂一个**非本机源**的图片
+ * （`https://lab-188.invalid/…`，`.invalid` 顶级域保证解析不出来），判两件事——
+ * ① 浏览器**真的去发这条请求**了（有 `request` 或 `requestfailed` 事件）：#188 之前本页的
+ * `img-src` 只放行 loopback 与 `data:` / `blob:`，这条请求根本发不出去，页面上只多一条
+ * CSP 违规（#186 里那条 F-09 的红就是同一个成因）；② 探针挂上去之后**零 CSP 违规**。
+ * 图片最终加载成不成功不看（那取决于这台机器有没有网），只记事实。
+ */
+async function runResourceProbe(
+  page: OpenedPage['page'],
+  capture: { all: string[] },
+): Promise<ResourceProbeReading> {
+  const before = cspViolationLines(capture).length
+  let attempted = false
+  let responded = false
+  const onRequest = (request: { url(): string }): void => {
+    if (request.url() === REMOTE_RESOURCE_URL) attempted = true
+  }
+  const onResponse = (response: { url(): string }): void => {
+    if (response.url() === REMOTE_RESOURCE_URL) responded = true
+  }
+  const onFailed = (request: { url(): string }): void => {
+    if (request.url() === REMOTE_RESOURCE_URL) attempted = true
+  }
+  page.on('request', onRequest)
+  page.on('response', onResponse)
+  page.on('requestfailed', onFailed)
+  try {
+    await page.evaluate((spec) => {
+      const holder = document.createElement('div')
+      holder.id = 'lab-188-remote-holder'
+      holder.style.cssText = 'position:fixed;right:0;bottom:0;width:8px;height:8px;z-index:2147483000'
+      const image = document.createElement('img')
+      image.id = spec.id
+      image.width = 8
+      image.height = 8
+      image.src = spec.url
+      holder.appendChild(image)
+      document.body.appendChild(holder)
+    }, { id: REMOTE_RESOURCE_ID, url: REMOTE_RESOURCE_URL })
+    await page.waitForTimeout(1_500)
+  } finally {
+    page.off('request', onRequest)
+    page.off('response', onResponse)
+    page.off('requestfailed', onFailed)
+    await page.evaluate((id) => document.getElementById(id)?.remove(), 'lab-188-remote-holder').catch(() => undefined)
+  }
+  return { attempted, responded, violations: cspViolationLines(capture).length - before }
 }
 
 // ---------------------------------------------------------------------------
@@ -373,7 +507,9 @@ interface FixtureCardReading {
   contentHeight: number
   /** 父页收到的量高上报（≥1 条 = 帧内联脚本真的执行了）。 */
   reports: number[]
-  /** 卡片帧的 `srcdoc` 里有没有本页 nonce。 */
+  /** 卡片帧的 `srcdoc` 原文（判「本页有没有动过它」用：与夹具写下的那一份逐字比）。 */
+  srcdoc: string
+  /** 卡片帧的 `srcdoc` 里有没有 `nonce=`（#188 起只作事实记录：本页不再补 nonce）。 */
   stamped: boolean
   /** 卡片帧的 `sandbox` 取值（真插件就是 `allow-scripts` 一个 token）。 */
   sandbox: string | null
@@ -517,6 +653,7 @@ async function readFixtureCard(page: OpenedPage['page'], variant: CardVariant): 
       height: rect === null ? -1 : Math.round(rect.height * 100) / 100,
       width: rect === null ? -1 : Math.round(rect.width * 100) / 100,
       reports: [...reports],
+      srcdoc,
       stamped: srcdoc.includes('nonce='),
       sandbox: frame?.getAttribute('sandbox') ?? null,
       title: frame?.getAttribute('title') ?? '',
@@ -549,10 +686,11 @@ interface CardReading {
   contentHeight: number
   /** 卡片帧的 srcdoc 里有没有 nonce。 */
   stamped: boolean
+  /** 卡片帧的 srcdoc 原文（判「本页有没有动它」与两侧逐字比对用）。 */
+  srcdoc: string
   /** 卡片此刻还挂在折叠内容里没有。 */
   hidden: boolean
 }
-
 /** 页面上所有 HTML 预览卡（`iframe` + 非空 `srcdoc`），连同每张卡的帧内容高度。 */
 async function readCards(page: OpenedPage['page']): Promise<CardReading[]> {
   const dom = await page.evaluate((labPrefixes) =>
@@ -568,11 +706,13 @@ async function readCards(page: OpenedPage['page']): Promise<CardReading[]> {
           if (node.hasAttribute('hidden')) hidden = true
           node = node.parentElement
         }
+        const srcdoc = frame.getAttribute('srcdoc') ?? ''
         return {
           title: frame.getAttribute('title') ?? '',
           height: Math.round(rect.height * 100) / 100,
           width: Math.round(rect.width * 100) / 100,
-          stamped: (frame.getAttribute('srcdoc') ?? '').includes('nonce='),
+          stamped: srcdoc.includes('nonce='),
+          srcdoc,
           hidden,
         }
       }),
@@ -660,9 +800,9 @@ async function matchCardWidth(page: OpenedPage['page'], target: number): Promise
 export const HTML_PREVIEW_HEIGHT_SUITE: LabSuite = {
   id: 'F-59',
   phase: 'new-feature',
-  name: 'HTML 预览卡（沙箱 srcdoc 帧）在装配页里按内容撑开，与官方页那一份同值（HTML-PREVIEW-HEIGHT 套件）',
+  name: 'HTML 预览卡（沙箱 srcdoc 帧）在装配页里的处境与官方页一致：帧内脚本照常执行、卡片按内容撑开、本页不挡远端资源（HTML-PREVIEW-HEIGHT 套件）',
   expect:
-    '真网关 + 假宿主（默认跑法是实验室自起的隔离实例）。① **机制层（自足）**：装配页与官方网关页各插一个**同样的、载入即可见的**探针帧（`sandbox="allow-scripts"` + `srcdoc` 里 500px 内容 + 一句量高上报的内联脚本）——装配页上它的 `srcdoc` 带上了本页 CSP 的 nonce（页面的 `srcdoc` 补 nonce 机制在场）、并且真的上报了内容高度 500（帧内内联脚本真的执行了，这正是 #185 的坏点：修前这里一条上报都没有）；官方页那一条上报同样是 500（两侧同值）。另两个守卫帧（`allow-scripts allow-same-origin`、完全不带 `sandbox`）**不许**被打 nonce、也**不许**上报——「只给隔离沙箱帧补 nonce、本页 `script-src` 不放开」这条边界被钉住。#196 再加两帧：同一档隔离沙箱帧但**先写 `srcdoc`、后写 `sandbox`**——它同样要被补上 nonce、同样要上报 500（改前这一帧不被补、也不上报，卡片就是这么又停回 48px 的）；同源的守卫帧两种写属性顺序各一帧，都不许被改、不许上报（判据换了时机也没放宽）；另有一帧先按隔离档写（当场被补上 nonce）、读数之后再改成同源档——那时补上去的 nonce 必须被摘回来，`srcdoc` 还原成插件写的那一份。② **夹具卡层（自足，覆盖用户报的那一层）**：两侧的官方对话区里各挂一张**与 `@dsh-external/dsh-visualize` 同形**的夹具卡（挂在 `[data-conversation-scroll]` 的 `conversation.session` 座位上；`iframe sandbox="allow-scripts"`、帧文档自带一份含 `unsafe-inline` 的 CSP meta、帧内一句量 `documentElement.scrollHeight` 再 `parent.postMessage` 的上报脚本、父页侧高度从插件最小高度 48px 起、只有收到对得上的上报才涨）。判据：装配页那份的 `srcdoc` 带上本页 nonce（机制在场）、帧内脚本真的执行了（父页收到上报）、帧文档渲染出完整内容（内容高度 = 夹具自己声明的 608px）、**卡片高度 ≥ 帧内容高度（±2px）**（#185 的用户判据）、**卡片没有停在 48px 最小高度上**（#185 的具体坏法）、装配页那一份与官方页那一份**同高（±2px）**、官方页那份的 `srcdoc` 一个字节没被改（官方页没有 CSP，不需要补）。这一层的每一条都是无条件断言——挂不上、帧不报、卡停住都判红，不再随当天网关有没有真实卡片而增减。#196 在同一处再挂一张**倒序卡**（同一段片段、同一句上报脚本、同一条父页协议、同一个挂载点，只把写属性的顺序倒过来：先 `srcdoc` 后 `sandbox`）：它也要挂进对话区、也要被补上 nonce、帧内脚本也要跑、也要按内容撑开、也不能停在 48px、**并且与正序那张同高（±2px）**，官方页那份同样一个字节没被改。③ **真实卡片层（只在 `--gateway` 连外部实例时跑）**：两侧的 HTML 预览卡（按 `iframe` + 非空 `srcdoc` 认、按 `title` 配对）先点开所在的折叠组、再让帧在可见状态下重载一次（同一动作两侧各做一遍），然后逐卡判：卡片高度 = 帧文档内容高度（±2px）、卡片高度 = 官方页那一份（±2px，两侧先按视口把卡片宽度调到一致，宽度对不上时记事实并跳过这一条）、装配页那份的 `srcdoc` 带 nonce 而官方页那份不带。默认跑法（自起隔离实例）里没有第三方插件的卡片，这一层如实记一条事实说明只在外部实例模式跑（#193）。全程零 pageerror。',
+    '真网关 + 假宿主（默认跑法是实验室自起的隔离实例）。① **机制层（自足）**：装配页与官方网关页各插七档**载入即可见**的探针帧——六档判「帧内脚本真的执行」（隔离沙箱两档 `sandbox="allow-scripts"`；同源两档 `allow-scripts allow-same-origin`；一档完全不带 `sandbox`；一档先按隔离档写、读数之前改用令牌表变成同源档），一档判「帧里的内联事件属性真的响应」。判据：**两侧都没有 CSP meta**（本页那份是 #188 去掉的、官方页本来就没有）；**六档探针帧的内联脚本全部执行**（各自上报内容高度 500，并逐帧与官方页同值 ±2px——#188 之前只有两个隔离沙箱帧跑得起来，同源帧与不带 `sandbox` 的帧被本页 `script-src` 挡住）；**本页一个字节都不改第三方帧的 `srcdoc`**（逐帧与插件写下的那一份逐字相等——#188 之前六帧全被打上本页 nonce）；**帧里的内联事件属性（`onclick=`）点一下父页就收到上报**（官方页同样收到）——#188 里那一类「按 CSP 规则只能靠 `\'unsafe-inline\'` 放行、nonce/hash 对它无效」的差异；**远端资源不再被本页挡**：页面上挂一个非本机源的图片，浏览器真的去发那条请求（#188 之前 `img-src` 只放行 loopback 与 data:/blob:，请求根本发不出去、页面上只多一条 CSP 违规），且这一步零 CSP 违规。「是否带 nonce」一律如实记成事实（今天两侧都不带）。② **夹具卡层（自足，覆盖用户报的那一层）**：两侧的官方对话区里各挂一张**与 `@dsh-external/dsh-visualize` 同形**的夹具卡（挂在 `[data-conversation-scroll]` 的 `conversation.session` 座位上；`iframe sandbox="allow-scripts"`、帧文档自带一份含 `unsafe-inline` 的 CSP meta、帧内一句量 `documentElement.scrollHeight` 再 `parent.postMessage` 的上报脚本、父页侧高度从插件最小高度 48px 起、只有收到对得上的上报才涨）。判据：帧内脚本真的执行了（父页收到上报）、帧文档渲染出完整内容（内容高度 = 夹具自己声明的 608px）、**卡片高度 ≥ 帧内容高度（±2px）**（#185 的用户判据）、**卡片没有停在 48px 最小高度上**（#185 的具体坏法）、装配页那一份与官方页那一份**同高（±2px）**、**本页一个字节都没改这张卡的 `srcdoc`**（与夹具写下的那一份逐字相等——#188 之前它被打上了本页 nonce）、官方页那份的 `srcdoc` 一个字节没被改。这一层的每一条都是无条件断言——挂不上、帧不报、卡停住都判红，不再随当天网关有没有真实卡片而增减。#196 在同一处再挂一张**倒序卡**（同一段片段、同一句上报脚本、同一条父页协议、同一个挂载点，只把写属性的顺序倒过来：先 `srcdoc` 后 `sandbox`）：它也要挂进对话区、帧内脚本也要跑、也要按内容撑开、也不能停在 48px、**并且与正序那张同高（±2px）**、它的 `srcdoc` 同样一个字节没被改（写属性的顺序不该改变结果）③ **真实卡片层（只在 `--gateway` 连外部实例时跑）**：两侧的 HTML 预览卡（按 `iframe` + 非空 `srcdoc` 认、按 `title` 配对）先点开所在的折叠组、再让帧在可见状态下重载一次（同一动作两侧各做一遍），然后逐卡判：卡片高度 = 帧文档内容高度（±2px）、卡片高度 = 官方页那一份（±2px，两侧先按视口把卡片宽度调到一致，宽度对不上时记事实并跳过这一条）；两侧那份 `srcdoc` 带不带 nonce、是否逐字相同如实记成事实（#188 起本页不再补 nonce）。默认跑法（自起隔离实例）里没有第三方插件的卡片，这一层如实记一条事实说明只在外部实例模式跑（#193）。全程零 pageerror。',
   run: async (ctx, check) => {
     const hunt = ctx.lab.external === true
     const candidates = await listSessions(ctx.lab.gateway)
@@ -697,64 +837,79 @@ export const HTML_PREVIEW_HEIGHT_SUITE: LabSuite = {
       await officialPage.goto(`${ctx.lab.origin}/official`, { waitUntil: 'domcontentloaded' })
       await officialPage.waitForTimeout(9_000)
 
-      // ---- ① 机制层：探针帧 ----
+      // ---- ① 机制层：七档探针帧 ----
+      const probeNames = REPORT_PROBES.map((spec) => `lab-185-${spec.name}`)
       const chatProbe = await runProbes(page)
       const officialProbe = await runProbes(officialPage)
       check.fact(
-        `装配页 CSP nonce=${chatProbe.pageNonce === null ? '（没有 CSP meta）' : '在场'}；` +
-          `探针 srcdoc 带 nonce：${JSON.stringify(chatProbe.stamped)}；` +
-          `官方页探针 srcdoc 带 nonce：${JSON.stringify(officialProbe.stamped)}`,
+        `装配页 CSP meta=${chatProbe.cspMeta === '' ? '（没有，与官方页一致）' : chatProbe.cspMeta}；` +
+          `官方页 CSP meta=${officialProbe.cspMeta === '' ? '（没有）' : officialProbe.cspMeta}`,
+      )
+      check.fact(
+        `探针帧的 srcdoc 带 nonce：装配页 ${JSON.stringify(chatProbe.stamped)}、官方页 ${JSON.stringify(officialProbe.stamped)}；` +
+          `内联事件属性那一帧收到的上报：装配页 ${String(chatProbe.inlineReports)} 条、官方页 ${String(officialProbe.inlineReports)} 条`,
       )
       check.ok(
-        '装配页：给了沙箱（allow-scripts、无 allow-same-origin）的 srcdoc 帧被打上本页 nonce',
-        chatProbe.pageNonce !== null && chatProbe.stamped['lab-185-isolated'] === true,
-        JSON.stringify(chatProbe.stamped),
-      )
-      const chatProbeHeight = chatProbe.reported['lab-185-isolated'] ?? -1
-      const officialProbeHeight = officialProbe.reported['lab-185-isolated'] ?? -1
-      check.ok(
-        '装配页：探针帧的内联脚本真的跑了（上报了内容高度，不是被 CSP 挡住）',
-        chatProbeHeight >= PROBE_CONTENT_HEIGHT - 2,
-        `上报 ${String(chatProbeHeight)}（期望 ≥ ${String(PROBE_CONTENT_HEIGHT - 2)}，修前这里是 -1：一条上报都没有）`,
+        '① 装配页没有 CSP meta（#188 去掉的就是它；与官方页一致）',
+        chatProbe.cspMeta === '',
+        `读到 ${JSON.stringify(chatProbe.cspMeta)}`,
       )
       check.ok(
-        '官方页：同一条探针上报同样的内容高度（两侧同值）',
-        officialProbeHeight >= PROBE_CONTENT_HEIGHT - 2 && Math.abs(officialProbeHeight - chatProbeHeight) <= 2,
-        `装配页 ${String(chatProbeHeight)}、官方页 ${String(officialProbeHeight)}`,
+        '① 官方页同样没有 CSP meta（两侧同处境，这一条是基准）',
+        officialProbe.cspMeta === '',
+        `读到 ${JSON.stringify(officialProbe.cspMeta)}`,
       )
-      // #196：同一档隔离沙箱帧，只把写属性的顺序倒过来（先 srcdoc 后 sandbox），而且沙箱那一笔
-      // 走令牌表（`frame.sandbox.add`，与 `setAttribute` 是两条不同的写路径——两条都要覆盖）。
+      const probesExecuted = probeNames.filter((name) => (chatProbe.reported[name] ?? -1) >= PROBE_CONTENT_HEIGHT - 2)
       check.ok(
-        '装配页：先写 `srcdoc`、后写 `sandbox` 的隔离沙箱帧（沙箱走令牌表那一档），`sandbox` 落地后也补上了本页 nonce（#196 的负向对照）',
-        chatProbe.stamped['lab-185-isolatedReversed'] === true,
-        `倒序那一帧带 nonce=${String(chatProbe.stamped['lab-185-isolatedReversed'])}（改前这里是 false：写 srcdoc 那一刻读到的 sandbox 还是 null）`,
+        '① 六档探针帧的内联脚本全部执行（各自上报内容高度 500；改前只有两个隔离沙箱帧跑得起来）',
+        probesExecuted.length === probeNames.length,
+        `跑起来的 ${String(probesExecuted.length)}/${String(probeNames.length)} 帧：${JSON.stringify(chatProbe.reported)}`,
       )
-      const chatReversedProbeHeight = chatProbe.reported['lab-185-isolatedReversed'] ?? -1
-      check.ok(
-        '装配页：倒序那一帧的内联脚本照常执行（上报了内容高度，与正序那一帧同值）',
-        chatReversedProbeHeight >= PROBE_CONTENT_HEIGHT - 2 && Math.abs(chatReversedProbeHeight - chatProbeHeight) <= 2,
-        `倒序（令牌表写沙箱）${String(chatReversedProbeHeight)}、正序 ${String(chatProbeHeight)}（期望都 ≥ ${String(PROBE_CONTENT_HEIGHT - 2)}，改前倒序这里是 -1）`,
+      const probeParity = probeNames.filter(
+        (name) => Math.abs((officialProbe.reported[name] ?? -1) - (chatProbe.reported[name] ?? -1)) <= 2,
       )
       check.ok(
-        '守卫：同源（allow-same-origin）的 srcdoc 帧一个字节都没被改——两种写属性顺序各一帧',
-        chatProbe.stamped['lab-185-sameOrigin'] === false && chatProbe.stamped['lab-185-sameOriginReversed'] === false,
-        JSON.stringify(chatProbe.stamped),
+        '① 逐帧与官方页同值（±2px；官方页那一条基准也在，说明这些帧在两侧都真的执行了）',
+        probeParity.length === probeNames.length,
+        `装配页 ${JSON.stringify(chatProbe.reported)}、官方页 ${JSON.stringify(officialProbe.reported)}`,
+      )
+      const rewrittenProbes = probeNames.filter((name) => chatProbe.rewrote[name] !== false)
+      check.ok(
+        '① 本页一个字节都不改第三方帧的 `srcdoc`（逐帧与插件写下的那一份逐字相等；#188 之前六帧全被打上本页 nonce）',
+        rewrittenProbes.length === 0,
+        `被动过的帧 ${JSON.stringify(rewrittenProbes)}；带 nonce 的读数 ${JSON.stringify(chatProbe.stamped)}`,
       )
       check.ok(
-        '守卫：不带 sandbox 的 srcdoc 帧一个字节都没被改',
-        chatProbe.stamped['lab-185-bare'] === false,
-        JSON.stringify(chatProbe.stamped),
-      )
-      const guardedProbes = ['lab-185-sameOrigin', 'lab-185-sameOriginReversed', 'lab-185-bare']
-      check.ok(
-        '守卫：这几类帧的内联脚本照旧被挡住（各自都没上报）——本页顶层 script-src 没被放宽',
-        guardedProbes.every((name) => (chatProbe.reported[name] ?? -1) === -1),
-        `六帧各自上报的高度 ${JSON.stringify(chatProbe.reported)}（只有两个隔离沙箱帧该有值）`,
+        '① 帧里的内联事件属性（`onclick=`）点一下父页真的收到上报（「只能靠 unsafe-inline 放行」那一类差异）',
+        chatProbe.inlineReports >= 1,
+        `装配页收到 ${String(chatProbe.inlineReports)} 条（#188 之前是 0：本页 CSP 不给 unsafe-inline，内联事件属性一律不执行）`,
       )
       check.ok(
-        '守卫：帧从隔离档改成同源档之后（改档那一笔走令牌表），补上去的 nonce 被摘掉了（`srcdoc` 还原成插件写的那一份）',
-        chatProbe.stamped[RECLASSIFIED_PROBE] === false,
-        `改档之后带 nonce=${String(chatProbe.stamped[RECLASSIFIED_PROBE])}（改前这里是 true：补上去的 nonce 会留在已经变成同源的帧上）`,
+        '① 官方页那一帧同样响应（两侧同处境）',
+        officialProbe.inlineReports >= 1,
+        `官方页收到 ${String(officialProbe.inlineReports)} 条`,
+      )
+      // 远端资源：两个页面各挂一个非本机源的图片（#186 里那条 F-09 的红就是这个成因）。
+      const chatResource = await runResourceProbe(page, opened.capture)
+      const officialResource = await runResourceProbe(officialPage, officialCapture)
+      check.fact(
+        `远端资源探针（${REMOTE_RESOURCE_URL}）：装配页 attempted=${String(chatResource.attempted)} responded=${String(chatResource.responded)}、这一步 CSP 违规 ${String(chatResource.violations)} 条；` +
+          `官方页 attempted=${String(officialResource.attempted)} responded=${String(officialResource.responded)}、这一步 CSP 违规 ${String(officialResource.violations)} 条`,
+      )
+      check.ok(
+        '① 远端资源：装配页真的去发那条请求了（#188 之前 img-src 把请求挡在发出之前）',
+        chatResource.attempted,
+        `请求事件=无（改前现场：页面上只多一条 img-src 违规）`,
+      )
+      check.ok(
+        '① 远端资源：官方页同样发出那条请求（两侧同处境）',
+        officialResource.attempted,
+        '官方页也没有 CSP，这条请求本来就发得出去',
+      )
+      check.ok(
+        '① 远端资源这一步零 CSP 违规（本页没有政策可违）',
+        chatResource.violations === 0,
+        `新出现的违规 ${String(chatResource.violations)} 条`,
       )
       screenshots.push(await shot(ctx, opened.page, 'html-preview-height-probe-chat'))
 
@@ -790,9 +945,9 @@ export const HTML_PREVIEW_HEIGHT_SUITE: LabSuite = {
         `装配页 sandbox=${String(chatCard.sandbox)}、官方页 sandbox=${String(officialCard.sandbox)}`,
       )
       check.ok(
-        '夹具卡：装配页那份的 `srcdoc` 带上了本页 nonce（补 nonce 机制覆盖到这张卡）',
-        chatCard.stamped,
-        `装配页 nonce=${String(chatCard.stamped)}`,
+        '夹具卡：本页一个字节都不改这张卡的 `srcdoc`（与夹具写下的那一份逐字相等；#188 之前它被打上了本页 nonce）',
+        chatCard.srcdoc === fixtureFrameDoc(CARD_SANDBOX_FIRST),
+        `装配页 nonce=${String(chatCard.stamped)}、与夹具写下的那一份${chatCard.srcdoc === fixtureFrameDoc(CARD_SANDBOX_FIRST) ? '逐字相同' : '不同'}`,
       )
       check.ok(
         '夹具卡：官方页那份的 `srcdoc` 一个字节没被改（官方页没有 CSP，不需要补）',
@@ -836,9 +991,9 @@ export const HTML_PREVIEW_HEIGHT_SUITE: LabSuite = {
         `挂载点=${chatReversedMount.mountPoint}、卡片在文档里=${String(chatReversedCard.mounted)}、在对话区里=${String(chatReversedCard.inConversation)}`,
       )
       check.ok(
-        '夹具卡（倒序）：装配页那份的 `srcdoc` 也被补上本页 nonce（#196 的负向对照）',
-        chatReversedCard.stamped,
-        `装配页 nonce=${String(chatReversedCard.stamped)}（改前这里是 false，卡片因此停在 ${String(CARD_MIN_HEIGHT)}px）`,
+        '夹具卡（倒序）：本页一个字节都不改它的 `srcdoc`（写属性的顺序不该改变结果）',
+        chatReversedCard.srcdoc === fixtureFrameDoc(CARD_SRCDOC_FIRST),
+        `装配页 nonce=${String(chatReversedCard.stamped)}、与夹具写下的那一份${chatReversedCard.srcdoc === fixtureFrameDoc(CARD_SRCDOC_FIRST) ? '逐字相同' : '不同'}`,
       )
       check.ok(
         '夹具卡（倒序）：帧内那句量高内联脚本真的执行了（父页收到了上报）',
@@ -861,7 +1016,7 @@ export const HTML_PREVIEW_HEIGHT_SUITE: LabSuite = {
         `倒序 ${String(chatReversedCard.height)}、正序 ${String(chatCard.height)}（±2px 之内）`,
       )
       check.ok(
-        '夹具卡（倒序）：官方页那份的 `srcdoc` 一个字节没被改（官方页没有 CSP，哪种顺序都不需要补）',
+        '夹具卡（倒序）：官方页那份的 `srcdoc` 一个字节没被改（我们只在自己那一页上工作）',
         officialReversedCard.stamped === false,
         `官方页 nonce=${String(officialReversedCard.stamped)}`,
       )
@@ -917,7 +1072,8 @@ export const HTML_PREVIEW_HEIGHT_SUITE: LabSuite = {
             }
             check.fact(
               `卡片「${ours.title}」：装配页 ${String(ours.width)}x${String(ours.height)}（内容 ${String(ours.contentHeight)}，nonce=${String(ours.stamped)}）、` +
-                `官方页 ${String(theirs.width)}x${String(theirs.height)}（内容 ${String(theirs.contentHeight)}）`,
+                `官方页 ${String(theirs.width)}x${String(theirs.height)}（内容 ${String(theirs.contentHeight)}）；` +
+                `两侧那份 srcdoc ${ours.srcdoc === theirs.srcdoc ? '逐字相同' : `逐字不同（装配页 ${String(ours.srcdoc.length)} 字符、官方页 ${String(theirs.srcdoc.length)} 字符）`}`,
             )
             check.ok(
               `卡片「${ours.title}」：装配页那份按内容撑开（高度 = 帧内容高度，±2px）`,
@@ -925,9 +1081,9 @@ export const HTML_PREVIEW_HEIGHT_SUITE: LabSuite = {
               `卡片高 ${String(ours.height)}、内容高 ${String(ours.contentHeight)}（修前这里停在插件最小高度 48）`,
             )
             check.ok(
-              `卡片「${ours.title}」：装配页那份的 srcdoc 带本页 nonce（官方页那份不带——官方页没有 CSP）`,
-              ours.stamped && !theirs.stamped,
-              `装配页 nonce=${String(ours.stamped)}、官方页 nonce=${String(theirs.stamped)}`,
+              `卡片「${ours.title}」：本页没有改它的 srcdoc（#188 起本页不补 nonce、不动插件写下的帧）`,
+              ours.stamped === false,
+              `装配页 nonce=${String(ours.stamped)}、官方页 nonce=${String(theirs.stamped)}（#188 之前这一条判的是「装配页带、官方页不带」）`,
             )
             if (widthMatched) {
               compared += 1
@@ -939,7 +1095,7 @@ export const HTML_PREVIEW_HEIGHT_SUITE: LabSuite = {
             }
           }
           if (!widthMatched) {
-            check.fact('两侧卡片宽度没能调到 ±2px：跳过「与官方页同值」那一条，只判「按内容撑开」与机制在场')
+            check.fact('两侧卡片宽度没能调到 ±2px：跳过「与官方页同值」那一条，只判「按内容撑开」与「本页不改插件帧」')
           } else {
             check.fact(`「与官方页同值」逐卡判过 ${String(compared)} 张`)
           }

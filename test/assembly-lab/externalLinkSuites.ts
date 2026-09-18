@@ -252,9 +252,10 @@ export const EXTERNAL_LINK_SUITE: LabSuite = {
       )
 
       // ⑤ 控制台：做到这里为止（还没点下面那三种非白名单锚点）零 CSP 违规 / 零 error /
-      // 零 pageerror——**顺序是有意的**：点 `javascript:` 锚点会由浏览器自己报一条 CSP 违规
-      // （javascript: URL 的执行要 `unsafe-inline`，页面 CSP 没有），而那正是「我们不接管、
-      // 处置交给浏览器与页面 CSP」的旁证，不是本次改动引入的，所以它记在下面的事实里。
+      // 零 pageerror——**顺序是有意的**：`javascript:` 那条锚点由浏览器按原生行为处置
+      // （页面不再自带 CSP，所以它今天直接执行 `void(0)`，不再报一条 CSP 违规——#188 之前
+      // 本页的 `script-src` 不给 `unsafe-inline`，那一下会留一条违规）。那三种的处置记在
+      // 下面的事实里，都不是本次改动引入的。
       const consoleFacts = {
         csp: settings.capture.all.filter((line) => /content security policy/i.test(line)),
         errors: settings.capture.consoleErrors.filter((line) => !/content security policy/i.test(line)),
