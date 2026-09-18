@@ -218,8 +218,8 @@ function DocumentTitle({ title, productTitle }: { title?: string; productTitle: 
  *   （`ConnectionStateSource`，见 ConnectionStateSource 的注释）；官方恢复生命周期
  *   本身就是 `connected` / `connecting` / `disconnected` 三态，我们只做呈现。
  * - **为什么不做成可移植的 `@dsh-one/dsh-*` 包**：官方 web 上这枚提示本来就有
- *   （官方侧栏壳在），带过去只会和官方那条重复；它的存在理由就是「我们的装配树没有
- *   官方侧栏壳」，属于 shell 侧适配，所以留在 chat 树自己的 frame 插件里。
+ *   （官方侧栏壳在），带过去只会和官方那条重复；它的存在理由就是「我们这棵装配树
+ *   没有官方侧栏壳」，属于我们自己这棵树上的适配，所以留在 chat 树自己的 frame 插件里。
  *
  * 显示条件（只显事实、不猜）：**曾经连上过**（`connected`）之后，状态离开 `connected`
  * 就显示，回到 `connected` 就消失。首屏从未连上过时不显示——那种情况下页面多半压根
