@@ -86,6 +86,14 @@ const OFFICIAL_EXTRA: Readonly<Record<string, readonly [string, string]>> = {
   // 于是同一个按钮在 zh 页上是「中文」、在 en 页上是「English」——两份都得认。
   // 出处：`@deepseek-ai/dsh-client-locale` 的 `lib/client.js`。
   中文: ['中文', 'English'],
+  // #211：官方「新对话页」的两条可见元素（键 `hero.headline` 与 `placeholder.hero`）。
+  // 出处：`@deepseek-ai/dsh-client-ui-conversation` 的 `lib/client.js`。
+  // 目标会话开不了时对话区该落在这一页上，判据按这两条认（见 chatBootRaceSuites）。
+  探索未至之境: ['探索未至之境', 'Into the Unknown'],
+  '描述你想要构建的内容, / 调用指令, @ 文件或对话': [
+    '描述你想要构建的内容, / 调用指令, @ 文件或对话',
+    'Describe what you want to build, / commands, @ files or sessions',
+  ],
 }
 
 /**

@@ -14,6 +14,12 @@
  * 这一页开不了它）都不能静默——前者的旧写法把「一眼没看到」当成结论就此收手，后者
  * 的旧写法把抛出的错吞掉。落点见 `assertDesired` / `watchTick`。
  *
+ * **目标开不了时落到「新对话页」，不留在官方空态**（#211，用户拍板）：观察窗口走完
+ * 目标仍不是当前会话 = 这一页开不了它（不存在 / 已删除 / 在归档或回收站里），那一刻
+ * 经官方那条「新会话」入口（`uiWorkspace.startSession`，复用空白会话、没有才新建）
+ * 把这一页落到新对话页，并吹哨让遮罩揭幕。落点与副作用见 `landOnNewConversation`；
+ * 运行时就地切换那条通路不落（见 `fallbackEligible`）。
+ *
  * 活跃上报：每次「当前会话」变化（含注入 open 的结果与官方恢复值）广播
  * {type:'dshOne.sessionMeta', sessionId, title}——宿主维护 tab↔会话映射、
  * 跟随面板标题；首拍恢复值也上报（默认 tab 借此挂接映射）。
@@ -46,6 +52,12 @@ interface SessionsService {
 /** 官方打开会话的入口（官方 `ui-workspace` 的 `openSession`，见下面的 openSession）。 */
 interface UiWorkspaceService {
   openSession(sessionId: string): void
+  /**
+   * 官方「新会话」入口（`ui-workspace` 的 `startSession`，官方侧栏那枚 ＋ 与官方
+   * agent-preset 调的也是它）。语义与落点见 {@link landOnNewConversation}；老版本上
+   * 没有这一条时按「拿不到入口」处置，所以标成可选。
+   */
+  startSession?(workspaceId?: string): void
 }
 
 interface BootContext {
@@ -64,6 +76,13 @@ interface BootGlobals {
   __DSH_ONE_BOOT__?: { sessionId?: unknown; panelTab?: unknown }
   __DSH_ONE_VSCODE__?: VscodeApi
   acquireVsCodeApi?: () => VscodeApi
+  /**
+   * 这一页已经落到「新对话页」（#211 的目标开不了时，见 {@link landOnNewConversation}）。
+   *
+   * 与 `__DSH_ONE_BOOT__` 同一条 seam（第 3 层）：两个自有 shell 插件是两个独立
+   * bundle，没有共享的模块作用域；遮罩（`chatLayoutPlugin`）据此揭幕。
+   */
+  __DSH_ONE_BOOT_NEW_CONVERSATION__?: boolean
 }
 
 const bootSessionId = (): string | undefined => {
@@ -147,6 +166,52 @@ const WATCH_TICK_MS = 250
 /** 两次真的喊 `openSession` 之间的最小间隔：列表频繁刷新时别把它打成风暴。 */
 const WATCH_MIN_GAP_MS = 250
 
+/**
+ * 目标开不了时把这一页落到「新对话页」（#211）——走官方 `uiWorkspace.startSession`。
+ *
+ * **为什么是它**（也就是「注入目标开不了时的行为」这条口径的落点）：它就是官方那枚
+ * 「新会话」按钮的实现（官方侧栏的 ＋ 走 `workspaceNavigation.startSession`、官方
+ * agent-preset 也调它），语义正是我们要的——目标工作区按
+ * `workspaceId ?? 当前会话所属工作区 ?? 最近的工作区` 取，在里面**复用一条空白会话、
+ * 没有才新建**（官方 `connectWorkspace`），然后选中它。这与官方 web 在「没有当前会话」
+ * 时的启动行为同源（官方 `ui-workspace` 的 `watchNavigation` 也是
+ * `connectWorkspace(recentWorkspace)` 之后再 open），所以这一页的落点与官方页对齐：
+ * #211 实测官方页在没有当前会话时渲染的就是这个「新对话页」——hero 标题 + 工作区 chip +
+ * 可用的 composer（占位「描述你想要构建的内容…」）。
+ *
+ * **副作用**（#211 要求写清）：目标工作区里没有可复用的空白会话时，官方这条入口会在
+ * 网关**真建一条会话**（`sessions.create`）。官方 web 在同一情形下同样会建，所以这不是
+ * 我们额外加的动作；反过来，我们自己挑工作区、自己 create 会重新实现一遍官方策略
+ * （最近工作区的算法在官方是内部函数），所以不那样做。
+ *
+ * 拿不到这条入口（老版本没有 `startSession`）时不假装成功：记一条事实，这一页停在官方
+ * 空态。**不在运行时就地切换那条通路上落**（见 `fallbackEligible`）：用户点的是某一条
+ * 具体的会话，那一刻说清「开不了它」比擅自换成新会话更贴他的意图。
+ */
+const landOnNewConversation = (ctx: BootContext): void => {
+  const workspace = ctx.get('uiWorkspace')
+  if (typeof workspace.startSession !== 'function') {
+    timingLog('fallback-unavailable', 'uiWorkspace.startSession is missing; leaving the shell in the official no-session state')
+    return
+  }
+  // 揭幕的哨子先吹，再喊官方那条入口（chatLayoutPlugin 据此揭幕，见下面的 why）。
+  ;(globalThis as BootGlobals).__DSH_ONE_BOOT_NEW_CONVERSATION__ = true
+  // **为什么要一个事件，而不只是那个全局**（实测踩出来的，不是保险）：遮罩是 React 渲染的，
+  // 读全局只在下一次重渲时生效——而「落到新对话页」这一下**未必**引起重渲（目标开不了时
+  // 官方那条 watcher 往往已经把一条空白会话选成当前会话了，我们再选中同一条，会话列表一个
+  // 字节都不变），那一刻遮罩就永远停在那里（#211 实验室实测：注入不存在的 id 那一档，改成
+  // 只写全局之后遮罩盖到底、下面明明已经是可用的新对话页）。事件是跨 bundle 的**主动**通知，
+  // 遮罩那一侧收到就提一个 state，重渲一次；全局留着当事实源——遮罩那一侧后挂载时（React
+  // 重新挂载 ShellFrame）仍能从它读到「哨已经吹过」，不会把遮罩盖回来。
+  window.dispatchEvent(new Event('dsh-one:boot-new-conversation'))
+  timingLog('fallback-new-conversation', 'target cannot be opened in this page; opening a new conversation in the default workspace')
+  try {
+    workspace.startSession()
+  } catch (err) {
+    console.warn(`[dsh-one] opening a new conversation failed: ${describeError(err)}`)
+  }
+}
+
 export function apply(ctx: BootContext): void {
   // apply 时刻 ≈ 整树插件装载完（本插件在 application 批末位）。
   timingLog('apply')
@@ -180,6 +245,17 @@ export function apply(ctx: BootContext): void {
   let failedLogged = false
   /** 窗口走完时那句「没落定」的读数只说一次。 */
   let gaveUpLogged = false
+  /**
+   * 目标开不了时「落到新对话页」这一步交出去了没有（#211，见 landOnNewConversation）。
+   * 一次就够：同一个页面不需要再交第二次。
+   */
+  let fallbackApplied = false
+  /**
+   * 这条通路上目标开不了时要不要落到新对话页（#211）：**只有启动注入要**。运行时就地切换
+   * （宿主转发的 `dshOne.switchSession`）不落——用户点的是某一条具体的会话，那一刻说清
+   * 「开不了它」（#205 那条通路上的判据）比擅自给他换一条新会话更贴他的意图。
+   */
+  let fallbackEligible = target !== undefined
   let disposed = false
   const timers: Array<ReturnType<typeof setTimeout>> = []
   const normalize = (): SessionsListSnapshot => ctx.get('sessions').list.getSnapshot()
@@ -243,6 +319,11 @@ export function apply(ctx: BootContext): void {
    * 目标没落定时那句 warn 说的就是「谁成了当前会话 / 它压根不在这页的列表里」，与遮罩
    * 那句 generic 的 timeout 分开（遮罩只管盖不盖着，这里管目标到底怎么了）。
    *
+   * 窗口走完而目标仍不是当前会话 = 这一页**开不了它**（清单 ready 之后目标仍不在本页
+   * 清单里，就是不存在或不属于这一页；在清单里却没成为当前会话的，是被官方按归档清掉了
+   * ——#211 实验室实测的两档读数）：那一刻这一页不许停在「没有当前会话」的官方空态，
+   * 按官方那条「新会话」入口落到新对话页（见 landOnNewConversation）。
+   *
    * `listDriven` = 这一拍由列表变化驱动（那是「页面状态变了」，照旧往宿主上报一次）；
    * 纯节拍只在「身份刚定下来」那一拍上报，免得盯着的 1.5 秒里每 250ms 重复报一遍。
    */
@@ -266,6 +347,11 @@ export function apply(ctx: BootContext): void {
       }
       // 窗口走完就放手：这一页不永久哑掉，宿主照常拿到它实际开着的那条。
       identitySettled = true
+      // #211：目标开不了 → 落到新对话页（不是停在空态、也不是留住恢复键那条别的会话）。
+      if (fallbackEligible && !fallbackApplied && desired !== undefined && currentOf(list) !== desired) {
+        fallbackApplied = true
+        landOnNewConversation(ctx)
+      }
     }
     if (listDriven || (identitySettled && !settledBefore)) report(list)
   }
@@ -307,6 +393,9 @@ export function apply(ctx: BootContext): void {
     failedLogged = false
     gaveUpLogged = false
     lastAssert = 0
+    // 运行时就地切换这条通路上不落新对话页（见 fallbackEligible 的说明）——用户点的是
+    // 某一条具体的会话，那一条开不了时页面照旧说得出原因（#205 的第四档判据）。
+    fallbackEligible = false
     timingLog('switch', data.sessionId.slice(0, 13))
     ensureTicker()
     watchTick(true)
