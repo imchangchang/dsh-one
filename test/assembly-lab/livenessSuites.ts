@@ -937,8 +937,31 @@ function sessionUnavailable(lines: readonly string[]): boolean {
 // 交互点表
 // ---------------------------------------------------------------------------
 
-/** 一个交互点。 */
-interface LivenessPoint {
+/**
+ * 一条「按文案认控件」的文案**打哪儿来**（#209）。分三档：
+ *
+ * - `ours`：我们自己的控件，文案是我们那份词典（`workspaceTree/locale.ts`）里的键，
+ *   `texts()` 反查键名就能给出 zh / en 两份；
+ * - `official`：官方件的控件，文案由官方 `t()` 渲染，我们那份词典里没有——它的两份取值
+ *   必须登记在 `harness.ts` 的 `OFFICIAL_EXTRA` 里（每条都写着「哪份官方包、哪个键」）；
+ * - `locale-self-name`：语言下拉那一枚，按钮上写的是**当前语言用它自己的说法**写的名字
+ *   （官方语言目录 `BUILT_IN_LOCALE_METADATA` 里的常量，不是词典键）——它的两份取值是两个
+ *   语言的**自称**，按它自己的口径断言。
+ *
+ * 为什么要把它写在表上：这份声明就是自检的输入。自检不靠选择器字符串的形状去猜哪一条是
+ * 「按文案认控件」（那种扫描器脆），而是按这里声明的档位逐条断言「两份取值都解析得出来、
+ * 并且都真的落在选择器里」——见 `test/livenessTextSelectors.test.ts`。
+ */
+export type LivenessTextTier = 'ours' | 'official' | 'locale-self-name'
+
+/** 交互点表里的一条文案：我们怎么称呼它（我们词典里那条中文）＋ 它的档位。 */
+export interface LivenessTextSource {
+  readonly zh: string
+  readonly tier: LivenessTextTier
+}
+
+/** 一个交互点（#209 起 `LIVENESS_POINTS` 也会把它导出给自检读）。 */
+export interface LivenessPoint {
   label: string
   selector: string
   /** 期望的反应（人读）。 */
@@ -948,6 +971,13 @@ interface LivenessPoint {
    * 不给（只有我们有的控件）就按「必须反应」判。
    */
   official?: string
+  /**
+   * 这条交互点的选择器**按哪些文案认控件**（#209）：是就把那几条文案连同档位列出来。
+   * 选择器不靠文案认控件的（按 `data-slot`、按结构断的那些）不给这个字段。
+   *
+   * 一个交互点可以对应不止一条文案（「折叠 / 展开全部」是一枚按钮、提示随态翻），所以是数组。
+   */
+  textSources?: readonly LivenessTextSource[]
   /**
    * **只观察、绝不点击**：理由是「点下去会发生什么」。
    *
@@ -976,6 +1006,21 @@ interface LivenessPoint {
 const COMPOSER = '[data-slot="conversation.composer.bar"]'
 
 /**
+ * 走 {@link textSelector} 拼过选择器的那几条文案（#209 的自检读它）。
+ *
+ * 为什么要记这个：交互点表上声明的档位（{@link LivenessPoint.textSources}）与**实际**按文案
+ * 拼过的选择器要能对上——表里声明了却没拼（选择器又被改回写死一种语言的字面量）、或者拼了
+ * 却没声明档位（新加一条按文案认控件的东西而没人给它定档），两种都是 #209 要堵的静默缺口，
+ * 自检按这两个方向的差集红。记的是 `textSelector` 的输入文案（调用发生在这个模块加载时）。
+ */
+const TEXT_SELECTOR_CALLS: string[] = []
+
+/** {@link TEXT_SELECTOR_CALLS} 的只读视图（自检用）。 */
+export function livenessTextSelectorCalls(): readonly string[] {
+  return TEXT_SELECTOR_CALLS
+}
+
+/**
  * 交互点表里**按文案认控件**的那些选择器是怎么拼出来的（#208）。
  *
  * 每个交互点都先靠一条**文案**认出那个控件（`aria-label`、页签文字、按钮文字），而文案会随
@@ -990,9 +1035,11 @@ const COMPOSER = '[data-slot="conversation.composer.bar"]'
  *
  * 文案的出处：我们自己的控件走 `workspaceTree/locale.ts`（`texts()` 反查键名）；官方件的
  * 标签在 `harness.ts` 的 `OFFICIAL_EXTRA`，逐条写着「哪份官方包、哪个键」。两边都查不到时
- * `texts()` 原样返回那一条中文（等于 en 页上又会落空），所以往表里加文案前先确认它有出处。
+ * `texts()` 原样返回那一条中文（等于 en 页上又会落空），所以往表里加文案前先确认它有出处
+ * （#209 起这条由 `test/livenessTextSelectors.test.ts` 常驻盯着）。
  */
 function textSelector(zhText: string, build: (variant: string) => string): string {
+  TEXT_SELECTOR_CALLS.push(zhText)
   return texts(zhText).map(build).join(', ')
 }
 
@@ -1016,20 +1063,25 @@ const OPEN_IN_APP_BUTTON = textSelector(
  * 而两种语言里占位的位置不一样——zh「上下文已用 {percent}」占位在句末、en「{percent} of context used」
  * 在句首。所以按模板里那段字面量拼：占位后面还有字就用**前缀**匹配，占位在最前面就用**后缀**匹配
  * （两种语言各一条，页面是哪一份语言都命得中，判据的宽严与写死中文时逐字相同）。
+ *
+ * 拼法与上面几条统一走 {@link textSelector}（#209）：这样它也在自检的账上（走 `texts()` 直接
+ * 拼的话，自检的对账看不到它）。
  */
-const CONTEXT_METER_BUTTON = texts('上下文已用 {percent}')
-  .map((template) => {
-    const [head = '', tail = ''] = template.split('{percent}').map((part) => part.trim())
-    return head === ''
-      ? `${COMPOSER} button[aria-label$="${tail}"]`
-      : `${COMPOSER} button[aria-label^="${head}"]`
-  })
-  .join(', ')
+const CONTEXT_METER_BUTTON = textSelector('上下文已用 {percent}', (template) => {
+  const [head = '', tail = ''] = template.split('{percent}').map((part) => part.trim())
+  return head === ''
+    ? `${COMPOSER} button[aria-label$="${tail}"]`
+    : `${COMPOSER} button[aria-label^="${head}"]`
+})
 
-/** chat 树（对话区）：官方页有全部同一批控件，逐个与官方对照。 */
+/**
+ * chat 树（对话区）：官方页有全部同一批控件，逐个与官方对照。
+ * 这里按文案认控件的几枚认的都是**官方件**的标签（官方 `t()` 渲染），所以档位一律 `official`。
+ */
 const CHAT_POINTS: ReadonlyArray<LivenessPoint> = [
   {
     label: 'composer 的 ＋（添加文件或调用指令）',
+    textSources: [{ zh: '添加文件或调用指令', tier: 'official' }],
     selector: COMPOSER_COMMANDS,
     expect: '弹出指令候选菜单（官方 `/` 源）',
     official: COMPOSER_COMMANDS,
@@ -1048,12 +1100,14 @@ const CHAT_POINTS: ReadonlyArray<LivenessPoint> = [
   },
   {
     label: 'composer 的上下文用量',
+    textSources: [{ zh: '上下文已用 {percent}', tier: 'official' }],
     selector: CONTEXT_METER_BUTTON,
     expect: '弹出上下文用量详情',
     official: CONTEXT_METER_BUTTON,
   },
   {
     label: 'composer 的发送（空草稿）',
+    textSources: [{ zh: '发送消息', tier: 'official' }],
     selector: textSelector('发送消息', (label) => `${COMPOSER} button[aria-label="${label}"]`),
     expect: '禁用态：本来就无反应',
     observeOnly:
@@ -1066,6 +1120,7 @@ const CHAT_POINTS: ReadonlyArray<LivenessPoint> = [
   // 场、`opacity: 1`、盒宽 28px）。所以它排在对话区那几枚旁边，而不是列表末尾。
   {
     label: '对话区 · 助手动作「好的回答」',
+    textSources: [{ zh: '好的回答', tier: 'official' }],
     // 这一条**保持可点**（#163 复核过它会不会改用户状态，结论是不会）：点它的效果是开反馈
     // 弹窗（客户端行为）。已经点过赞的那条消息上，这枚按钮的 `aria-label` 换成官方词典里
     // 另一条键（已经赞过就显示「取消标记」那种），本探针认的是「还没表态」那一条
@@ -1079,12 +1134,14 @@ const CHAT_POINTS: ReadonlyArray<LivenessPoint> = [
   },
   {
     label: '对话区页签 · 轨迹',
+    textSources: [{ zh: '轨迹', tier: 'official' }],
     selector: textSelector('轨迹', (label) => `[data-slot="conversation.session.header"] [role="tab"]:has-text("${label}")`),
     expect: '切到轨迹视图（DOM 结构变）',
     official: textSelector('轨迹', (label) => `[data-slot="conversation.session.header"] [role="tab"]:has-text("${label}")`),
   },
   {
     label: '会话头 · 在访达中打开工作目录',
+    textSources: [{ zh: '在 {app} 中打开工作目录', tier: 'official' }],
     selector: OPEN_IN_APP_BUTTON,
     expect: '官方 open-in-app 的分裂按钮：点它=把工作目录交给本机文件管理器',
     official: OPEN_IN_APP_BUTTON,
@@ -1099,21 +1156,30 @@ const CHAT_POINTS: ReadonlyArray<LivenessPoint> = [
   },
 ]
 
-/** sidebar 树：这几枚是自有实现（官方页没有同形件），期望固定；文案都取我们自己的词典。 */
+/**
+ * sidebar 树：这几枚是自有实现（官方页没有同形件），期望固定；文案都取我们自己的词典
+ * （档位 `ours`——`workspaceTree/locale.ts` 里每条都有对应的英文值）。
+ */
 const SIDEBAR_POINTS: ReadonlyArray<LivenessPoint> = [
   {
     label: '侧栏 · 分组过滤胶囊',
+    textSources: [{ zh: '按分组过滤', tier: 'ours' }],
     selector: textSelector('按分组过滤', (label) => `[data-slot="sidebar.workspaces"] button[aria-label^="${label}"]`),
     expect: '弹出分组过滤菜单',
   },
   {
     label: '侧栏 · 搜索（收起态放大镜）',
+    textSources: [{ zh: '搜索会话', tier: 'ours' }],
     selector: textSelector('搜索会话', (label) => `button[aria-label="${label}"]`),
     expect: '展开搜索框',
   },
   {
     label: '侧栏 · 折叠 / 展开全部',
     // 折叠态与展开态各一条文案，两份语言都要认（一枚按钮，提示随态翻）。
+    textSources: [
+      { zh: '折叠所有工作区', tier: 'ours' },
+      { zh: '展开所有工作区', tier: 'ours' },
+    ],
     selector: [
       textSelector('折叠所有工作区', (label) => `button[aria-label="${label}"]`),
       textSelector('展开所有工作区', (label) => `button[aria-label="${label}"]`),
@@ -1122,26 +1188,31 @@ const SIDEBAR_POINTS: ReadonlyArray<LivenessPoint> = [
   },
   {
     label: '侧栏 · 添加工作区',
+    textSources: [{ zh: '添加工作区', tier: 'ours' }],
     selector: textSelector('添加工作区', (label) => `button[aria-label="${label}"]`),
     expect: '弹出两项菜单',
   },
   {
     label: '侧栏 · 设置齿轮',
+    textSources: [{ zh: '设置', tier: 'ours' }],
     selector: textSelector('设置', (label) => `button[aria-label="${label}"]`),
     expect: '经宿主能力口打开设置页',
   },
   {
     label: '侧栏 · 批量选择',
+    textSources: [{ zh: '批量选择', tier: 'ours' }],
     selector: textSelector('批量选择', (label) => `button[aria-label="${label}"]`),
     expect: '进入多选态',
   },
   {
     label: '侧栏 · 回收站入口',
+    textSources: [{ zh: '回收站', tier: 'ours' }],
     selector: textSelector('回收站', (label) => `[data-slot="sidebar.footer.action"] button[aria-label^="${label}"]`),
     expect: '开回收站抽屉',
   },
   {
     label: '侧栏 · 清空回收站（计数 0）',
+    textSources: [{ zh: '清空回收站', tier: 'ours' }],
     selector: textSelector('清空回收站', (label) => `button[aria-label="${label}"]`),
     expect: '禁用态：本来就无反应',
     observeOnly:
@@ -1162,6 +1233,7 @@ const SETTINGS_POINTS: ReadonlyArray<LivenessPoint> = [
     // 「通用设置」是**官方**那一节的名字（`general.nav`）：设置页的节由装着的那件官方插件
     // 注册、标题取它自己的词典，所以这条文案归 `OFFICIAL_EXTRA`。
     label: '设置 · 导航回「通用设置」',
+    textSources: [{ zh: '通用设置', tier: 'official' }],
     selector: textSelector('通用设置', (label) => `button:has-text("${label}")`),
     expect: '切回该节内容',
   },
@@ -1169,19 +1241,23 @@ const SETTINGS_POINTS: ReadonlyArray<LivenessPoint> = [
     // 下拉上显示的是**当前那个**权限预设的名字（官方 `preset.workspaceWrite` = 工作区内修改 /
     // Workspace Write），所以两种语言各一条。
     label: '设置 · 权限预设下拉',
+    textSources: [{ zh: '工作区内修改', tier: 'official' }],
     selector: textSelector('工作区内修改', (label) => `[data-slot="settings.general.item"] button:has-text("${label}")`),
     expect: '弹出预设选项',
   },
   {
     // 语言下拉那枚按钮显示的是**当前语言用它自己的说法**写的名字（官方语言目录里的常量，
     // 不是词典键）：zh 页上是「中文」、en 页上是「English」——只认中文的话，en 页上这一步
-    // 会整条落空（#208）。
+    // 会整条落空（#208）。档位是单开的那一档 `locale-self-name`（#209）：它的两份取值是
+    // 两个语言的**自称**，不是某条词典键的 zh / en 译文，所以自检按它自己的口径断言。
     label: '设置 · 语言下拉',
+    textSources: [{ zh: '中文', tier: 'locale-self-name' }],
     selector: textSelector('中文', (label) => `[data-slot="settings.general.item"] button:has-text("${label}")`),
     expect: '弹出语言选项',
   },
   {
     label: '设置 · 增大字号',
+    textSources: [{ zh: '增大字号', tier: 'official' }],
     // 只认官方 ui-theme 的 `fontSize.increase`（增大字号 / Increase font size），按词典取两份。
     // （原来还挂着一条 `aria-label="增大字体"` 的兜底写法，本次去掉：本机装着的官方包
     // `@deepseek-ai/dsh-client-ui-theme/lib/client.js` 里只有 `fontSize.increase` 这一个键、
@@ -1199,6 +1275,15 @@ const SETTINGS_POINTS: ReadonlyArray<LivenessPoint> = [
       '`settings.action` 这个 slot 里官方那条 `open-document` 的动作是 `remote.settings.openSettingsDocument`，由**网关宿主**用系统默认应用打开 `~/.dsh/settings.yaml`（宿主侧 `dsh-api-settings-controller` → `openNativeTextFile`）；我们自己那条（`open-document-vscode`）走宿主能力口、本身没有原生副作用。两枚在同一个 slot 里、官方那条由 shell 按同 id + priority −1 遮蔽（#178 C10+C11），遮蔽一旦失效探针就会点到官方的——所以这一条按整条只观察，指着这个 slot 里的控件在不在、可不可用',
   },
 ]
+
+/**
+ * 三条交互点表合起来（#209 的自检读它，见 `test/livenessTextSelectors.test.ts`）。
+ *
+ * 为什么要有这个出口：自检要问的是「表里每一条**按文案认控件**的项，它的文案在 zh / en 两种
+ * 页面语言下分别匹配什么」——它得能读到表上声明的档位（{@link LivenessPoint.textSources}）
+ * 与那条选好的选择器字符串本身，而不是靠正则去猜哪一条是按文案认的。
+ */
+export const LIVENESS_POINTS: readonly LivenessPoint[] = [...CHAT_POINTS, ...SIDEBAR_POINTS, ...SETTINGS_POINTS]
 
 // ---------------------------------------------------------------------------
 // 套件
