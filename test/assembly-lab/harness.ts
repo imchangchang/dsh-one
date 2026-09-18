@@ -831,13 +831,20 @@ export function fiberProbeScript(): string {
   return `(() => {
   const MODULES_ID = "@deepseek-ai/dsh-client-modules"
   const STATE = { 0: "pending", 1: "loading", 2: "active", 3: "failed", 4: "disposed", 5: "unloading" }
-  const record = { plugins: {}, attached: 0, events: 0, scopes: [], failed: [], errors: [] }
+  const record = { plugins: {}, attached: 0, events: 0, scopes: [], failed: [], errors: [], ctx: undefined }
   globalThis.__LAB_FIBER__ = record
   const idsByCallback = new WeakMap()
   const idsByFiber = new Map()
   const seenBuses = new WeakSet()
   const stateOf = (value) => STATE[value] ?? String(value)
   const attach = (ctx) => {
+    // #201: keep the ctx itself for the suites (this probe exists only when a suite asks
+    // for it). The suites call the official root-slot publication point
+    // (ctx.slots.provideRoot) through it to inject a real assembly failure, see
+    // assemblyFailureSuites.ts. The ctx is stored as-is and ctx.slots is NOT read here:
+    // this attaches very early (the modules plugin apply), before the slots service is
+    // registered.
+    if (record.ctx === undefined && ctx !== undefined && ctx !== null) record.ctx = ctx
     const service = ctx === undefined || ctx === null ? undefined : ctx.events
     const bus = service !== undefined && typeof service.on === "function" ? service : ctx
     if (bus === undefined || bus === null || typeof bus.on !== "function" || seenBuses.has(bus)) return
