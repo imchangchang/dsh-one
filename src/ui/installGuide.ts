@@ -1,6 +1,8 @@
 import * as vscode from 'vscode'
 import type { Logger } from '../log.ts'
 import { createPanelSlot } from '../pure/panelSlot.ts'
+import { panelTabTitle } from '../pure/panelTab.ts'
+import { panelTabIconPath } from './panelIcon.ts'
 import {
   DSH_OFFICIAL_INSTALL_URL,
   INSTALL_SCRIPT_OS_ORDER,
@@ -26,20 +28,27 @@ export const INSTALL_GUIDE_VIEW_TYPE = 'dshOne.installGuide'
 /** 单例槽位：面板被用户关掉后槽位自动空出来，下次打开再新建。 */
 const guideSlot = createPanelSlot<vscode.WebviewPanel>()
 
-/** 打开（或聚焦）安装引导 tab。 */
-export function openInstallGuide(logger: Logger): void {
+/**
+ * 打开（或聚焦）安装引导 tab。
+ *
+ * `extensionUri` 只为标签页图标（#212）：图标是扩展根下的资源，得从扩展上下文里取；
+ * 这个模块拿不到 context，所以由调用方把它递进来。
+ */
+export function openInstallGuide(logger: Logger, extensionUri: vscode.Uri): void {
   const existing = guideSlot.current() !== undefined
-  guideSlot.open(() => createGuidePanel(logger))
+  guideSlot.open(() => createGuidePanel(logger, extensionUri))
   logger.info(`install guide tab ${existing ? 'revealed' : 'opened'}`)
 }
 
-function createGuidePanel(logger: Logger): vscode.WebviewPanel {
+function createGuidePanel(logger: Logger, extensionUri: vscode.Uri): vscode.WebviewPanel {
   const panel = vscode.window.createWebviewPanel(
     INSTALL_GUIDE_VIEW_TYPE,
-    vscode.l10n.t('Install dsh'),
+    // 标题口径与另两处面板一致（#212）：`dsh · <主体>`，主体沿用已有译文「安装 dsh」。
+    panelTabTitle(vscode.l10n.t('Install dsh')),
     vscode.ViewColumn.Active,
     { enableScripts: true, retainContextWhenHidden: true },
   )
+  panel.iconPath = panelTabIconPath(extensionUri)
   const sub = panel.webview.onDidReceiveMessage((msg: unknown) => {
     if (typeof msg !== 'object' || msg === null) return
     const message = msg as { type?: unknown; os?: unknown }
