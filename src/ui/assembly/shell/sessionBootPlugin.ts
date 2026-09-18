@@ -170,7 +170,7 @@ export function apply(ctx: BootContext): void {
    * 盯法服务两条通路，见 assertDesired）。
    */
   let desired = target
-  /** 目标准的目标盯到什么时候为止；窗口走完就不再插手（用户手动切走不会被拽回来）。 */
+  /** 目标盯到什么时候为止；窗口走完就不再插手（用户手动切走不会被拽回来）。 */
   let watchUntil = desired === undefined ? 0 : performance.now() + WATCH_TARGET_MS
   /** 上一次真的喊 `openSession` 的时刻（节流，见 WATCH_MIN_GAP_MS）。 */
   let lastAssert = 0
