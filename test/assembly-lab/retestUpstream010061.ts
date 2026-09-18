@@ -58,6 +58,17 @@ const LABEL_ARG = ((): string | undefined => {
 })()
 const OUT_DIR = path.join(LAB_DIR, 'out', 'upstream-010-061', LABEL_ARG ?? 'run')
 
+/**
+ * `--only D,E` 只跑指定阶段（缺省全跑）。排查某一条现象时要反复跑，播种是大头，
+ * 能省掉不相干的等待就省。
+ */
+const ONLY = ((): ReadonlySet<string> | null => {
+  const index = process.argv.indexOf('--only')
+  if (index < 0) return null
+  return new Set((process.argv[index + 1] ?? '').split(',').map((item) => item.trim().toUpperCase()))
+})()
+const phaseOn = (id: string): boolean => ONLY === null || ONLY.has(id)
+
 /** 隔离实例起进程时给 `apiKeyEnv` 的那个值（与 `labGateway.ts` 里同一份，重启时要照给）。 */
 const MOCK_LLM_KEY = 'lab-mock-key'
 
@@ -75,6 +86,8 @@ const RECORDER_SOURCE = `(${String(function installRecorder(): void {
     t0: Date.now(),
     marks: [] as Mark[],
     seen: new Set<string>(),
+    /** 记录器自己被调了多少次（0 或很少 = 它没在跑，那一页上的「没记录到」不可信）。 */
+    ticks: 0,
   }
   const mark = (what: string, detail: string): void => {
     const key = `${what}|${detail}`
@@ -84,11 +97,29 @@ const RECORDER_SOURCE = `(${String(function installRecorder(): void {
   }
   const labels = ['连接异常，刷新重试', '重新连接中', '连接成功', '连接异常，点击立即重连', '连接中断，正在重试，点击立即重连']
   const rowsOf = (): number => document.querySelectorAll('[data-chat-flow] > [data-chat-flow-key]:not(:empty):not([hidden])').length
+  let sawRows = false
+  // 页内错误也带时刻记一笔：整页崩成空白时，外面只拿得到「有哪些报错」，拿不到
+  // 「崩在断开那一刻还是重连之后」——那一刻正是判断上游哪条路径坏掉的关键。
+  const describe = (value: unknown): string => {
+    const text = value instanceof Error ? value.message : String(value)
+    return text.replace(/\\s+/g, ' ').slice(0, 160)
+  }
+  window.addEventListener('error', (event) => {
+    mark('pageerror', describe((event as ErrorEvent).message))
+  })
+  window.addEventListener('unhandledrejection', (event) => {
+    mark('unhandledrejection', describe((event as PromiseRejectionEvent).reason))
+  })
   const tick = (): void => {
+    record.ticks += 1
     const text = document.body === null ? '' : document.body.innerText
     if (document.querySelector('[data-slot="conversation.session.header"]') !== null) mark('header', '')
     const rows = rowsOf()
+    if (rows > 0) sawRows = true
     if (rows > 0) mark('history-row', String(rows))
+    // 已经渲染过历史、之后归零 = 页面上原来那点内容没了（alpha.2 整页白的形状）。
+    if (sawRows && rows === 0) mark('rows-cleared', '')
+    if (document.body !== null && sawRows && text.trim() === '') mark('page-blank', '')
     if (text.includes('载入历史') || text.includes('Loading history')) mark('loading-history', 'present')
     else if (record.seen.has('loading-history|present')) mark('loading-history', 'gone')
     for (const label of labels) {
@@ -113,13 +144,14 @@ interface RecorderMark {
 interface RecorderRecord {
   t0: number
   marks: RecorderMark[]
+  ticks: number
 }
 
 /** 读页内记录器（没装上返回 null）。 */
 async function readRecorder(page: Page): Promise<RecorderRecord | null> {
   return await page.evaluate(() => {
-    const raw = (globalThis as { __RETEST__?: { t0: number; marks: RecorderMark[] } }).__RETEST__
-    return raw === undefined ? null : raw
+    const raw = (globalThis as { __RETEST__?: { t0: number; marks: RecorderMark[]; ticks: number } }).__RETEST__
+    return raw === undefined ? null : { t0: raw.t0, marks: raw.marks, ticks: raw.ticks }
   })
 }
 
@@ -127,6 +159,11 @@ async function readRecorder(page: Page): Promise<RecorderRecord | null> {
 function timeline(record: RecorderRecord | null): string[] {
   if (record === null) return ['（记录器没装上）']
   return record.marks.map((mark) => `+${String(mark.at - record.t0)}ms ${mark.what}${mark.detail === '' ? '' : ` ${mark.detail}`}`)
+}
+
+/** 记录器跑了多少次 + 这一页此刻的 URL（`ticks` 太少 = 记录器没在跑，别信它的「没记录到」）。 */
+async function recorderNote(page: Page, record: RecorderRecord | null): Promise<string> {
+  return `记录器 tick ${String(record?.ticks ?? -1)} 次，页面 URL ${await page.url()}`
 }
 
 /** 某一类记录第一次出现的相对时刻（毫秒；没出现返回 null）。 */
@@ -423,7 +460,7 @@ async function main(): Promise<void> {
     // 阶段 A：#61 —— 打开正在运行的会话
     // ------------------------------------------------------------------
     current = '#61 官方页：直接开到正在运行的会话（种 dsh.sessions.current）'
-    {
+    if (phaseOn('A')) {
       const opened = await openOfficialPage(browser, gateway, { seedSession: running.sessionId })
       contexts.push(opened.context)
       const appeared = await timeToRows(opened.page, opened.navigatedAt, 45_000)
@@ -435,10 +472,12 @@ async function main(): Promise<void> {
           : `导航后 ${String(appeared.elapsedMs)}ms 历史行出现（${String(appeared.facts.rows)} 行），页面标题「${appeared.facts.sessionTitle}」`,
       )
       say(`页内记录器：header@${String(firstAt(record, 'header'))}ms、首条历史行@${String(firstAt(record, 'history-row'))}ms、「载入历史…」出现@${String(firstAt(record, 'loading-history'))}ms、消失@${String(loadingGoneAt(record))}ms`)
+      say(await recorderNote(opened.page, record));
       await opened.page.waitForTimeout(45_000)
       const settled = await chatFacts(opened.page)
       say(`45 秒后的现场：历史行 ${String(settled.rows)}、「载入历史…」在场 ${String(settled.loadingHistory)}、会话头在场 ${String(settled.header)}`)
       say(`页内时间线：${timeline(record).join(' / ')}`)
+      say(await recorderNote(opened.page, record));
       say(`截图 ${await shot(opened.page, 'A1-official-running-seeded')}`)
       say(`控制台报错 ${String(opened.capture.consoleErrors.length)} 条、pageerror ${String(opened.capture.pageErrors.length)} 条`)
     }
@@ -447,7 +486,7 @@ async function main(): Promise<void> {
     // 阶段 B：#61 —— 当初的复现路径（先落空闲会话，再点侧栏那一行）
     // ------------------------------------------------------------------
     current = '#61 官方页：先落空闲会话，再从侧栏点开正在运行的会话'
-    {
+    if (phaseOn('B')) {
       const opened = await openOfficialPage(browser, gateway, { seedSession: idle.sessionId })
       contexts.push(opened.context)
       await opened.page.waitForTimeout(6_000)
@@ -486,7 +525,7 @@ async function main(): Promise<void> {
     // 阶段 C：#61 —— 装配页对照（同一条运行中会话）
     // ------------------------------------------------------------------
     current = '#61 装配页（/chat 树）：同一条正在运行的会话'
-    {
+    if (phaseOn('C')) {
       const opened = await openAssemblyPage(browser, lab, running.sessionId)
       contexts.push(opened.context)
       const appeared = await timeToRows(opened.page, opened.navigatedAt, 30_000)
@@ -495,7 +534,10 @@ async function main(): Promise<void> {
       const record = await readRecorder(opened.page)
       const facts = await chatFacts(opened.page)
       say(`页内记录器：header@${String(firstAt(record, 'header'))}ms、首条历史行@${String(firstAt(record, 'history-row'))}ms、「载入历史…」出现@${String(firstAt(record, 'loading-history'))}ms、消失@${String(loadingGoneAt(record))}ms`)
+      say(await recorderNote(opened.page, record));
       say(`30 秒后的现场：历史行 ${String(facts.rows)}、「载入历史…」在场 ${String(facts.loadingHistory)}`)
+      say(`重启后的 pageerror（前 8 条）：${JSON.stringify(opened.capture.pageErrors.slice(0, 8))}`)
+      say(`重启后的控制台报错（前 8 条）：${JSON.stringify(opened.capture.consoleErrors.slice(0, 8))}`)
       say(`截图 ${await shot(opened.page, 'C1-assembly-running')}`)
     }
 
@@ -503,7 +545,7 @@ async function main(): Promise<void> {
     // 阶段 D：#10 —— 网关重启后的官方页
     // ------------------------------------------------------------------
     current = '#10 官方页：网关实例重启后事件流会不会自己接回来'
-    {
+    if (phaseOn('D')) {
       const opened = await openOfficialPage(browser, gateway, { seedSession: idle.sessionId })
       contexts.push(opened.context)
       await opened.page.waitForTimeout(12_000)
@@ -519,7 +561,11 @@ async function main(): Promise<void> {
       const documentAfter = await readRecorder(opened.page)
       say(`重启后 30 秒：页面上的恢复提示 ${JSON.stringify(hints)}；历史行 ${String(mid.rows)}、「载入历史…」在场 ${String(mid.loadingHistory)}`)
       say(`这一页有没有被整页重载过：${documentBefore?.t0 === documentAfter?.t0 ? '没有（记录器的文档起点没变）' : `有（${String(documentBefore?.t0)} → ${String(documentAfter?.t0)}）`}`)
-      say(`重启前后这段的提示时间线：${timeline(documentAfter).filter((line) => line.includes('recovery-hint')).join(' / ') || '（一条都没有）'}`)
+      say(`重启前后这段的页内时间线：${timeline(documentAfter).join(' / ')}`)
+      say(await recorderNote(opened.page, documentAfter));
+      say(`重启后页面正文前 120 字：${mid.text.slice(0, 120) || '（空白）'}`)
+      say(`重启后的 pageerror（前 8 条）：${JSON.stringify(opened.capture.pageErrors.slice(0, 8))}`)
+      say(`重启后的控制台报错（前 8 条）：${JSON.stringify(opened.capture.consoleErrors.slice(0, 8))}`)
       say(`截图 ${await shot(opened.page, 'D2-official-after-restart')}`)
       const retryLines = opened.capture.all.filter((line) => /connection lost|retry #|reconnect/i.test(line))
       say(`页面控制台里与重连有关的行：${retryLines.length === 0 ? '（一条都没有）' : JSON.stringify(retryLines.slice(0, 6))}`)
@@ -535,7 +581,7 @@ async function main(): Promise<void> {
     // 阶段 E：#10 —— 装配页同样的处境
     // ------------------------------------------------------------------
     current = '#10 装配页（/chat 树）：同一处境'
-    {
+    if (phaseOn('E')) {
       const opened = await openAssemblyPage(browser, lab, idle.sessionId)
       contexts.push(opened.context)
       await opened.page.waitForTimeout(12_000)
@@ -548,14 +594,17 @@ async function main(): Promise<void> {
       const hints = await recoveryHints(opened.page)
       const documentAfter = await readRecorder(opened.page)
       say(`重启后 30 秒这一刻页面上的恢复提示：${JSON.stringify(hints)}（「连接成功」只显示 2 秒，这一刻多半已经消失——真正作数的是下面那条时间线）`)
-      const hintTimeline = timeline(documentAfter).filter((line) => line.includes('recovery-hint'))
-      say(`重启前后**全程**出现过的恢复提示：${hintTimeline.join(' / ') || '（整段一条都没有）'}`)
+      say(`重启前后**全程**的页内时间线：${timeline(documentAfter).join(' / ')}`)
+      say(await recorderNote(opened.page, documentAfter));
       say(`这一页有没有被整页重载过：${documentBefore?.t0 === documentAfter?.t0 ? '没有（记录器的文档起点没变）' : `有（${String(documentBefore?.t0)} → ${String(documentAfter?.t0)}）`}`)
       const settingsSeat = await opened.page.evaluate(() => ({
         trigger: document.querySelector('[data-slot="settings.trigger"]') !== null,
         statusRoles: Array.from(document.querySelectorAll('[role="status"]')).map((node) => (node.getAttribute('aria-label') ?? '').slice(0, 40)),
       }))
       say(`页面上有没有官方设置栏那一枚恢复提示的座位（\`settings.trigger\`）：${String(settingsSeat.trigger)}；页面上 role=status 的元素：${JSON.stringify(settingsSeat.statusRoles)}`)
+      say(`重启后页面正文前 120 字：${(await chatFacts(opened.page)).text.slice(0, 120) || '（空白）'}`)
+      say(`这一页的 pageerror（前 8 条）：${JSON.stringify(opened.capture.pageErrors.slice(0, 8))}`)
+      say(`这一页的控制台报错（前 8 条）：${JSON.stringify(opened.capture.consoleErrors.slice(0, 8))}`)
       await promptSession(gateway, idle.sessionId, '实验室：普通对话 91，回一句话就结束。')
       const rows = await waitRowsAbove(opened.page, before.rows, 60_000)
       say(`发完提示词 60 秒内：${rows === null ? `历史行仍是 ${String((await chatFacts(opened.page)).rows)}（没有新内容）` : `历史行涨到 ${String(rows)}（新内容渲染出来了）`}`)
@@ -566,7 +615,7 @@ async function main(): Promise<void> {
     // 阶段 F：#61 的开放问题——触发条件到底是「运行中」还是「历史体量大」
     // ------------------------------------------------------------------
     current = '#61 官方页：历史体量大的空闲会话（触发条件的另一支）'
-    {
+    if (phaseOn('F')) {
       const workspaceId = idle.workspaceId
       const bigId = await createSession(gateway, { workspaceId })
       const turns = 30
