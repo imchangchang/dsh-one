@@ -36,6 +36,12 @@
  *                     产物与不开它时逐字相同。机器现场（并发/独占）那一行不在它管下，
  *                     任何时候都记（见 machineLoad.ts）
  *
+ * 另外两样**只记事实、不判断言**的观测：① 机器现场（这一轮是并发还是独占）任何时候都记
+ * （`machineLoad.ts`）；② **本地插件产物的指纹**（整轮里 `dist/assembly/plugins` 有没有被
+ * 重写过，#207 的成因方向——`dev-merge` 每次合入都会重建它）任何时候都算，但**只有真变过
+ * 或 `--diag-surface` 时**才占报告里的行，所以默认跑法的报告与改前逐字相同
+ * （`localBundleFingerprint.ts`）。
+ *
  * `--empty` 已退役（#177）：那套跑法就是现在的默认跑法，只是实例里现在会播种真数据。
  * 老参数仍然认，但直接报错退出——免得有人以为跑的是「空实例」。
  *
@@ -53,6 +59,13 @@ import { Check, NATIVE_SIDE_EFFECT_ROUTES, apiMethodCounts, apiOriginCounts, lau
 import { startLabGateway, portListening, type LabGateway } from './labGateway.ts'
 import { readGatewaySurface, readingLine, surfaceSummary, type SurfaceReading } from './sessionSurface.ts'
 import { concurrencyLabel, describeMachineLoad, readMachineLoad } from './machineLoad.ts'
+import {
+  describeBundleRound,
+  readBundleContentRev,
+  readBundleStamp,
+  type BundleRound,
+  type BundleSample,
+} from './localBundleFingerprint.ts'
 import {
   consoleLogger,
   defaultPluginsDir,
@@ -621,7 +634,7 @@ async function main(): Promise<number> {
   const everydayBefore = watchEveryday ? await probeReadOnly(EVERYDAY_GATEWAY, undefined, log) : undefined
   const externalBefore = args.gateway === undefined ? undefined : await probeReadOnly(gateway, args.token, log)
   const readonly = new Check()
-  // ---- #203 的两条观测（都不判任何断言）----
+  // ---- 三条观测（都不判任何断言）----
   // ① 机器现场（并发 / 独占）：整轮都记，读数进报告抬头那张表与 R-06 的观测行。
   const machineBefore = readMachineLoad(isolated?.pid)
   // ② 会话面读数（`--diag-surface` 才记）：套件边界读网关、每次开页读页面，
@@ -637,6 +650,15 @@ async function main(): Promise<number> {
     surface.push(reading)
     await fsp.appendFile(surfaceTxtPath, `${readingLine(reading)}\n`, 'utf8').catch(() => undefined)
   }
+  // ③ 本地插件产物的指纹（#207）：整轮起止各算一次内容指纹（combo 缓存键里本地那一半，
+  //    #173 的同一个函数）、每个套件边界算一次轻量指纹（只看路径/大小/修改时间）。
+  //    **任何时候都算**（读几个文件的元信息，开销可忽略），但报告里那几行只有「真变过」
+  //    或 `--diag-surface` 时才写——默认跑法的报告因此与改前逐字相同。
+  const bundleStart: BundleSample = { at: '整轮开始前', seconds: 0, ...(await readBundleStamp(pluginsDir)) }
+  const bundleStartContent = await readBundleContentRev(pluginsDir)
+  const bundleBoundaries: BundleSample[] = []
+  /** 整轮的四个读数（跑完才填；产物目录里那份时间线要用到，所以声明在 try 之外）。 */
+  let bundleRound: BundleRound | undefined
   if (args.diagSurface) {
     await fsp.writeFile(surfaceTxtPath, '# 会话面读数时间线（#203，--diag-surface）\n', 'utf8').catch(() => undefined)
     setPageSurfaceSink((reading) => {
@@ -650,7 +672,10 @@ async function main(): Promise<number> {
       // 给观测点指名道姓的能力（#175）：进套件前打标记，这一套里发出的原生副作用调用
       // 都会带上它的 id 与名字。
       setLabSuite(suite.id, suite.name)
-      // 会话面读数的第一个采样点：**进套件之前**（边界采样，退化落在哪一条边界上才看得出）。
+      // 套件边界的两个采样点（都在**进套件之前**）：会话面读数（`--diag-surface` 才记，
+      // 退化落在哪一条边界上才看得出）与本地插件产物的轻量指纹（#207，任何时候都算，
+      // 用来把「整轮中途被重建」定位到具体哪一步）。
+      bundleBoundaries.push({ at: suite.id, seconds: surfaceSeconds(), ...(await readBundleStamp(pluginsDir)) })
       if (args.diagSurface) {
         await recordSurface({ seconds: surfaceSeconds(), where: `suite:${suite.id}`, gateway: await readGatewaySurface(gateway) })
       }
@@ -687,10 +712,24 @@ async function main(): Promise<number> {
     const externalAfter = args.gateway === undefined ? undefined : await probeReadOnly(gateway, args.token, log)
     // 会话面读数的收尾采样点，以及落盘（`--diag-surface` 才有）。
     if (args.diagSurface) await recordSurface({ seconds: surfaceSeconds(), where: 'suite:（末尾）', gateway: await readGatewaySurface(gateway) })
+    // 本地插件产物的收尾读数（#207）：内容指纹（与 combo 缓存键里本地那一半同源）+ 轻量指纹。
+    const bundleEnd: BundleSample = { at: '整轮结束后', seconds: surfaceSeconds(), ...(await readBundleStamp(pluginsDir)) }
+    bundleRound = {
+      dir: pluginsDir,
+      start: bundleStart,
+      boundaries: bundleBoundaries,
+      end: bundleEnd,
+      startContent: bundleStartContent,
+      endContent: await readBundleContentRev(pluginsDir),
+    }
+    const bundleResult = describeBundleRound(bundleRound)
     nativeSideEffectCheck(readonly)
     for (const line of gatewayCallFacts()) readonly.fact(line)
     readonly.fact(describeMachineLoad(machineBefore))
     for (const line of args.diagSurface ? surfaceSummary(surface) : []) readonly.fact(line)
+    // 默认跑法只在**真变过**时记这一档（报告因此与改前逐字相同）；`--diag-surface` 时
+    // 「没变」也留一行——那一行正是把这条成因方向当场排除掉的证据（#207）。
+    if (bundleResult.changed || args.diagSurface) for (const line of bundleResult.lines) readonly.fact(line)
     readonlyCheck(readonly, {
       ...(args.gateway === undefined ? {} : { external: args.gateway }),
       gateway,
@@ -738,7 +777,12 @@ async function main(): Promise<number> {
   if (args.diagSurface) {
     // 完整重写一次：跑到底时这份是**权威副本**（逐条追加那份可能因为进程被打断而少尾巴）。
     const jsonPath = path.join(args.out, 'session-surface.json')
-    await fsp.writeFile(jsonPath, `${JSON.stringify({ readings: surface, machineBefore, machineAfter }, null, 2)}\n`, 'utf8')
+    const bundleLines = bundleRound === undefined ? [] : describeBundleRound(bundleRound).lines
+    await fsp.writeFile(
+      jsonPath,
+      `${JSON.stringify({ readings: surface, machineBefore, machineAfter, ...(bundleRound === undefined ? {} : { bundle: bundleRound }) }, null, 2)}\n`,
+      'utf8',
+    )
     await fsp.writeFile(
       surfaceTxtPath,
       [
@@ -746,6 +790,7 @@ async function main(): Promise<number> {
         `# 机器现场（跑前）：${describeMachineLoad(machineBefore)}`,
         `# 机器现场（跑后）：${describeMachineLoad(machineAfter)}`,
         `# 结论：${concurrencyLabel(machineBefore)}`,
+        ...bundleLines.map((line) => `# ${line}`),
         ...surface.map(readingLine),
         '',
       ].join('\n'),
