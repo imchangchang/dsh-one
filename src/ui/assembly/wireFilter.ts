@@ -190,7 +190,7 @@ const SETTINGS_PAGES: ReadonlyArray<BlockedPlugin> = [
  * `@deepseek-ai/dsh-client-ui-settings-general`（General 设置节 + 设置弹窗壳
  * `SettingsRoot` + 连接状态那枚提示）**只在 sidebar 树继续下线**（#202 逐条复核）。
  *
- * 判据照 #180 那条「这棵树有没有声明它注册的座位」。它注册的座位
+ * 判据照 #180 那条「这棵树有没有声明它注册的槽位」。它注册的槽位
  * （`settings.trigger` / `settings.header` / `settings.action` / `settings.close` /
  * `settings.section` / `settings.onboarding`）全是 `sidebar.settings` 的**子槽**
  * （官方 `dsh-client-ui-settings-general/lib/client.js` 的 `apply`：`ctx.slots.inject
@@ -200,13 +200,13 @@ const SETTINGS_PAGES: ReadonlyArray<BlockedPlugin> = [
  * - **sidebar 树继续下线**：这棵树的官方侧栏壳在，`sidebar.settings` 声明得了 ⇒ 它的
  *   `SettingsRoot` 会真的注册进来。我们那行设置入口（`@dsh-one/vscode-settings-gear`）
  *   按 priority −1 遮蔽它，所以照旧下线、不靠遮蔽兜底。
- * - **chat 树摘除（#202）**：这棵树没有官方侧栏壳，`sidebar.settings` 一个座位都没声明，
+ * - **chat 树摘除（#202）**：这棵树没有官方侧栏壳，`sidebar.settings` 一个槽位都没声明，
  *   它那几处贡献的回调永不跑、整件停车、零渲染——挂着它只是白背一个官方 id 依赖。
  *
  * 摘除前在实验室实测过（#202）：chat 树放行前后页面的**元素集合**（`tag + data-slot +
- * class` 排序）逐项一致、设置座位锚点仍是零枚 ⇒ 放行**不会**把设置页面的东西带进
+ * class` 排序）逐项一致、设置槽位锚点仍是零枚 ⇒ 放行**不会**把设置页面的东西带进
  * 对话区。代价是官方那枚断线提示也**拿不回来**：它渲染在 `SettingsRoot` 的 triggerRow
- * 里，而那行要 `sidebar.settings` 座位。所以对话区那行提示由自有 frame 插件自己出
+ * 里，而那行要 `sidebar.settings` 槽位。所以对话区那行提示由自有 frame 插件自己出
  * （`@dsh-one/vscode-chat-ui-layout`，见 chatLayoutPlugin.ts 的 `connectionHint` 段）。
  */
 const SETTINGS_GENERAL: BlockedPlugin = {

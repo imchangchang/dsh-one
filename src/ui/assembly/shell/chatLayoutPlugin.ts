@@ -17,7 +17,7 @@
  *   AppFrame 的两步解算（frameShared.computeColumns），呈现上报走 ctx.layout。
  * - ConnectionHint（#202）：对话区底部那一行断线提示。官方那枚提示只有
  *   `ui-settings-general` 的 `SettingsRoot` 一个承载件，而那要 `sidebar.settings`
- *   座位（chat 树没有官方侧栏壳 ⇒ 官方提示在这棵树上永不渲染），所以这一行由本插件
+ *   槽位（chat 树没有官方侧栏壳 ⇒ 官方提示在这棵树上永不渲染），所以这一行由本插件
  *   自己出：读官方 `connection.state`（机制层 2），离开 `connected` 就显示一行、
  *   回来就消失。理由与判据见 ConnectionHint 上方的注释。
  *
@@ -207,9 +207,9 @@ function DocumentTitle({ title, productTitle }: { title?: string; productTitle: 
  * 官方那枚断线提示（`ConnectionIndicator`，「连接中断，正在重试，点击立即重连」那一条）
  * 官方安装里**只有一个承载件**：`@deepseek-ai/dsh-client-ui-settings-general` 的
  * `SettingsRoot`（该包 `lib/client.js` 里 `ConnectionIndicator` 的唯一调用点，就在设置
- * 入口那一行的 triggerRow 里）。而 `SettingsRoot` 是 `sidebar.settings` 座位上的贡献，
- * 那个座位只有**官方侧栏壳**声明——chat 树没有官方侧栏壳，于是那枚提示在这棵树上
- * 永远不渲染（#202 实测：`settings.trigger` 座位锚点零枚、放行 ui-settings-general 也
+ * 入口那一行的 triggerRow 里）。而 `SettingsRoot` 是 `sidebar.settings` 槽位上的贡献，
+ * 那个槽位只有**官方侧栏壳**声明——chat 树没有官方侧栏壳，于是那枚提示在这棵树上
+ * 永远不渲染（#202 实测：`settings.trigger` 槽位锚点零枚、放行 ui-settings-general 也
  * 一样）。后果是**整段重启窗口里页面上一条恢复提示都没有**：内容会自己回来，用户却
  * 不知道刚才断过（#10 诉求 2「别静默」）。
  *
