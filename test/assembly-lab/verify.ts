@@ -576,7 +576,7 @@ async function main(): Promise<number> {
   let isolated: LabGateway | undefined
   if (args.gateway === undefined) {
     try {
-      isolated = await startLabGateway(log)
+      isolated = await startLabGateway(log, args.diagSurface ? { logPath: path.join(args.out, 'gateway.log') } : {})
       resources.isolated = isolated
       gateway = isolated.gateway
       token = isolated.token

@@ -7,11 +7,13 @@
  * 的观测行——**只记事实，不判任何一条断言**（别人的实验不该决定我们的门禁，见 #175）。
  *
  * 口径（`ps` 快照 + `os` 的三个量，**只读**）：
- * - **别的实验室轮次** = 命令里含 `test/assembly-lab/verify.ts` 且 pid 不是自己的进程
- *   ——别的 session 的 `verify:lab`（正是 #203 现场里那些实验）；
+ * - **别的实验室轮次** = **以 `node` 开头**、命令里含 `test/assembly-lab/verify.ts` 且 pid 不是
+ *   自己的进程——别的 session 的 `verify:lab`（正是 #203 现场里那些实验）。只认 node 开头，
+ *   是因为启动它的 shell 的命令行里也含同一段路径（#203 第一次实测把 3 条轮次数成了 10 条）；
  * - **别的 dsh 网关** = `dsh web` 进程里不属于本轮隔离实例的那些（用户日常那台会在里面，
  *   所以这条只作事实，单看它不能判「并发」）；
- * - **别的 chromium** = 命令里含 `ms-playwright` 且不属于本轮的那些（别的浏览器验证线）。
+ * - **别的 chromium** = 命令里含 `ms-playwright` 且不属于本轮的那些进程（别的浏览器验证线；
+ *   一趟验证会拉起好几个进程，所以这个数只当「机器上还有几摊浏览器」的量级看）。
  *
  * `ps` 在 macOS / Linux 上都在；取不到（例如 Windows 没有 `ps`）时如实记一句「取不到」，
  * 不猜、也不当作「没有并发」。
@@ -24,7 +26,7 @@ export interface MachineLoad {
   otherLabRounds: number
   /** 别的 dsh 网关条数（不含本轮隔离实例）；-1 = 这次读不到。 */
   otherGateways: number
-  /** 别的 chromium（`ms-playwright`）条数；-1 = 这次读不到。 */
+  /** 别的 chromium **进程**条数（一趟浏览器验证会拉起好几个），-1 = 这次读不到。 */
   otherBrowsers: number
   /** 那几台别的网关的端口（人看的）。 */
   otherGatewayPorts: number[]
@@ -53,12 +55,19 @@ export function countProcesses(
     const pid = Number(match[1])
     const command = match[2] ?? ''
     if (command === '') continue
-    if (command.includes('test/assembly-lab/verify.ts') && pid !== options.selfPid) otherLabRounds += 1
+    // 只认**真在跑这条轮次的 node 进程**：命令必须以 `node`（可带路径）开头。
+    // 不加这条会把启动它的 shell 也算进去——`bash -c '… node test/assembly-lab/verify.ts …'`
+    // 的命令行里同样含那段路径，#203 第一次实测把 3 条轮次数成了 10 条。
+    if (/^(\S*\/)?node\s+\S*test\/assembly-lab\/verify\.ts\b/.test(command) && pid !== options.selfPid) {
+      otherLabRounds += 1
+    }
     if (/(^|[/\s])dsh\s+web\b/.test(command) && pid !== options.gatewayPid) {
       otherGateways += 1
       const port = /--port\s+(\d+)/.exec(command)?.[1]
       if (port !== undefined) otherGatewayPorts.push(Number(port))
     }
+    // chromium 数的是**进程**（一趟浏览器验证会拉起浏览器主进程 + gpu + 网络 + 每个渲染进程），
+    // 所以这个数只当「机器上还有几摊浏览器」的量级看，别当轮次条数。
     if (command.includes('ms-playwright') && pid !== options.selfPid) otherBrowsers += 1
   }
   return { otherLabRounds, otherGateways, otherBrowsers, otherGatewayPorts: otherGatewayPorts.sort((a, b) => a - b) }
@@ -91,7 +100,7 @@ export function describeMachineLoad(load: MachineLoad): string {
   if (load.detail !== '') return `机器现场：${load.detail}`
   return (
     `机器现场：别的实验室轮次 ${String(load.otherLabRounds)} 条、别的 dsh 网关 ${String(load.otherGateways)} 台` +
-    `${load.otherGatewayPorts.length === 0 ? '' : `（端口 ${load.otherGatewayPorts.join('/')}）`}、别的 chromium ${String(load.otherBrowsers)} 条；` +
+    `${load.otherGatewayPorts.length === 0 ? '' : `（端口 ${load.otherGatewayPorts.join('/')}）`}、别的 chromium ${String(load.otherBrowsers)} 个进程；` +
     `负载 ${load.load1.toFixed(2)}/${String(load.cpus)} 核、可用内存 ${(load.freeMemRatio * 100).toFixed(0)}%`
   )
 }

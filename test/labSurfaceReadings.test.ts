@@ -80,6 +80,15 @@ test('countProcesses：数出别的实验室轮次 / 别的网关 / 别的浏览
   })
 })
 
+test('countProcesses：启动轮次的 shell 不算一条轮次（命令行里同样含那段路径）', () => {
+  const table = [
+    '  111 node test/assembly-lab/verify.ts --diag-surface',
+    "  112 /bin/bash -c cd /repo && ( node test/assembly-lab/verify.ts --out /tmp/x )",
+    "  113 bash -c for i in 1 2 3; do ( node test/assembly-lab/verify.ts --out /tmp/c$i ) & done",
+  ].join('\n')
+  assert.equal(countProcesses(table, { selfPid: 999 }).otherLabRounds, 1)
+})
+
 test('concurrencyLabel：别的轮次或负载压上去才算「并发」，用户日常那台网关不算依据', () => {
   const base: MachineLoad = { otherLabRounds: 0, otherGateways: 1, otherBrowsers: 0, otherGatewayPorts: [3080], load1: 0.2, cpus: 8, freeMemRatio: 0.5, detail: '' }
   assert.match(concurrencyLabel(base), /^独占（/)
@@ -92,5 +101,5 @@ test('describeMachineLoad：读数取不到时如实说取不到，不写成「�
   const unreadable: MachineLoad = { otherLabRounds: -1, otherGateways: -1, otherBrowsers: -1, otherGatewayPorts: [], load1: 0, cpus: 8, freeMemRatio: 0.5, detail: 'ps 读不到（ENOENT）' }
   assert.match(describeMachineLoad(unreadable), /机器现场：ps 读不到/)
   const readable: MachineLoad = { otherLabRounds: 1, otherGateways: 2, otherBrowsers: 3, otherGatewayPorts: [3080, 50066], load1: 3.5, cpus: 8, freeMemRatio: 0.4, detail: '' }
-  assert.match(describeMachineLoad(readable), /别的实验室轮次 1 条、别的 dsh 网关 2 台（端口 3080\/50066）、别的 chromium 3 条；负载 3\.50\/8 核/)
+  assert.match(describeMachineLoad(readable), /别的实验室轮次 1 条、别的 dsh 网关 2 台（端口 3080\/50066）、别的 chromium 3 个进程；负载 3\.50\/8 核/)
 })
