@@ -23,8 +23,8 @@
  *
  * #185 当时用「给隔离沙箱帧补本页 nonce」修掉了它（`pageHtml.ts` 里的 `srcdocNonceJs`）。
  * **#188 起那份 CSP 本身去掉了**（用户拍板：装配页与官方页同处境，见 `docs/architecture.md`
- * 的「webview CSP」一节），补 nonce 那层随之一起下线——它当年唯一的用处就是匹配我们自己那条
- * `script-src`（理由写在 `pageHtml.ts` 原处）。
+ * 的「日志与安全细节」一节里那条 webview CSP），补 nonce 那层随之一起下线——它当年唯一的用处
+ * 就是匹配我们自己那条 `script-src`（理由写在 `pageHtml.ts` 原处）。
  *
  * 于是本套件按 #188 换口径：判**用户看到的结果**——帧内脚本照常执行、卡片按内容撑开、与官方页
  * 同值、本页一个字节都不改插件写下的帧；「是否带 nonce」降级为**事实记录**（今天两侧都不带，
@@ -200,9 +200,12 @@ const RECLASSIFIED_PROBE = 'lab-185-reclassified'
 const INLINE_PROBE = 'lab-188-inlineHandler'
 const INLINE_BUTTON_ID = 'lab-188-go'
 const INLINE_MESSAGE_TYPE = 'lab-188'
-/** 远端资源探针用的地址：`.invalid` 顶级域保证解析不出来，只判「请求有没有发出去」。 */
-const REMOTE_RESOURCE_URL = 'https://lab-188.invalid/lab-188.png'
-const REMOTE_RESOURCE_ID = 'lab-188-remote-image'
+/** 远端资源探针用的两个地址：`.invalid` 顶级域保证解析不出来，只判「请求有没有被政策挡」。
+ * 两个任务各用一件资源，对应 #188 里那两类差异的两条指令（`img-src` 与 `font-src`）。 */
+const REMOTE_RESOURCE_PROBES = [
+  { kind: 'image', id: 'lab-188-remote-image', url: 'https://lab-188.invalid/lab-188.png' },
+  { kind: 'font', id: 'lab-188-remote-font', url: 'https://lab-188.invalid/lab-188.woff2' },
+] as const
 /** 探针帧的内容高度（判据按它算，不写「> 0」）。 */
 const PROBE_CONTENT_HEIGHT = 500
 
@@ -361,6 +364,10 @@ interface ResourceProbeReading {
   attempted: boolean
   /** 这条请求最终有没有拿到响应（加载成不成功只看网络，记事实用）。 */
   responded: boolean
+  /** 这条请求的失败原因原文（`requestfailed`）。空串 = 没失败或没拿到原因。 */
+  failureText: string
+  /** 这条请求是不是被 CSP 挡下的（浏览器把「被政策挡住」也报成一次请求，所以要看失败原因）。 */
+  blockedByCsp: boolean
   /** 探针挂上去之后这一页新出现的 CSP 违规条数（没 CSP 就是 0）。 */
   violations: number
 }
@@ -371,53 +378,76 @@ function cspViolationLines(capture: { all: string[] }): string[] {
 }
 
 /**
- * 远端资源探针（#188 的另一类差异）：往页面上挂一个**非本机源**的图片
- * （`https://lab-188.invalid/…`，`.invalid` 顶级域保证解析不出来），判两件事——
- * ① 浏览器**真的去发这条请求**了（有 `request` 或 `requestfailed` 事件）：#188 之前本页的
- * `img-src` 只放行 loopback 与 `data:` / `blob:`，这条请求根本发不出去，页面上只多一条
- * CSP 违规（#186 里那条 F-09 的红就是同一个成因）；② 探针挂上去之后**零 CSP 违规**。
- * 图片最终加载成不成功不看（那取决于这台机器有没有网），只记事实。
+ * 远端资源探针（#188 的另一类差异）：往页面上挂一件**非本机源**的资源——图片
+ * （`https://lab-188.invalid/…`，`.invalid` 顶级域保证解析不出来）与一条同样来自远端的
+ * 字体（`@font-face` + 一段用它的文字）各一件（#188 里那两类差异对应的 `img-src` 与
+ * `font-src` 是两条不同的指令）。判三件事——① 浏览器真的去发这条请求了（有 `request` 或
+ * `requestfailed` 事件）；② 这条请求**不是被本页政策挡下的**（Chromium 把「被 CSP 挡住」也
+ * 报成一次请求，所以只看有没有请求事件判不出来——要看失败原因原文是不是 `csp`，外加控制台
+ * 有没有一条 CSP 违规）；③ 探针挂上去之后**零 CSP 违规**。#188 之前本页的 `img-src` /
+ * `font-src` 只放行 loopback 与 `data:` / `blob:`，②③ 当场红（#186 里那条 F-09 的红就是
+ * 同一个成因）。资源最终加载成不成功不看（那取决于这台机器有没有网），只记事实。
  */
 async function runResourceProbe(
   page: OpenedPage['page'],
   capture: { all: string[] },
+  spec: { kind: 'image' | 'font'; id: string; url: string },
 ): Promise<ResourceProbeReading> {
   const before = cspViolationLines(capture).length
   let attempted = false
   let responded = false
+  let failureText = ''
   const onRequest = (request: { url(): string }): void => {
-    if (request.url() === REMOTE_RESOURCE_URL) attempted = true
+    if (request.url() === spec.url) attempted = true
   }
   const onResponse = (response: { url(): string }): void => {
-    if (response.url() === REMOTE_RESOURCE_URL) responded = true
+    if (response.url() === spec.url) responded = true
   }
-  const onFailed = (request: { url(): string }): void => {
-    if (request.url() === REMOTE_RESOURCE_URL) attempted = true
+  const onFailed = (request: { url(): string; failure(): { errorText: string } | null }): void => {
+    if (request.url() !== spec.url) return
+    attempted = true
+    failureText = request.failure()?.errorText ?? ''
   }
   page.on('request', onRequest)
   page.on('response', onResponse)
   page.on('requestfailed', onFailed)
   try {
-    await page.evaluate((spec) => {
+    await page.evaluate((probe) => {
       const holder = document.createElement('div')
-      holder.id = 'lab-188-remote-holder'
+      holder.id = `${probe.id}-holder`
       holder.style.cssText = 'position:fixed;right:0;bottom:0;width:8px;height:8px;z-index:2147483000'
-      const image = document.createElement('img')
-      image.id = spec.id
-      image.width = 8
-      image.height = 8
-      image.src = spec.url
-      holder.appendChild(image)
+      if (probe.kind === 'image') {
+        const image = document.createElement('img')
+        image.id = probe.id
+        image.width = 8
+        image.height = 8
+        image.src = probe.url
+        holder.appendChild(image)
+      } else {
+        const style = document.createElement('style')
+        style.textContent = `@font-face{font-family:${probe.id};src:url("${probe.url}") format("woff2")}`
+        const text = document.createElement('span')
+        text.id = probe.id
+        text.style.cssText = `font-family:${probe.id};font-size:12px`
+        text.textContent = 'lab-188 font'
+        holder.append(style, text)
+      }
       document.body.appendChild(holder)
-    }, { id: REMOTE_RESOURCE_ID, url: REMOTE_RESOURCE_URL })
+    }, spec)
     await page.waitForTimeout(1_500)
   } finally {
     page.off('request', onRequest)
     page.off('response', onResponse)
     page.off('requestfailed', onFailed)
-    await page.evaluate((id) => document.getElementById(id)?.remove(), 'lab-188-remote-holder').catch(() => undefined)
+    await page.evaluate((id) => document.getElementById(`${id}-holder`)?.remove(), spec.id).catch(() => undefined)
   }
-  return { attempted, responded, violations: cspViolationLines(capture).length - before }
+  return {
+    attempted,
+    responded,
+    failureText,
+    blockedByCsp: /csp|content security policy/i.test(failureText),
+    violations: cspViolationLines(capture).length - before,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -889,27 +919,40 @@ export const HTML_PREVIEW_HEIGHT_SUITE: LabSuite = {
         officialProbe.inlineReports >= 1,
         `官方页收到 ${String(officialProbe.inlineReports)} 条`,
       )
-      // 远端资源：两个页面各挂一个非本机源的图片（#186 里那条 F-09 的红就是这个成因）。
-      const chatResource = await runResourceProbe(page, opened.capture)
-      const officialResource = await runResourceProbe(officialPage, officialCapture)
-      check.fact(
-        `远端资源探针（${REMOTE_RESOURCE_URL}）：装配页 attempted=${String(chatResource.attempted)} responded=${String(chatResource.responded)}、这一步 CSP 违规 ${String(chatResource.violations)} 条；` +
-          `官方页 attempted=${String(officialResource.attempted)} responded=${String(officialResource.responded)}、这一步 CSP 违规 ${String(officialResource.violations)} 条`,
+      // 远端资源：两个页面各挂两件非本机源的资源（图片与字体，#186 里那条 F-09 的红就是这个成因）。
+      const chatResources: ResourceProbeReading[] = []
+      const officialResources: ResourceProbeReading[] = []
+      for (const probe of REMOTE_RESOURCE_PROBES) {
+        chatResources.push(await runResourceProbe(page, opened.capture, probe))
+        officialResources.push(await runResourceProbe(officialPage, officialCapture, probe))
+      }
+      const describeResources = (readings: readonly ResourceProbeReading[], offset = 0): string =>
+        readings
+          .map(
+            (reading, index) =>
+              `${REMOTE_RESOURCE_PROBES[index + offset]?.kind ?? '?'} attempted=${String(reading.attempted)} responded=${String(reading.responded)} blockedByCsp=${String(reading.blockedByCsp)} 失败原因 ${JSON.stringify(reading.failureText)} 违规 ${String(reading.violations)} 条`,
+          )
+          .join('；')
+      check.fact(`远端资源探针（${REMOTE_RESOURCE_PROBES.map((probe) => probe.url).join(' / ')}）：装配页 ${describeResources(chatResources)}`)
+      check.fact(`远端资源探针：官方页 ${describeResources(officialResources)}`)
+      // 判据是「不是被本页政策挡下的」：Chromium 把「被 CSP 挡住」也报成一次请求（失败原因
+      // 就是 `csp`），所以只看有没有请求事件判不出来——要看失败原因与控制台违规两样。
+      const notBlocked = (reading: ResourceProbeReading | undefined): boolean =>
+        reading !== undefined && reading.attempted && !reading.blockedByCsp && reading.violations === 0
+      check.ok(
+        '① 远端资源：装配页那条图片请求不是被本页政策挡下的（#188 之前 img-src 把它挡在发出之前）',
+        notBlocked(chatResources[0]),
+        describeResources(chatResources.slice(0, 1)),
       )
       check.ok(
-        '① 远端资源：装配页真的去发那条请求了（#188 之前 img-src 把请求挡在发出之前）',
-        chatResource.attempted,
-        `请求事件=无（改前现场：页面上只多一条 img-src 违规）`,
+        '① 远端资源：装配页那条字体请求同样不是被政策挡下的（font-src 是另一条指令）',
+        notBlocked(chatResources[1]),
+        describeResources(chatResources.slice(1), 1),
       )
       check.ok(
-        '① 远端资源：官方页同样发出那条请求（两侧同处境）',
-        officialResource.attempted,
-        '官方页也没有 CSP，这条请求本来就发得出去',
-      )
-      check.ok(
-        '① 远端资源这一步零 CSP 违规（本页没有政策可违）',
-        chatResource.violations === 0,
-        `新出现的违规 ${String(chatResource.violations)} 条`,
+        '① 远端资源：官方页那两件同样不是被政策挡下的（两侧同处境）',
+        officialResources.every((reading) => notBlocked(reading)),
+        describeResources(officialResources),
       )
       screenshots.push(await shot(ctx, opened.page, 'html-preview-height-probe-chat'))
 
@@ -1073,7 +1116,7 @@ export const HTML_PREVIEW_HEIGHT_SUITE: LabSuite = {
             check.fact(
               `卡片「${ours.title}」：装配页 ${String(ours.width)}x${String(ours.height)}（内容 ${String(ours.contentHeight)}，nonce=${String(ours.stamped)}）、` +
                 `官方页 ${String(theirs.width)}x${String(theirs.height)}（内容 ${String(theirs.contentHeight)}）；` +
-                `两侧那份 srcdoc ${ours.srcdoc === theirs.srcdoc ? '逐字相同' : `逐字不同（装配页 ${String(ours.srcdoc.length)} 字符、官方页 ${String(theirs.srcdoc.length)} 字符）`}`,
+                `两侧那份 srcdoc ${ours.srcdoc === theirs.srcdoc ? '逐字相同' : `逐字不同（装配页 ${String(ours.srcdoc.length)} 字符、官方页 ${String(theirs.srcdoc.length)} 字符——两份都是插件按当页的宿主主题自己生成的，不是本页改写）`}`,
             )
             check.ok(
               `卡片「${ours.title}」：装配页那份按内容撑开（高度 = 帧内容高度，±2px）`,
