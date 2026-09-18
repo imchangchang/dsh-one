@@ -116,20 +116,17 @@ function createConversationSeatMirror(ctx: ShellContext): SeatMirror {
 // ---------------------------------------------------------------------------
 
 const CSS = '.dshOneShell_frame{background:var(--dsw-alias-bg-base);height:100%;display:flex;flex-direction:column;overflow:hidden;position:relative}.dshOneShell_row{flex:1;min-height:0;display:flex}.dshOneShell_main{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden}.dshOneShell_details{border-left:.5px solid var(--dsw-alias-border-l3);min-width:0;overflow:hidden;background:var(--dsw-alias-bg-base)}.dshOneShell_rightbarCol{flex:none;position:relative;overflow:visible}.dshOneShell_openingMask{z-index:15;position:absolute;top:0;left:0;right:0;bottom:0;background:var(--dsw-alias-bg-base);align-items:center;justify-content:center;color:var(--dsw-alias-label-secondary);font-size:14px;line-height:22px;display:flex}.dshOneShell_overlay{z-index:20;pointer-events:none;position:absolute;inset:0}'
-// composer dock 统计行字号压小（#71 验收）：官方 StatsLine 字号取自官方变量
-// --dsh-content-font-size-secondary（默认 13px，由 ui-theme 按字号设置推导，
-// 五处消费——全局改会误伤 message-feedback/tool/workflow-run）。机制层 4 举证：
-// ①StatsLine 是 conversation.composer.dock 的 list 贡献，list additive 无法
-// 改样式（registry 同前举证）；②官方无字号服务设置口（theme 服务只出快照，
-// 字号设置写网关 settings 不适用于本端 chrome 微调）；③__DSH_TRANSPORT__ 等
-// 接缝与呈现无关。故在 seat 容器上覆写官方变量（官方变量接缝 + data-slot
-// 槽位名选择器，均不依赖 css-module 哈希）：仅 dock 内的 StatsLine 生效，
-// 其余四处消费者不受影响。数值 11px = 比内容次级（13px）小两档，对齐
-// VS Code 面板 footer 惯例（11–12px）；line-height 同步 -2px 保视觉节奏。
-// 注意：seat 容器是 display:contents（无盒），自定义属性无法穿透继承——
-// 覆写给到其子项（StatsLine 根有盒）。
-const CSS_DOCK_STATS = '[data-slot="conversation.composer.dock"]>*{--dsh-content-font-size-secondary:11px;--dsh-content-font-delta-secondary:-2px}'
-const FULL_CSS = () => CSS + CSS_DOCK_STATS
+// composer dock 的统计行**不再覆写字号**（#181 撤除；此前是 #71 验收时压到 11px 的）。
+//
+// 撤除的理由：那一处覆写依赖两个**官方内部 CSS 变量名**（--dsh-content-font-size-secondary /
+// --dsh-content-font-delta-secondary）。这类依赖是「静默失效」型——官方改名不会报错，
+// 只是这里悄悄不再生效，而我们对它的唯一线索就是这段注释本身；审计（#96 的 C12）把它
+// 归在「可撤：撤掉即少两个官方内部变量名依赖，代价是 dock 统计行回到官方 13px」，
+// 用户 2026-09-18 拍板按此撤除（宁可回官方观感，也不背这两个内部名字）。
+//
+// 撤除后的行为：统计行取官方 ui-theme 按字号设置推导出来的那一档（默认 13px），
+// 与官方 web 端一致。若以后真要再压字号，请走「官方字号设置」那条路而不是覆写内部变量。
+const FULL_CSS = () => CSS
 // 注意：overlay 层语义逐字对齐官方 AppFrame.overlayLayer（pointer-events:none、
 // 无子元素指针事件豁免）——官方 CSS 没有 `>*{pointer-events:auto}`；加豁免会让
 // 任何渲染了尺寸内容的 overlay 贡献（portal 进该层的全屏容器）吃掉全页输入。
