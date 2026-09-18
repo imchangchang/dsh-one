@@ -12,7 +12,7 @@
  *   按 __ModuleLoader__.load 边界剥掉 blocked 段后伺服，见 assemblyMirror)。
  * - bootstrap 批只有 client-modules，永不过滤。
  *
- * 三棵树三份 block list（#70 立、#71 瘦身、#180 逐条复核、#202 续）：
+ * 三棵树三份 block list（#70 立、#71 瘦身、#180 逐条复核、#202 / #204 续）：
  * - chat 树（装配对话区）：官方外框 + 官方侧栏都下线（#64 行为不变）；
  *   对话区本身在这棵树上，对话流卡片全保留。
  * - sidebar 树（侧栏位装配）：官方外框 + 对话区那几件下线，官方侧栏（品牌位/
@@ -171,19 +171,19 @@ const FLOW_BOTH_TREES: ReadonlyArray<BlockedPlugin> = [
  *   那个槽位（停车），settings 树声明了但不渲染对话区。
  */
 
-/** 设置子页组（#71 瘦身）：设置独立成页后 sidebar 树不再载设置子页。 */
+/** 设置子页组（#71 瘦身）：设置独立成页后 **sidebar 树**不再载设置子页。 */
 const SETTINGS_PAGES: ReadonlyArray<BlockedPlugin> = [
   // ui-settings-models 曾在这条清单里（Models 设置节）。2026-09-16 摘除，当时的理由
   // 与上面那一段摘除留档里 ui-model-selection 同一份错误观察（日常 profile 被另一仓的
   // `@dsh-one/dsh-llm-provider` 补丁改过），更正与教训见那一段。
   // 它留在清单外是对的：chat / sidebar 两棵树不声明设置区槽位，放着不渲染任何东西。
   //
-  // 下面这两件在 chat 树也继续下线（#202 只摘了同组的 ui-settings-general，见下）。
-  // 它们注册的槽位同样全在 `sidebar.settings` 之下，形状与那件一致——按同一条判据
-  // 它们也停车、放行同样零渲染，摘不摘都不改今天的观感；#202 的整改对象是承载断线
-  // 提示的那一件，这两件留给下一次按同一条判据的逐条复核。
-  { id: '@deepseek-ai/dsh-client-ui-settings-plugins', reason: 'Plugins section; only the settings tree needs it after settings became a page' },
-  { id: '@deepseek-ai/dsh-client-ui-settings-plugin-inventory', reason: 'plugin-inventory section; only the settings tree needs it after settings became a page' },
+  // 下面这两件从 chat 树摘除（#204）、**留在 sidebar 树**（理由与实测读数见
+  // CHAT_BLOCK_LIST 的注释）。两棵树里它们都停车，差别只在处置口径：chat 树那一份摘了
+  // （本 issue 的整改对象），sidebar 树那一份沿用 #180 对同类「纯流量代价」项的做法——
+  // 挂着它不花用户一分流量，摘掉只是少一个 id 依赖。
+  { id: '@deepseek-ai/dsh-client-ui-settings-plugins', reason: 'Plugins section; parked in the sidebar tree because ui-settings-general (the declarer of its seats via SettingsRoot) is blocked there, and only the settings tree needs it' },
+  { id: '@deepseek-ai/dsh-client-ui-settings-plugin-inventory', reason: 'plugin-inventory section; parked in the sidebar tree because ui-settings-general (the declarer of its seats via SettingsRoot) is blocked there, and only the settings tree needs it' },
 ]
 
 /**
@@ -248,13 +248,29 @@ const SIDEBAR_ONLY: ReadonlyArray<BlockedPlugin> = [
 export const SIDEBAR_BLOCK_LIST: ReadonlyArray<BlockedPlugin> = [UI_LAYOUT, ...FLOW_BOTH_TREES, SETTINGS_GENERAL, ...SETTINGS_PAGES, ...SIDEBAR_ONLY]
 
 /**
- * chat 树 block list（#64 行为 + #71 瘦身 + #202）：官方外框、官方侧栏、设置子页组。
+ * chat 树 block list（#64 行为 + #71 瘦身 + #202 + #204）：官方外框 + 官方侧栏。
  * 对话流卡片全保留（本树渲染它们）；composer hero 的 agent preset 与权限
  * 选择保留（新会话功能）；官方右栏系（ui-sidebar-right + 文件/终端/文档预览）
  * 不在此列——自有 frame 的 root 条目声明 `rightbar` 槽位并渲染它（#79 决策 B），
  * 这几件在这棵树上真生效。
  *
- * #202 起不含 `ui-settings-general`（理由见 SETTINGS_GENERAL 的注释）。
+ * 摘到这里只剩两条（`ui-layout` + `ui-sidebar`，都是「与 VS Code 容器冲突」的形态
+ * 理由，不是 id 依赖）：
+ *
+ * - #202 起不含 `ui-settings-general`（理由见 SETTINGS_GENERAL 的注释）。
+ * - #204 起不含 `ui-settings-plugins` 与 `ui-settings-plugin-inventory`：这两件与
+ *   上一条同形——它们等待声明的槽位（`settings.section` / `settings.plugins.tab` /
+ *   `settings.plugin.item`）全在 `sidebar.settings` 之下，而那是个设置子槽，本树
+ *   **一处都没声明**（#204 在同一轮里真读了本树的槽位声明表：46 个名字，
+ *   `sidebar` / `sidebar.settings` / `settings.*` 一个都没有）⇒ 这几处贡献的回调
+ *   永不跑、整件停车、零渲染，挂着只是白背两个官方 id 依赖。
+ *
+ *   **摘除前的实测**（各一台自起的全新 `DSH_HOME` 隔离实例，只换这份清单里那两个
+ *   id）：本页 combo 58 → 60 条（两件真的进来了）、12 枚槽位锚点逐枚同值
+ *   （`settings.section` / `settings.plugins.tab` / `settings.plugin.item` 三处两边
+ *   都是 0）、整页截图 md5 相同（`128cc584…`）、元素集合逐项相同**只多出它们自己
+ *   注入的 5 张 `<style>`**（那 5 张的 125 条规则拿去 `querySelectorAll` 命中页面上
+ *   0 个元素）、零崩溃 / 零未激活 / 零 pageerror、正文逐字相同。
  */
 export const CHAT_BLOCK_LIST: ReadonlyArray<BlockedPlugin> = [
   UI_LAYOUT,
@@ -262,7 +278,6 @@ export const CHAT_BLOCK_LIST: ReadonlyArray<BlockedPlugin> = [
     id: '@deepseek-ai/dsh-client-ui-sidebar',
     reason: 'no sidebar seat in the chat tree; the sidebar seat is served by the sidebar tree (#70)',
   },
-  ...SETTINGS_PAGES,
 ]
 
 /**
