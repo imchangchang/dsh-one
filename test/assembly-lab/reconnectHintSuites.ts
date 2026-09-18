@@ -23,6 +23,7 @@
 import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
 import { contractGaps, openTreePage, type OpenedPage } from './harness.ts'
+import { fakeHostScript } from './fakeHost.ts'
 import { consoleLogger, defaultPluginsDir, LAB_TREES, startLabServer, type LabTreeRoute } from './labServer.ts'
 import { startFreshGateway } from './freshGateway.ts'
 import { SHELL_LOCALE } from '../../src/ui/assembly/shell/shellLocale.ts'
@@ -113,7 +114,7 @@ export const RECONNECT_HINT_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '对话区断线提示：同端口同 DSH_HOME 重启实例期间页面上有一行可见的事实（#202）',
   expect:
-    '实验室自己起一台**全新 `DSH_HOME`** 的 dsh 网关（`--port 0` 随机端口、`--no-open`、临时目录当 HOME，收尾按 PID 收掉并删目录——不碰用户的 3080，也不写 `~/.dsh/dsh-owned.json`），在 chat 树上依次断言：① **断线前零行**——`[data-dshone-connection-hint]` 零枚（这就是改前那种「全程零行」的读数在改后代码上的对应位置），且官方 `ui-settings-general` 注册的七处座位锚点（`sidebar.settings` / `settings.*`）**全部零枚**：该件确实进了本页的 combo（放行生效），但 chat 树一处座位都没声明，官方那枚提示（`ConnectionIndicator`，唯一承载件是它的 `SettingsRoot`）在这棵树上挂不上——这正是「我们自己出一行」的理由（判据 1 的常驻断言）；② **同端口同 `DSH_HOME` 重启实例**（先按 PID 收掉、`stop()` 保留 HOME 与端口，再起第二台），断线那一刻页面上**恰好一行**可见事实：`role=status`、带自有标记、盒高 > 0、文案逐字等于插件词典里那条（zh / en 任一份，期望值从 `shellLocale.ts` 读，不写死中文）；③ 第二台起来后那一行**自己消失**（回到零枚）；③′ 另一条分支：浏览器报离线（`context.setOffline`，官方恢复循环就是听 `offline` 事件的那一条路径）时那一行也在，文案换成词典里的「连接已断开」那条，网络恢复后同样自己消失；④ 整段过程零 `slot entry crashed` / 零装载未激活 / 零 pageerror。',
+    '实验室自己起一台**全新 `DSH_HOME`** 的 dsh 网关（`--port 0` 随机端口、`--no-open`、临时目录当 HOME，收尾按 PID 收掉并删目录——不碰用户的 3080，也不写 `~/.dsh/dsh-owned.json`），在 chat 树上依次断言：① **断线前零行**——`[data-dshone-connection-hint]` 零枚（这就是改前那种「全程零行」的读数在改后代码上的对应位置），且官方 `ui-settings-general` 注册的七处座位锚点（`sidebar.settings` / `settings.*`）**全部零枚**：该件确实进了本页的 combo（放行生效），但 chat 树一处座位都没声明，官方那枚提示（`ConnectionIndicator`，唯一承载件是它的 `SettingsRoot`）在这棵树上挂不上——这正是「我们自己出一行」的理由（判据 1 的常驻断言）；② **同端口同 `DSH_HOME` 重启实例**（先按 PID 收掉、`stop()` 保留 HOME 与端口，再起第二台），断线那一刻页面上**恰好一行**可见事实：`role=status`、带自有标记、盒高 > 0、文案逐字等于插件词典里那条（zh / en 任一份，期望值从 `shellLocale.ts` 读，不写死中文）；③ 第二台起来后那一行**自己消失**（回到零枚）；③′ 另一条分支：浏览器报离线（`context.setOffline`，官方恢复循环就是听 `offline` 事件的那一条路径）时那一行也在，文案换成词典里的「连接已断开」那条，网络恢复后同样自己消失；③″ **首屏从来就没连上过**那一档不显示（另开一个上下文把通往网关的 WebSocket 拦下来不接给服务端，事件流永远不 ready ⇒ 状态源从未 `connected`），挡住「每次打开面板都闪一行」那类误报；④ 整段过程零 `slot entry crashed` / 零装载未激活 / 零 pageerror。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const tree = route('chat')
@@ -196,6 +197,35 @@ export const RECONNECT_HINT_SUITE: LabSuite = {
       await opened.context.setOffline(false)
       const backOnline = await waitForHintCount(page, 'gone', 60_000)
       check.eq('chat：网络恢复后那一行也自己消失', backOnline, 0)
+
+      // ③″ 首屏「从来就没连上过」这一档：不显示。挡住的是「每次打开面板都闪一行
+      // 连接中断」那类误报——提示只该讲「刚才断过」，不该讲「还没连上」。
+      // 造法：另开一个上下文，把通往网关的 WebSocket 拦下来**不接给服务端**
+      // （Playwright 的语义：handler 里不调 `connectToServer()` 就是纯 mock，
+      // 页面那头连得上、服务端一个字节都收不到）——官方 connection 的 generation
+      // 因此永远不 ready，状态源停在「还没有结果」/「正在重连」而从未 `connected`。
+      const blockedContext = await ctx.browser.newContext({ viewport: { width: 1400, height: 900 } })
+      try {
+        await blockedContext.addInitScript({ content: fakeHostScript() })
+        await blockedContext.routeWebSocket('**/api/**', () => {
+          /* 不 connectToServer：这条流永远不 ready */
+        })
+        const blockedPage = await blockedContext.newPage()
+        await blockedPage.goto(`${lab.origin}/${tree.route}`, { waitUntil: 'domcontentloaded' })
+        let blockedReady = true
+        try {
+          await blockedPage.waitForSelector(tree.readySelector, { timeout: 30_000 })
+        } catch {
+          blockedReady = false
+        }
+        await blockedPage.waitForTimeout(2_000)
+        const cold = await hintFacts(blockedPage)
+        check.fact(`从未连上过那一页：就绪=${String(blockedReady)} 提示行=${String(cold.count)} 文案=${JSON.stringify(cold.text)}`)
+        check.ok('chat：拦掉事件流的那一页本身是渲染出来了的（否则这条读数没有意义）', blockedReady, `就绪点没出现：${tree.readySelector}`)
+        check.eq('chat：首屏从未连上过时不显示提示（只有「曾经连上过、现在断了」才显示）', cold.count, 0)
+      } finally {
+        await blockedContext.close()
+      }
 
       // ④ 崩溃/未激活与 pageerror：整段下来都不许有。
       const gaps = contractGaps(capture)
