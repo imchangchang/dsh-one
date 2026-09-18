@@ -164,7 +164,7 @@ node scripts/verify-plugins-official.mjs --keep   # 保留临时 HOME 与截图�
 | --- | --- | --- |
 | **装配实验室** | **我们的装配页**（自有 shell + block list + 自有插件叠加）在真网关上装配得对不对 | `LAB_PORT=<空端口> npm run verify:lab` |
 | **官方 web 真机**（本文） | **官方页面**（官方全家桶 + 我们装进 profile 的包）加载与行为 | `npm run verify:plugins-official` |
-| **VS Code 验证** | webview 宿主层（CSP / 剪贴板 / 原生菜单 / 多 webview 生命周期），最终准绳 | `scripts/dev-ui-test.sh`（只由人跑） |
+| **VS Code 验证** | webview 宿主层（剪贴板 / 原生菜单 / 多 webview 生命周期；#188 查实宿主不会给扩展页面施加 CSP，见 `docs/architecture.md`），最终准绳 | `scripts/dev-ui-test.sh`（只由人跑） |
 
 ## 命名与归属
 

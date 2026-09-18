@@ -5,12 +5,26 @@
  * 普通浏览器可开」的验收口径。
  *
  * 页面结构照抄网关 `/` 的注入形态（spike #63 从真实网关 HTML 提取的契约）：
- *   <head>：base href（一切相对 URL 落回 mirror）→ CSP → 沙箱 srcdoc 帧的 nonce
- *   补齐（内联，nonce，见 srcdocNonceJs）→ 诊断探针（内联，nonce，仅 webview 激活）
- *   → 队列 facade（内联，nonce）→ modulepreload/CSS →
+ *   <head>：base href（一切相对 URL 落回 mirror）→ 诊断探针（内联，仅 webview 激活）
+ *   → 队列 facade（内联）→ modulepreload/CSS →
  *   __DSH_BOOT__ wire → 阻塞 bootstrap script → 主 bundle（type=module）→
- *   __DSH_TRANSPORT__ 接缝（内联，nonce）
+ *   __DSH_TRANSPORT__ 接缝（内联）
  *   <body>：主题预置 → __DSH_BOOT_READY__ resolve → 版本门信息条（可选）→ #root
+ *
+ * **本页不带 CSP**（#188，用户拍板）：官方 dsh 网页整页没有 CSP（网关 `/` 不带 CSP meta），
+ * 装配页此前自带一份（`default-src 'none'` + 内联脚本 nonce + 受限的 img/font/media 源），
+ * 于是同一张第三方插件卡片在两边处境不同——帧里的内联事件属性被挡、帧要用的远端图片与
+ * 字体被 `img-src` / `font-src` 挡（#186 里那条 F-09 的红就是它）。现在这份政策去掉了，
+ * 装配页与官方页同处境：代价是失去脚本注入防护（页面里跑的是官方 bundle + 我们的插件 +
+ * 用户 profile 里的第三方插件，与官方页相同），取舍与宿主那层的实测证据见
+ * `docs/architecture.md` 的「webview CSP」一节，常驻断言 = `npm run verify:lab` 的 F-59。
+ *
+ * **#185 那套「给隔离沙箱 srcdoc 帧补 nonce」的机制随之一起下线**（同一处决定）：它当年
+ * 存在的唯一理由是匹配**我们自己的**那条 `script-src 'nonce-…'`（`srcdoc` 是 local scheme，
+ * 本页政策会继承进帧里），本页不带 CSP 之后它匹配不到任何政策、也不再改动插件写下的
+ * `srcdoc`——理由与读数见 F-59 的文件头。页面**自己**的内联脚本与那段 `<style>` 仍然带着
+ * `nonce` 属性（#188 明确不要一股脑删掉）：没有政策可匹配、它今天不放行任何东西，留着只是
+ * 让「把 CSP 加回来」这条退路的 diff 小一点。
  *
  * __DSH_TRANSPORT__ 是 webview 形态独有的接缝：页面源是 vscode-webview://，
  * 而 dsh-client-connection 的 RPC fetch 与 api-gateway 的 remote stream 都按
@@ -34,7 +48,10 @@ export interface AssemblyPageAssets {
 export interface AssemblyPageOptions {
   /** loopback mirror 源（http://127.0.0.1:<port>），base href 与 transport 目标。 */
   mirrorOrigin: string
-  /** CSP nonce：webview 内联脚本用；lab 里任意随机值。 */
+  /**
+   * 页面自己那几段内联脚本与那段 `<style>` 上的 `nonce` 值。本页不带 CSP（#188），
+   * 它今天不放行任何东西——留着只是让「把 CSP 加回来」这条退路不必再动这些落点。
+   */
   cspNonce: string
   assets: AssemblyPageAssets
   /** __DSH_BOOT__ wire（blocklist 过滤后的运行时产物，见 ui/assembly/wireFilter.ts）。 */
@@ -45,11 +62,6 @@ export interface AssemblyPageOptions {
   theme: 'dark' | 'light'
   /** 版本门信息条文本；undefined = 网关在 [0.1.2-rc.1, 0.2.0) 区间内，不显示。 */
   banner?: string
-  /**
-   * 实验开关（lab 排查矩阵用）：false 时去掉 CSP meta（A/B 变体对照）。
-   * 生产（webview）恒为 true/缺省。
-   */
-  csp?: boolean
   /** 实验开关：false 时去掉 __DSH_TRANSPORT__ 桥（A/C 变体对照）。生产恒缺省。 */
   transport?: boolean
   /** #71 tab 启动注入：宿主给的会话 id；缺省无注入（官方恢复行为）。 */
@@ -75,24 +87,6 @@ export interface AssemblyPageOptions {
 
 import { assemblyProbeJs } from './probe.ts'
 import { hostSdkJs } from './hostSdk.ts'
-
-const CSP = [
-  "default-src 'none'",
-  // nonce 给页面自己的内联脚本（含给沙箱 srcdoc 帧补的那一份，见 srcdocNonceJs）；
-  // loopback 源给 mirror 伺服的 bootstrap/主 bundle；unsafe-eval：cordis 配置文档的
-  // __jsExpr（!!js dshHomePath(...) 这类）在客户端用 new Function+with 求值
-  // （主 bundle lu/Ol），不放行则装载即 CSP 违规。
-  "script-src 'nonce-NONCE' http://127.0.0.1:* http://localhost:* 'unsafe-eval'",
-  "style-src http://127.0.0.1:* http://localhost:* 'unsafe-inline'",
-  // blob:：官方 composer 附件缩略图用 URL.createObjectURL（blob:）——#71 验收
-  // 实锤裂图（CSP 违规日志 + naturalWidth=0）。本 CSP 是装配页自有配置（非
-  // 官方机制层）；media-src/font-src 按实测不动（无 blob 消费者，font 已 data:）。
-  'img-src http://127.0.0.1:* http://localhost:* data: blob:',
-  // data:：官方把图标字体以 data:font/woff2 内联 FontFace 加载（CSP 拦则一条 font 违规）。
-  'font-src http://127.0.0.1:* http://localhost:* data:',
-  // fetch（transport 改写后落 mirror）+ WS（openStream 的 remote.mux）。
-  'connect-src http://127.0.0.1:* http://localhost:* ws: ws://127.0.0.1:* ws://localhost:*',
-].join('; ')
 
 function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -333,116 +327,20 @@ function themePresetJs(theme: 'dark' | 'light'): string {
 }
 
 /**
- * 给沙箱 `srcdoc` 帧里的内联脚本补上本页 nonce（#185；#196 补上「两个属性谁先写」这一维）。
+ * #185 的「给隔离沙箱 `srcdoc` 帧补本页 nonce」在这里下线了（#188，与去掉本页 CSP 同一处决定）。
  *
- * **为什么需要它**：Chromium 把本页的 CSP **继承给 `srcdoc` 帧**（`srcdoc` 是 local
- * scheme，帧文档没有自己的来源可寻址）。于是 `script-src 'nonce-…'` 也管到帧里面去，
- * 而帧的 HTML 是插件自己生成的、拿不到本页 nonce，帧内内联脚本一律被判违规。官方的
- * dsh 网页整页没有 CSP（网关 `/` 不带 CSP meta），同一个插件帧在官方页里脚本照常跑——
- * 所以「帧内脚本量出内容高度、postMessage 回来撑开卡片」这类插件在官方页正常、在装配页
- * 永远停在最小高度。#185 的现场就是它：`@dsh-external/dsh-visualize` 的 HTML 预览卡
- * 被压成 48px（正是它自己的 `MIN_HEIGHT`），因为那句
- * `parent.postMessage({type:"dsh-visualize:height", height: document.documentElement.scrollHeight})`
- * 从来没被执行过。
+ * 它当年存在的唯一理由是匹配**我们自己的**那条 `script-src 'nonce-…'`：`srcdoc` 是 local
+ * scheme，本页政策会继承进帧里，而帧的 HTML 由插件生成、拿不到本页 nonce，于是「帧内脚本量出
+ * 内容高度再 postMessage 回来撑开卡片」这类插件在官方页正常、在装配页永远停在插件自己的最小
+ * 高度（#185 的现场：`@dsh-external/dsh-visualize` 的 HTML 预览卡被压成 48px）。
  *
- * **做法**：给帧文档里每个 `<script>` 打上本页 nonce——帧与本页自己的内联脚本从此走
- * 同一条政策（「script 必须带 nonce」，见 `docs/architecture.md` 的 webview CSP 那一条），
- * 既不放开 `script-src`，也不改插件一个字节。判据是 `isolated(frame)`：只对**声明了隔离
- * 沙箱的 `srcdoc` 帧**做（`sandbox` 带 `allow-scripts`、不带 `allow-same-origin`）——那种
- * 帧是不透明来源，碰不到本页 DOM、localStorage 与宿主桥，给它脚本执行权等于官方页本来就
- * 有的处境；反过来，没有 `sandbox` 或带 `allow-same-origin` 的 `srcdoc` 帧与本页同源，
- * 给它们打 nonce 等于把本页的信任边界让出去，所以一律原样放过（这类帧今天就是被挡住的
- * 状态，行为不变）。
- *
- * **判据有三个落点，都汇到同一个复核**（#196）：「先写 `sandbox`、后写 `srcdoc`」是 React
- * 按 JSX 属性顺序渲染的结果，写 `srcdoc` 那一刻 `sandbox` 已经在，当场就能判；但插件也可能
- * 反过来写，那一刻读到的 `sandbox` 还是 `null`，帧会被当成「没沙箱的帧」放过，帧内脚本照旧
- * 被挡住、卡片又停回最小高度。所以：
- *   ① 写 `srcdoc` 的那一刻先判一次（`sandbox` 已经在了的情形，直接给值打 nonce，不多绕一步）；
- *   ② 那一刻还判不出来（`sandbox` 没来）就在这一轮任务结束时再判一次：同一个任务里写的
- *      `sandbox`（不管用 `setAttribute` 还是令牌表 `frame.sandbox.add(...)`）那时都落在了
- *      元素上，帧还挂在文档外也照样判得到（写 `srcdoc` 触发的那次载入排在这个复核之后，
- *      所以帧拿到的仍是补过 nonce 的那一份）；
- *   ③ 帧挂在文档里时，`sandbox` 的任何改动都由盯这条属性的属性观察再复核一次——隔了任务
- *      才写的、用令牌表写的、`removeAttribute` 拿掉的，这一层都覆盖得到。
- * 复核读到什么就写回什么：该补的补上、该还原的还原（`srcdoc` 改一次就重新载入一次，帧里
- * 那句量高上报这才跑得起来）。帧若从隔离档改成同源档，复核会把打上去的 nonce 摘掉，让那份
- * `srcdoc` 还原成插件写的那一份——边界两侧都不留痕。
- *
- * 三条已知不覆盖的边（都不影响 #185 的卡片）：① 帧里的内联事件属性（`onclick=`）
- * 按 CSP 规则只能靠 `'unsafe-inline'` 放行，nonce/hash 对它无效——同类插件若只靠它做
- * 交互，装配页里仍然不响应；② 帧要用的远端资源（CDN 的图片/字体）仍受本页 `img-src` /
- * `font-src` 限制；③ **帧还没挂进文档、`sandbox` 又是隔了一轮任务才写上去**的那一档
- * （② 那一轮已经过去、③ 的属性观察看不到文档外的节点）——同一个任务里写完两个属性的
- * 帧（插件先建节点再插进去的写法）不受影响。三者都记在 #185 / #196 的报告里。
+ * 去掉本页 CSP 之后它匹配不到任何政策，能做的只剩「改写插件写下的 `srcdoc`」——那是一处全局
+ * `Element.prototype.setAttribute` 补丁（页面上每一次属性写都要过一次判据）加一次整文档的属性
+ * 观察（#196 为「两个属性谁先写」补的两条落点），换来的却是用户看不到、断言也判不到的副作用。
+ * 所以按「少一层机制」收掉：装配页现在**一个字节都不改**第三方帧的 `srcdoc`（与官方页同处境，
+ * F-59 逐帧断言这一点）。用户拍板的取舍若哪天反过来做（恢复本页 CSP），这一层要连同一起回来
+ * ——两者是同一处约定的两半，本仓历史里就是同一个 commit。
  */
-// 注：本函数返回的是**内嵌进页面的脚本正文**，里面的注释一律英文——
-// 外层文件的注释剥离器看不到字符串内部的中文，会触发 check-i18n 的兜底扫描。
-function srcdocNonceJs(cspNonce: string): string {
-  return `(() => {
-  const NONCE = ${JSON.stringify(cspNonce)}
-  const isolated = (frame) => {
-    if (typeof frame.getAttribute !== "function") return false
-    const sandbox = frame.getAttribute("sandbox")
-    if (sandbox === null) return false
-    const tokens = sandbox.toLowerCase().split(/\\s+/)
-    return tokens.indexOf("allow-scripts") !== -1 && tokens.indexOf("allow-same-origin") === -1
-  }
-  const stamped = (html) => (typeof html === "string" && html.indexOf("<script") !== -1)
-    ? html.replace(/<script(?![^>]*\\snonce\\s*=)([^>]*)>/gi, (tag, rest) => '<script nonce="' + NONCE + '"' + rest + '>')
-    : html
-  // Strip the stamp this function added: a frame that moves from the isolated tier to the
-  // same-origin tier must get the plugin's own srcdoc back. The stamp is exactly
-  // ' nonce="' + NONCE + '"', so splitting on it and re-joining restores the original verbatim.
-  const unstamped = (html) => (typeof html === "string") ? html.split(' nonce="' + NONCE + '"').join("") : html
-  const setAttribute = Element.prototype.setAttribute
-  // Which srcdoc belongs under the current pair of attributes? Skip the write when the value
-  // is already right — writing it again would reload the frame for nothing.
-  const reconcile = (frame) => {
-    const value = frame.getAttribute("srcdoc")
-    if (typeof value !== "string") return
-    const next = isolated(frame) ? stamped(value) : unstamped(value)
-    if (next !== value) setAttribute.call(frame, "srcdoc", next)
-  }
-  const pending = new Set()
-  const laterReconcile = (frame) => {
-    if (pending.has(frame)) return
-    pending.add(frame)
-    queueMicrotask(() => {
-      pending.delete(frame)
-      reconcile(frame)
-    })
-  }
-  const writeSrcdoc = (frame, value) => {
-    if (isolated(frame)) return setAttribute.call(frame, "srcdoc", stamped(value))
-    laterReconcile(frame)
-    return setAttribute.call(frame, "srcdoc", value)
-  }
-  Element.prototype.setAttribute = function (name, value) {
-    if (this instanceof HTMLIFrameElement && String(name).toLowerCase() === "srcdoc") return writeSrcdoc(this, value)
-    return setAttribute.call(this, name, value)
-  }
-  const descriptor = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, "srcdoc")
-  if (descriptor !== undefined && typeof descriptor.set === "function" && typeof descriptor.get === "function") {
-    Object.defineProperty(HTMLIFrameElement.prototype, "srcdoc", {
-      configurable: true,
-      enumerable: descriptor.enumerable,
-      get() { return descriptor.get.call(this) },
-      set(value) { writeSrcdoc(this, value) },
-    })
-  }
-  // Sandbox changes on a frame already in the document are re-checked by this attribute
-  // observer (token-list writes, removeAttribute, and writes deferred by a task).
-  const root = document.documentElement
-  if (typeof MutationObserver === "function" && root !== null && root !== undefined) {
-    new MutationObserver((records) => {
-      for (const record of records) {
-        if (record.target instanceof HTMLIFrameElement) reconcile(record.target)
-      }
-    }).observe(root, { attributes: true, subtree: true, attributeFilter: ["sandbox"] })
-  }
-})()`
-}
 
 export function assemblyPageHtml(options: AssemblyPageOptions): string {
   const { mirrorOrigin, cspNonce, assets, bootWire, bootstrapUrl, theme, banner } = options
@@ -452,19 +350,13 @@ export function assemblyPageHtml(options: AssemblyPageOptions): string {
   const bootGlobals =
     `    <script nonce="${cspNonce}">globalThis.__DSH_ONE_BOOT__ = ${JSON.stringify({ sessionId: options.bootSessionId ?? null, panelTab: options.panelTab === true })};` +
     `try{globalThis.__DSH_ONE_RESTORE__=localStorage.getItem("dsh.sessions.current")}catch(ignored){globalThis.__DSH_ONE_RESTORE__=null}</script>\n`
-  const cspOn = options.csp !== false
   const transportOn = options.transport !== false
-  const csp = CSP.replace('NONCE', cspNonce)
   const preload = assets.preloadJs.map((href) => `    <link rel="modulepreload" crossorigin href="./${escapeAttr(href)}">`).join('\n')
   const styles = assets.css.map((href) => `    <link rel="stylesheet" crossorigin href="./${escapeAttr(href)}">`).join('\n')
   const bannerHtml =
     banner === undefined
       ? ''
       : `<div style="position:sticky;top:0;z-index:100;padding:6px 12px;background:#8a6d1d;color:#fff;font:12px/1.5 var(--vscode-font-family,system-ui,sans-serif);">${escapeHtml(banner)}</div>`
-  const cspMeta = cspOn ? `    <meta http-equiv="Content-Security-Policy" content="${csp}" />\n` : ''
-  // 沙箱 srcdoc 帧的 nonce 补齐（#185）：必须早于页面任何插件脚本——React 挂载时
-  // 就会写 srcdoc，晚一步补丁就漏掉那一帧。CSP 关掉时它没有意义（没有政策可匹配）。
-  const srcdocNonceScript = cspOn ? `    <script nonce="${cspNonce}">${srcdocNonceJs(cspNonce)}</script>\n` : ''
   const transportScript = transportOn ? `    <script nonce="${cspNonce}">${transportJs(mirrorOrigin, options.localPluginIds)}</script>\n` : ''
   // body 归零（#70）：VS Code 给每条 webview 注入 @layer vscode-default
   // { body { padding: 0 20px } }（pre/index.html defaultStyles）——层内规则
@@ -478,7 +370,7 @@ export function assemblyPageHtml(options: AssemblyPageOptions): string {
   <head>
     <base href="${escapeAttr(mirrorOrigin)}/">
     <meta charset="utf-8" />
-${cspMeta}${srcdocNonceScript}    <title>DeepSeek Harness (assembled)</title>
+    <title>DeepSeek Harness (assembled)</title>
     <script nonce="${cspNonce}">${assemblyProbeJs()}</script>
     <script nonce="${cspNonce}">${QUEUE_FACADE_JS}</script>
     <script nonce="${cspNonce}">${hostSdkJs()}</script>${bodyReset}${bootGlobals}${preload}

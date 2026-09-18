@@ -136,7 +136,7 @@ COMPAT_BASE=develop/cordis-chat scripts/check-platform-compat.sh agent/my-task
 `src/pure/` 里的 bug 修法：先在 `test/` 用 `node --test` 复现成一条**失败**测试，修码期间**不许碰测试文件**，修完让测试转绿。这样 bug 固化进回归，治标也治本。
 
 - 这条**只对 `src/pure/`（可被 `node --test` 覆盖的那层）成立**。
-- **UI bug 不适用**：渲染/布局/交互单测测不到。改为：**装配相关的 UI 断言写进浏览器验证套件**（`test/assembly-lab/`，跑 `npm run verify:lab`——页面由仓库真实模块构建、数据面是实验室自起的隔离实例（临时 `DSH_HOME`，跑完收掉）、宿主是假宿主，快且可复跑，是常驻防线）；**宿主侧普通页面**（安装引导 tab、侧栏状态页）的 UI 断言写进 `test/install-guide/`（跑 `npm run verify:install-guide`，同样用 Playwright，不需要网关）；宿主行为（webview CSP/剪贴板/原生菜单等）与需要人眼的观感核对走 VS Code 验证（`scripts/dev-ui-test.sh`）或 `test/sandbox/` 沙盒（见 `test/sandbox/README.md` 的「验收口径」）。合入验收 = dev-finish 产出的测试报告（人审，见 `worktree-dev-flow` skill 流程 5），对功能有疑问才人工开窗 `dev-ui-test`。
+- **UI bug 不适用**：渲染/布局/交互单测测不到。改为：**装配相关的 UI 断言写进浏览器验证套件**（`test/assembly-lab/`，跑 `npm run verify:lab`——页面由仓库真实模块构建、数据面是实验室自起的隔离实例（临时 `DSH_HOME`，跑完收掉）、宿主是假宿主，快且可复跑，是常驻防线）；**宿主侧普通页面**（安装引导 tab、侧栏状态页）的 UI 断言写进 `test/install-guide/`（跑 `npm run verify:install-guide`，同样用 Playwright，不需要网关）；宿主行为（剪贴板 / 原生菜单 / 多 webview 生命周期等；#188 查实宿主 webview 层不会给扩展页面施加 CSP，见 `docs/architecture.md` 的「日志与安全细节」）与需要人眼的观感核对走 VS Code 验证（`scripts/dev-ui-test.sh`）或 `test/sandbox/` 沙盒（见 `test/sandbox/README.md` 的「验收口径」）。合入验收 = dev-finish 产出的测试报告（人审，见 `worktree-dev-flow` skill 流程 5），对功能有疑问才人工开窗 `dev-ui-test`。
 
 ## 手动模拟异常场景
 
