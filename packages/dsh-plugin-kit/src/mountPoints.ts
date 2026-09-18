@@ -7,12 +7,12 @@
  *
  * - **对话区容器** = `[data-conversation-scroll]`：官方 `ui-conversation` 的会话
  *   滚动体（出处 `dsh-client-ui-conversation/lib/client.js` 的 ConversationRoot：
- *   `body > scrollBody[data-conversation-scroll] > [conversation.session 座位,
+ *   `body > scrollBody[data-conversation-scroll] > [conversation.session 槽位,
  *   composerSeat]`——**会话流与 composer 都在这棵子树里**，所以三个插件共用它）。
  *   官方自己也用它当「对话区」的界：`ui-chat` 的 ChatView 里
  *   `scrollerOf(from) = from.closest("[data-conversation-scroll]") ?? from`，CSS 里
  *   也按它切「有独立滚动体」的档（`[data-conversation-scroll] .EvIC1a_root{...}`）。
- * - **composer 座位** = `[data-slot="conversation.composer.bar"]`：官方槽位渲染出的
+ * - **composer 槽位** = `[data-slot="conversation.composer.bar"]`：官方槽位渲染出的
  *   语义属性（语言无关、非 css-module 哈希），判断按键是否落在输入区内用。
  *
  * 走第几层机制：这两条都是**官方语义属性**（层 1 官方槽位机制渲染出的稳定结构、
@@ -32,7 +32,7 @@
 /** 官方对话区容器（会话流 + composer 所在的滚动体）。 */
 export const CONVERSATION_SCROLL_SELECTOR = '[data-conversation-scroll]'
 
-/** 官方 composer 座位（判断按键目标是否落在输入区内）。 */
+/** 官方 composer 槽位（判断按键目标是否落在输入区内）。 */
 export const COMPOSER_SEAT_SELECTOR = '[data-slot="conversation.composer.bar"]'
 
 /** 当前页面上的官方对话区容器（没有时 null）。 */

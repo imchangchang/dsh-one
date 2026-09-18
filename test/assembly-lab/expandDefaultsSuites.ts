@@ -8,7 +8,7 @@
  *
  * **口径来自官方实测**（#151 的原文要求先核官方，用户反复定过「跟官方一致」）：
  * - 官方侧栏（`dsh-client-ui-ui-workspace` 的 `WorkspaceBrowser`，正是我们在
- *   `sidebar.workspaces` 座位 shadow 掉的那一件）**首开只展开当前会话所在那一组**，
+ *   `sidebar.workspaces` 槽位 shadow 掉的那一件）**首开只展开当前会话所在那一组**，
  *   其余全折叠——store 的初值是 `groupExpansion: {}`，那条 effect 只在
  *   `Object.hasOwn(groupExpansion, currentGroup)` 为假时展开它。本套件第 ① 段因此
  *   判的不是「全展开」，而是「恰好一组展开、且是当前会话那一组」。

@@ -601,7 +601,7 @@ async function main(): Promise<void> {
         trigger: document.querySelector('[data-slot="settings.trigger"]') !== null,
         statusRoles: Array.from(document.querySelectorAll('[role="status"]')).map((node) => (node.getAttribute('aria-label') ?? '').slice(0, 40)),
       }))
-      say(`页面上有没有官方设置栏那一枚恢复提示的座位（\`settings.trigger\`）：${String(settingsSeat.trigger)}；页面上 role=status 的元素：${JSON.stringify(settingsSeat.statusRoles)}`)
+      say(`页面上有没有官方设置栏那一枚恢复提示的槽位（\`settings.trigger\`）：${String(settingsSeat.trigger)}；页面上 role=status 的元素：${JSON.stringify(settingsSeat.statusRoles)}`)
       say(`重启后页面正文前 120 字：${(await chatFacts(opened.page)).text.slice(0, 120) || '（空白）'}`)
       say(`这一页的 pageerror（前 8 条）：${JSON.stringify(opened.capture.pageErrors.slice(0, 8))}`)
       say(`这一页的控制台报错（前 8 条）：${JSON.stringify(opened.capture.consoleErrors.slice(0, 8))}`)

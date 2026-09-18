@@ -456,7 +456,7 @@ export const ADD_WORKSPACE_SUITE: LabSuite = {
     }
     await installAddFixtures(webPage, webState, webFacts)
     try {
-      // 删掉页面上的能力桥 SDK：`hostCallAvailable()` 读到的是这个全局，删掉之后能力口
+      // 删掉页面上的宿主调用通道 SDK：`hostCallAvailable()` 读到的是这个全局，删掉之后能力口
       // 走的就是「这一端没有桥」那条路（= 官方 web 侧的处境）。**这一步在这一页最后做。**
       await webPage.evaluate(() => {
         delete (globalThis as { __DSH_ONE_HOST__?: unknown }).__DSH_ONE_HOST__

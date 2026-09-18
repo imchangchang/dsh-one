@@ -44,7 +44,7 @@ SMOKE_HEADED=1 npm run verify:install-guide      # 开有界面的浏览器看�
   （`decideSidebarStatus` / `assemblyFailureView` 的结果直接喂给页面），所以「三态分流没变」也一并被钉住。
 
 页面里的动作（复制命令、启动服务、重试装配、开安装指南）走 `postMessage` 回宿主。浏览器里没有宿主，
-冒烟用页内假桥 `__DSH_ONE_VSCODE__`（#100 就给这两页留了这条接缝：真 webview 里走
+冒烟用页内假桥 `__DSH_ONE_VSCODE__`（#100 就给这两页留了这条 seam：真 webview 里走
 `acquireVsCodeApi`，冒烟里走这个全局量）——假桥记下每条消息，并按真宿主的路径回一条
 `installGuide:copied`，于是「复制成功」与「复制失败」两条反馈都能断言，状态页的每个按钮也能断言
 「点了发的是哪条消息」。

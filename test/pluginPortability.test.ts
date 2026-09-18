@@ -71,7 +71,7 @@ test('#83：三个插件经共享的挂载点模块取容器，且不再自带 f
   }
 })
 
-test('#83：挂载点取的是官方语义属性（对话区容器 + composer 座位）', () => {
+test('#83：挂载点取的是官方语义属性（对话区容器 + composer 槽位）', () => {
   const code = read(MOUNT_POINTS)
   // 官方 ui-conversation 写、官方 ui-chat 也按它取滚动体（出处见该文件头）。
   assert.match(code, /CONVERSATION_SCROLL_SELECTOR = '\[data-conversation-scroll\]'/)

@@ -6,28 +6,28 @@
  * ## 为什么是 dsh-*（可移植）
  * 本件原先有两处 VS Code 耦合，都已拆掉：
  * - **数据**：`hostCall('git.show')` → **宿主能力口** `capabilities.gitShow(...)`
- *   （VS Code 侧 = 扩展宿主的能力桥；官方 web 侧 = 宿主半插件的网关 RPC，同一份
+ *   （VS Code 侧 = 扩展宿主侧的宿主调用通道；官方 web 侧 = 宿主半插件的网关 RPC，同一份
  *   安全口径代码，见 `@dsh-one/dsh-plugin-kit/hostCapabilities` 的能力表）；
  * - **外链**：`hostCall('vscode.openExternal')` → `capabilities.openExternal(...)`
  *   （VS Code 侧 = `vscode.env.openExternal`；官方 web 侧 = 页面原生 `window.open`）；
  * - **挂载点**：扫描与事件委托原先挂在自有 frame 根（`[data-shell="dsh-one"]`），
  *   取不到就整个不工作——现在挂**官方对话区容器**（`[data-conversation-scroll]`，
  *   官方 ui-conversation 的会话滚动体），见 `@dsh-one/dsh-plugin-kit/mountPoints` 的出处。
- * 卡片本身渲染进 `shell.overlay` 座位、定位按 CSS 的坐标系算（`positioningContext`），
+ * 卡片本身渲染进 `shell.overlay` 槽位、定位按 CSS 的坐标系算（`positioningContext`），
  * 也不认任何自有标记。三处都通用，故命名 `dsh-*`。
  *
  * ## 机制分层（按 AGENTS.md 的优先序逐层举证，前 3 层都读过官方源码/类型）
- * ① 机制层 1（官方槽位）没有「正文 token 级」的座位：装配线可用的座位里
+ * ① 机制层 1（官方槽位）没有「正文 token 级」的槽位：装配线可用的槽位里
  *    - `conversation.chat.node`（ui-chat/lib/types/client/contract/slots.d.ts）是
- *      **keyed 座位**，key = ChatNodeKind（assistant-step/tool/turn-tail/turn-process…）
+ *      **keyed 槽位**，key = ChatNodeKind（assistant-step/tool/turn-tail/turn-process…）
  *      ——登记同一个 kind 只会**顶掉**该行的官方渲染件（等于整行自己重写），
  *      没有「在官方 markdown 里加一个可点 token」的粒度；
  *    - `conversation.chat.turnTail`（chain）、`conversation.chat.assistant-actions`
  *      （list）都挂在回合/消息层级，拿不到正文文本；
- *    - `shell.overlay` 是**官方 AppFrame（ui-layout）声明的** list 座位（`scope: root`，
+ *    - `shell.overlay` 是**官方 AppFrame（ui-layout）声明的** list 槽位（`scope: root`，
  *      「悬浮层」语义、默认 pointer-events:none）——本插件的卡片就渲染在这里（见下）；
  *      我们的 VS Code 树 shadow 了 root，所以由自有 frame 插件声明同名子槽
- *      （两侧都是同一个官方座位名，官方 web 里由官方外框提供）。
+ *      （两侧都是同一个官方槽位名，官方 web 里由官方外框提供）。
  * ② 机制层 2（官方服务）有一条**接近但不成立**的路：`chatFileMentions` 服务
  *    （ui-deliverables 的 `ctx.provide("chatFileMentions", …)`；ui-chat 经
  *    `ctx.get("chatFileMentions")?.forClosing(owner)` 消费，最终喂给官方
@@ -39,11 +39,11 @@
  *        里才调 `fileMentions?.resolve(l)`），正文里的裸 hash 与代码块内的 hash 都不走；
  *    (c) 它的回执只有 {open,label,title}（dsh-client-ui-deliverables 的
  *        producedFileMentions），没有异步数据、没有卡片——给不了「悬停看作者/时间/变更统计」。
- * ③ 机制层 3（官方预留接缝 __DSH_TRANSPORT__ / __DSH_BOOT__ / 种子表 / dsh.client 声明）
+ * ③ 机制层 3（官方预留 seam __DSH_TRANSPORT__ / __DSH_BOOT__ / 种子表 / dsh.client 声明）
  *    管的是装载与传输，与「正文怎么渲染」无关。
  *
  * 所以走第 4 层：在**官方对话区容器**上做事件委托 + 自己把正文文本节点里的 hash
- * 包成可点 span，卡片渲染进 `shell.overlay` 座位。稳定性风险与对策：
+ * 包成可点 span，卡片渲染进 `shell.overlay` 槽位。稳定性风险与对策：
  * - 扫描/委托范围钉在官方语义容器（`[data-conversation-scroll]`）之内，不进官方
  *   组件内部做结构假设；
  * - 官方 DOM 侧只依赖一条**语义属性契约**：对话区容器 `[data-conversation-scroll]`
@@ -135,7 +135,7 @@ if (typeof document !== 'undefined' && document.querySelector(`style[data-plugin
 
 /**
  * 宿主 git 查询的回执：能力口契约（`CommitInfoResult`，见 pure/chatContract.ts）
- * 加上宿主侧在会话工作区里命中后回传的仓库上下文（能力桥与宿主半都带这几项）。
+ * 加上宿主侧在会话工作区里命中后回传的仓库上下文（宿主调用通道与宿主半都带这几项）。
  */
 interface CommitInfo extends CommitInfoResult {
   /** 命中提交的仓库绝对路径（宿主侧在工作区里发现后回传）。 */
@@ -154,7 +154,7 @@ type CardState =
   | { kind: 'error'; sha: string; code: string }
 
 interface LayerProps {
-  /** 框架注入的 locale 座位（函数内别名为 tr 避开 i18n 门禁的裸 t() 扫描）。 */
+  /** 框架注入的 locale 槽位（函数内别名为 tr 避开 i18n 门禁的裸 t() 扫描）。 */
   t: (key: string) => string
   /** 插件 apply 注入：当前会话所属的 dsh 工作区路径（取不到 undefined）。 */
   sessionWorkspacePath: () => string | undefined

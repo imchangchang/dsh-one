@@ -12,10 +12,10 @@
  *   （倒序插 + 每次现读 draftRev 做 span CAS），附件 `addAttachments(快照)`。
  *
  * **提示 UI = 机制层 1（官方槽位）**：登记进 `conversation.input.overlay`（官方
- * ComposerBar 声明的 list 座位，"Floating entries rendered inside the resident
+ * ComposerBar 声明的 list 槽位，"Floating entries rendered inside the resident
  * composer card"——官方 @ 候选菜单与斜杠 popupSelect 都渲染在这个锚点里）。
  *
- * **键位 = 第 4 层（自有容器捕获监听）**，官方无键位接缝，查证如下：
+ * **键位 = 第 4 层（自有容器捕获监听）**，官方无键位 seam，查证如下：
  * ① 官方客户端**没有任何键位/快捷键服务**：把 48 个官方插件 bundle 的 `ctx.provide`
  *    全量扫过一遍，服务只有 connection/cordisInspect/dynamicCordisRunner/layout/
  *    locale/modules/sessionLogDownload/sessions/theme/uiRenderer/chatFileMentions
@@ -34,10 +34,10 @@
  *    的 Escape 用法确认）——所以「空内容放行」不会漏掉官方的中断键，官方的回合
  *    中断入口是 composer 上的停止/中断控件（`interruptible` 那个按钮）。
  * 风险与对策：监听挂在**官方对话区容器**（`[data-conversation-scroll]`，见
- * `@dsh-one/dsh-plugin-kit/mountPoints` 的出处与理由；composer 座位就在这棵子树里）的捕获阶段，
+ * `@dsh-one/dsh-plugin-kit/mountPoints` 的出处与理由；composer 槽位就在这棵子树里）的捕获阶段，
  * 只在事件目标位于官方 composer 卡（`[data-slot="conversation.composer.bar"]`）
  * 之内时才考虑接管；放行条件（IME 组字、官方浮层打开、Ctrl+C 有选区）一律
- * `return`，不 preventDefault、不改草稿。官方 DOM 侧只依赖座位属性与
+ * `return`，不 preventDefault、不改草稿。官方 DOM 侧只依赖槽位属性与
  * `role`/`aria-modal` 语义标记（非 css-module 哈希）。
  */
 import { createElement as h, useEffect, useRef, useState } from 'react'
@@ -159,12 +159,12 @@ interface ClearProps {
   useInput: <R>(selector: (state: InputStateView) => R) => R
   inputActions: InputActionsView
   sessionId: string
-  /** 框架注入的 locale 座位（函数内别名为 tr 避开 i18n 门禁的裸 t() 扫描）。 */
+  /** 框架注入的 locale 槽位（函数内别名为 tr 避开 i18n 门禁的裸 t() 扫描）。 */
   t: (key: string) => string
   sessionFaceOf: (sessionId: string) => SessionFace | undefined
 }
 
-/** 官方 composer 卡座位（判断按键目标是否落在输入区内）。 */
+/** 官方 composer 卡槽位（判断按键目标是否落在输入区内）。 */
 const COMPOSER_SEAT = COMPOSER_SEAT_SELECTOR
 
 /** 官方浮层/模态是否开着（开着就不接管 Esc——那是它们的关闭语义）。 */
@@ -267,7 +267,7 @@ function ComposerClear({ useInput, inputActions, sessionId, t, sessionFaceOf }: 
     if (snapshotRef.current !== null && (draft !== '' || attachmentIds.length > 0)) closeUndoWindow()
   }, [draft, attachmentIds])
 
-  // 键位监听（第 4 层，见文件头举证）：挂官方对话区容器（composer 座位在它之内）
+  // 键位监听（第 4 层，见文件头举证）：挂官方对话区容器（composer 槽位在它之内）
   // 的捕获阶段，只考虑 composer 卡之内的按键，放行条件一律不拦。
   useEffect(() => {
     return mountOnConversation((container) => {

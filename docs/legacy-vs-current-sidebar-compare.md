@@ -135,7 +135,7 @@
 
 | 功能 | 旧：怎么做（`文件:行`） | 现：怎么做（`文件:行`） | 判断 |
 | --- | --- | --- | --- |
-| 底部入口行（🗑 + 文案 + 计数 + 两枚图标） | `sessionsWebview.ts:2632-2658`、`sessionsView.ts:327-350` | `recycleEntry.ts:122-157`、`styles.ts:365-378`（座位是官方 `sidebar.footer.action`，与官方 cordis 面板那条并存） | 一致 |
+| 底部入口行（🗑 + 文案 + 计数 + 两枚图标） | `sessionsWebview.ts:2632-2658`、`sessionsView.ts:327-350` | `recycleEntry.ts:122-157`、`styles.ts:365-378`（槽位是官方 `sidebar.footer.action`，与官方 cordis 面板那条并存） | 一致 |
 | 计数 0 时整体灰态、两枚图标禁用 | `sessionsWebview.ts:2635`、`2647`、`2651` | `recycleEntry.ts:115`、`125`、`styles.ts:370` | 一致 |
 | 点主区 | **只开**：`sessionsWebview.ts:2643` | **开 / 合切换** + `aria-expanded`：`recycleEntry.ts:138-142`（事实源 `recycleDrawerStore.ts`） | 现在更好 |
 | 抽屉滑出、半高 / 上拉到 90%、提手拖动、点提手收起、点外面收起、Esc 收起 | `sessionsWebview.ts:2612-2617`、`2661-2769` | `recycleDrawer.ts:42-50`、`89-244` | 一致（现值的过渡时长与缓动取官方 token，见 `styles.ts:447-461`） |

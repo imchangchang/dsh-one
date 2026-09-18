@@ -131,7 +131,7 @@ export class HostCapabilitiesService {
     return { ok: true, deleted: await deleteState(parsed, this.home()) }
   }
 
-  /** 查一条提交（只读 git；安全口径与能力桥同一份代码）。 */
+  /** 查一条提交（只读 git；安全口径与宿主调用通道同一份代码）。 */
   @Remote('gitShow')
   async gitShow(hash: string, cwd: string): Promise<HostCapabilityResult<Record<string, unknown>>> {
     const parsed = parseGitShowArgs(cwd === undefined ? { hash } : { hash, cwd })

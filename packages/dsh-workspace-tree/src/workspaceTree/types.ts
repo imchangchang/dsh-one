@@ -146,7 +146,7 @@ export interface TreeProps extends PendingHookProps {
    * （官方 sessions 服务的状态，启动时可能是官方恢复的上次会话）不等于「宿主真的开着
    * 它」，两者不同步时只按前者判，用户点那行只会进改名、面板永远不出来。
    *
-   * 官方 web 形态（无桥）恒 false（那一端没有宿主面板这个概念）→ 当前会话行一律按
+   * 官方 web 形态（没有宿主调用通道）恒 false（那一端没有宿主面板这个概念）→ 当前会话行一律按
    * 打开处理。答不出来也回 false，是安全的降级方向。
    */
   isSessionInPanel: (sessionId: string) => Promise<boolean>
@@ -155,7 +155,7 @@ export interface TreeProps extends PendingHookProps {
    * 独立的一条**：会话已经是官方那条打开入口的「当前」时，再打开它不会让值
    * 变化、选择桥也就不会上报，光靠官方那条路面板永远不出来。
    *
-   * 官方 web 形态（无桥）是静默空操作——那一端的「打开」就是官方那条入口，
+   * 官方 web 形态（没有宿主调用通道）是静默空操作——那一端的「打开」就是官方那条入口，
    * 调用方已经先走过它了。
    */
   openSessionPanel: (sessionId: string) => Promise<void>

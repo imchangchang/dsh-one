@@ -91,19 +91,19 @@ test('chat 树：会话面板两版槽位都声明（0.1.2 的 single conversati
 // #74 现场缺陷：settings 树漏声明 keyed `main`。官方大件把整棵子树挂在
 // `slots.inject('<槽位名>', …)` 上（ui-conversation 挂 `main`，
 // dsh-client-ui-conversation/lib/client.js:16917），它声明的子树里才有
-// `conversation.hero.agentPreset` 等座位名；声明表缺一项，挂在下面的官方子树
+// `conversation.hero.agentPreset` 等槽位名；声明表缺一项，挂在下面的官方子树
 // 整块注册失败（agent-preset 的会话级 scope 抛 `slot … is not declared`，
 // fiber 进 FAILED 并泄漏已注册的 sessions 订阅）。设置页不渲染对话区，但必须声明。
-// #95：这个座位同时成了设置页自己的座位——设置页是 `main` 上一条 key =
+// #95：这个槽位同时成了设置页自己的槽位——设置页是 `main` 上一条 key =
 // `dshOne.settings` 的 keyed 条目（此前是自造槽位 `dshOne.settings.page`）。
-test('settings 树：设置页 = 官方 keyed main 上 key `dshOne.settings` 的条目（#74 声明 + #95 座位）', () => {
+test('settings 树：设置页 = 官方 keyed main 上 key `dshOne.settings` 的条目（#74 声明 + #95 槽位）', () => {
   const text = read('settingsLayoutPlugin.ts')
   assert.match(text, /main:\s*\{\s*kind:\s*'keyed',\s*scope:\s*'root'\s*\}/, 'keyed main 槽位要声明（官方 ui-conversation 的子树注册等它）')
   assert.match(text, /const SETTINGS_MAIN_KEY = 'dshOne\.settings'/, '设置页的面板 key 要显式声明成常量')
   assert.match(
     text,
     /ctx\.slots\.inject\('main',[\s\S]{0,400}?name: 'main',\s*\n\s*key: SETTINGS_MAIN_KEY/,
-    "设置页要经官方 slots.inject('main', …) 等座位声明后注册 keyed 条目",
+    "设置页要经官方 slots.inject('main', …) 等槽位声明后注册 keyed 条目",
   )
   assert.match(text, /renderSlot\('main', \{\}, \{ entryKey: SETTINGS_MAIN_KEY \}\)/, 'main 槽位要按官方 entryKey 取键渲染')
   assert.match(text, /layout\.selectPanel\(SETTINGS_MAIN_KEY\)/, '注册后要按官方 key 语义选中设置页')
@@ -297,14 +297,14 @@ test('官方侧栏根元素：按自有属性取，不按 DOM 层次（#178 C7+C
 })
 
 /**
- * 官方右栏（#79 决策 B）：chat 树声明 rightbar 座位并渲染，文件/终端/文档预览
+ * 官方右栏（#79 决策 B）：chat 树声明 rightbar 槽位并渲染，文件/终端/文档预览
  * 三个官方插件才有地方注册。三件事都是官方契约，任一处漂移都要在这里先红。
  */
-test('chat 树：rightbar 座位声明 + 按官方 props 契约渲染（#79 决策 B）', () => {
+test('chat 树：rightbar 槽位声明 + 按官方 props 契约渲染（#79 决策 B）', () => {
   const text = read('chatLayoutPlugin.ts')
-  assert.match(text, /rightbar:\s*\{\s*kind:\s*'single',\s*scope:\s*'root'\s*\}/, 'chat 树要声明官方 rightbar 座位（官方 ui-sidebar-right 经 slots.inject 等它）')
+  assert.match(text, /rightbar:\s*\{\s*kind:\s*'single',\s*scope:\s*'root'\s*\}/, 'chat 树要声明官方 rightbar 槽位（官方 ui-sidebar-right 经 slots.inject 等它）')
   // 官方 AppFrame 的 RightbarColumn 传的三个字段（官方 client.js 的 renderSlot("rightbar", …)）。
-  assert.match(text, /renderSlot\(\s*'rightbar',\s*\{[\s\S]{0,200}?width:[\s\S]{0,80}?viewportWidth:[\s\S]{0,80}?canShow:/, 'rightbar 座位要按官方 props 契约传 width / viewportWidth / canShow')
+  assert.match(text, /renderSlot\(\s*'rightbar',\s*\{[\s\S]{0,200}?width:[\s\S]{0,80}?viewportWidth:[\s\S]{0,80}?canShow:/, 'rightbar 槽位要按官方 props 契约传 width / viewportWidth / canShow')
 })
 
 test('layout 服务：右栏呈现上报落进布局状态（官方 ILayout.openRightbar/closeRightbar 语义）', () => {

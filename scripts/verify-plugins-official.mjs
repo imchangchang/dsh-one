@@ -455,7 +455,7 @@ async function assertComposerClear(page) {
   await page.waitForTimeout(300)
 }
 
-/** 端到端：会话导出——同一座位里官方同名条目被 shadow，渲染出来的是自有按钮。 */
+/** 端到端：会话导出——同一槽位里官方同名条目被 shadow，渲染出来的是自有按钮。 */
 async function assertSessionExport(page) {
   const ours = await page.locator('[data-dshone-export]').count()
   record('会话导出：官方会话头里渲染的是自有按钮（[data-dshone-export] 在场）', ours === 1, `count=${String(ours)}`)
@@ -465,13 +465,13 @@ async function assertSessionExport(page) {
   const officialMore = await page
     .locator('[data-slot="conversation.session.header.utilities"] button[aria-label]')
     .evaluateAll((els) => els.filter((el) => /More actions|更多操作/.test(el.getAttribute('aria-label') ?? '')).length)
-  record('会话导出：同座位的官方同名条目不再渲染（list slot 按 id 的 shadow 生效）', officialMore === 0, `官方图标按钮数=${String(officialMore)}`)
+  record('会话导出：同槽位的官方同名条目不再渲染（list slot 按 id 的 shadow 生效）', officialMore === 0, `官方图标按钮数=${String(officialMore)}`)
 }
 
-/** 端到端：工作区树——官方 sidebar.workspaces 座位里渲染的是自有树。 */
+/** 端到端：工作区树——官方 sidebar.workspaces 槽位里渲染的是自有树。 */
 async function assertWorkspaceTree(page) {
   const rows = await page.locator('[data-slot="sidebar.workspaces"] [data-dshone-tree-row="workspace"]').count()
-  record('工作区树：官方 sidebar.workspaces 座位里渲染的是自有树的行', rows >= 1, `rows=${String(rows)}`)
+  record('工作区树：官方 sidebar.workspaces 槽位里渲染的是自有树的行', rows >= 1, `rows=${String(rows)}`)
   const filter = await page.locator('[data-dshone-tree="group-filter"]').count()
   record('工作区树：自有分组过滤条在场（官方 web 侧用的是同一份组件）', filter >= 1, `count=${String(filter)}`)
 }

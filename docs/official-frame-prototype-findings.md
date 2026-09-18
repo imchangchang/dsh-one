@@ -20,7 +20,7 @@ keyed `main` 全局面板**（`ctx.layout.selectPanel` + `renderSlot('main', {},
 264–420；中列底线 400），而 VS Code 三种容器的形态是另一套语言（对话面板零侧栏、侧栏视图
 单列铺满、设置页整页）。三棵树的形态适配实测下来要压 **1 条 JS 内联样式改写 + 4 条 CSS**
 （清单见下），且其中「零侧栏列」这件事**纯 CSS 做不到**；换来的官方白送能力（右栏轨道/把手/
-窄容器降级）在现状里已经由 #77 的官方右栏座位拿到，增量收益很小。另外原型上还实测到一处
+窄容器降级）在现状里已经由 #77 的官方右栏槽位拿到，增量收益很小。另外原型上还实测到一处
 官方 AppFrame 路线特有的可见缺陷（收尾主题变浅，见「与现状的对照」），机制尚未定位。
 
 ## 一、官方 AppFrame 的结构与几何（读官方源码 + 实测）
@@ -76,7 +76,7 @@ keyed `main` 全局面板**（`ctx.layout.selectPanel` + `renderSlot('main', {},
 | 档 | 做法 | 实测 |
 | --- | --- | --- |
 | `shape=fill` | 2 条 CSS（轨写成 `minmax(0,1fr) 0 0`、侧栏根内联 `width` 覆盖成 100%）+ 1 条 CSS 去边线 + **1 次官方 API 调用**（`ctx.layout.toggleSidebar()`） | 400px：侧栏列 400、侧栏根 400（官方下发的内联 `width:280px` 被压掉）、中列与右栏 0、自有工作区树照常渲染；1200px 同形 |
-| `shape=raw` | 不做适配 | 400px：侧栏轨 56 + 侧栏根 `hHd-Xa_collapsed`（无内联 width），`sidebar.workspaces` 座位照渲染但拿到 `wide:false`，**自有工作区树被压成 35px 宽的碎条**；1200px：侧栏列 280（不铺满） |
+| `shape=raw` | 不做适配 | 400px：侧栏轨 56 + 侧栏根 `hHd-Xa_collapsed`（无内联 width），`sidebar.workspaces` 槽位照渲染但拿到 `wide:false`，**自有工作区树被压成 35px 宽的碎条**；1200px：侧栏列 280（不铺满） |
 
 ![sidebar 原型（shape=fill，400px）：官方侧栏铺满视图](official-frame-shots/sidebar-prototype.png)
 ![sidebar 原型原样档（shape=raw，400px）：官方降级成 56px 图标列，自有树被压成碎条](official-frame-shots/sidebar-raw.png)
@@ -117,7 +117,7 @@ keyed `main` 全局面板**（`ctx.layout.selectPanel` + `renderSlot('main', {},
 
 | | 现状（自有 frame） | 原型（官方 AppFrame） |
 | --- | --- | --- |
-| chat 树 | 中列 + 自有右列（#77 已声明官方 `rightbar` 座位并渲染官方右栏） | 中列 + 官方右栏列（几何同官方 GUI；拖拽把手由官方给） |
+| chat 树 | 中列 + 自有右列（#77 已声明官方 `rightbar` 槽位并渲染官方右栏） | 中列 + 官方右栏列（几何同官方 GUI；拖拽把手由官方给） |
 | chat 树侧栏 | 不存在（block 官方 ui-sidebar） | 存在但宽 0（要 JS 改写内联轨或纯 CSS 覆盖；纯 CSS 档右栏不再让轨） |
 | sidebar 树 | 侧栏铺满视图（自有 frame 直接给） | 2 条 CSS + 1 次官方 API 才铺满；不打理时官方自动降级成 56px 图标列、自有树被压成碎条 |
 | settings 树 | 自有槽位 `dshOne.settings.page` 渲染整页（自造槽位名；**#95 已改成官方 keyed `main`**） | 官方 keyed `main` 渲染整页（官方机制，零 CSS）← **净收益** |

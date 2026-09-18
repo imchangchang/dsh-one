@@ -1,5 +1,5 @@
 /**
- * git CLI 查询的执行面（#65 批 1）：宿主能力桥 `git.show` 的实现体，刻意与
+ * git CLI 查询的执行面（#65 批 1）：宿主调用通道 `git.show` 的实现体，刻意与
  * vscode 解耦（只依赖 node:child_process），这样真 git 二进制的端到端行为
  * （解析、短 hash、GitHub 链接、找不到的提交、cwd 限域）能在单测里用临时仓库
  * 直接跑；hostBridge 只负责参数校核与回执封装。

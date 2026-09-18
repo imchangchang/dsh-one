@@ -6,12 +6,12 @@
  *   不进页（ui-sidebar 的槽注册在无人声明 'sidebar' 时 loud throw）。
  * - root 声明侧栏壳 4 子槽（品牌位/工作区树/品牌名/底部动作，贡献注册不渲染）
  *   + keyed `main` + `shell.overlay`。`main` 既让官方 ui-conversation 的整棵
- *   对话子树注册得成立（#74，见 apply 内注释），也是设置页自己的座位：设置页是
+ *   对话子树注册得成立（#74，见 apply 内注释），也是设置页自己的槽位：设置页是
  *   `main` 上一条 key = `dshOne.settings` 的 keyed 条目，本页只渲染它（#95 之前
- *   这条座位是自造槽位 `dshOne.settings.page`，只有我们认识那个名）。**有意不声明
+ *   这条槽位是自造槽位 `dshOne.settings.page`，只有我们认识那个名）。**有意不声明
  *   sidebar.settings**：声明会同步触发 settings-general 的 SettingsRoot inject，
  *   其 children 表与本页槽位撞 registry「already declared」（绕行而非 priority
- *   影子，同 v1）。
+ *   遮蔽，同 v1）。
  * - 整页宿主 = 官方 SettingsPanel 组合复刻：居中限宽内容列（官方 panel 宽
  *   800px，取同款 max-width:800px / calc(100vw - 32px)）+ 左侧分节导航
  *   （General/Models/Plugins/Agent presets，当前节高亮 aria-current，点击切节）
@@ -292,12 +292,12 @@ export function apply(ctx: ShellContext): void {
           'sidebar.brand.name': { kind: 'single', scope: 'root' },
           'sidebar.workspaces': { kind: 'single', scope: 'root' },
           'sidebar.footer.action': { kind: 'list', scope: 'root' },
-          // keyed `main`（官方 root 契约里的对话区座位）**本页只渲染设置页那条
+          // keyed `main`（官方 root 契约里的对话区槽位）**本页只渲染设置页那条
           // keyed 条目**（key = dshOne.settings，见下方注册与 SettingsFrame），
           // 但也必须声明：官方 ui-conversation 的整棵
           // 对话子树注册挂在 `slots.inject("main", …)` 上
           //（dsh-client-ui-conversation/lib/client.js:16917，该子树里声明了
-          // conversation.hero.agentPreset 等座位名），本页不声明它，这些座位名
+          // conversation.hero.agentPreset 等槽位名），本页不声明它，这些槽位名
           // 就没人声明。官方 dsh-client-ui-agent-preset 的会话级 scope
           //（inject = slots/conversation/sessions/uiWorkspace，
           // dsh-client-ui-agent-preset/lib/client.js:1613）随后注册 hero chip 时

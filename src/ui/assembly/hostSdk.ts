@@ -1,5 +1,5 @@
 /**
- * 宿主能力桥的页面侧小 SDK（#65 批 1）——由 pageHtml 以内联 nonce 脚本注入，
+ * 宿主调用通道的页面侧小 SDK（#65 批 1）——由 pageHtml 以内联 nonce 脚本注入，
  * 三棵树的装配页都装：
  *
  *   globalThis.__DSH_ONE_HOST__.call(name, args) -> Promise<data>

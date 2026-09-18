@@ -261,7 +261,7 @@ export const SCALE_TIERS = {
     // + line-height:18px` 的 26px）：#144 把块头收敛成与工作区行同一套折叠语言，高度改吃
     // 行族那一项（`projectRowHeight` 34px），这个量连同它的密度键一起退场，所以档位表里
     // 也不再登记。
-    // 底下一枚原是「回收站入口行的行高」（官方同座位的 `Nqubda_badge{height:42px}`）：
+    // 底下一枚原是「回收站入口行的行高」（官方同槽位的 `Nqubda_badge{height:42px}`）：
     // #137 把那一行整套改成旧侧栏规格（高度由纵向内边距 + 标题行高撑出，不再写死），
     // 这个量连同它的密度键一起退场，所以档位表里也不再登记。
     pillHeight: '28px', // ._7KE1Ra_trigger{height:28px}
@@ -758,7 +758,7 @@ export const CSS =
   // 子项没有图标时也占住图标槽（rows.ts 的 indentSubmenuItem 补空槽），所以「子项文字左缘 −
   // 父项文字左缘」对所有子项是**同一个值**。
   '[role="menuitem"]:has(.dshOneTree_submenuItem){padding-left:7px}' +
-  // 底部回收站入口行（#99：官方 sidebar.footer.action 座位；#137 整套几何按**旧侧栏规格**
+  // 底部回收站入口行（#99：官方 sidebar.footer.action 槽位；#137 整套几何按**旧侧栏规格**
   // 重定）。形态还是主区（🗑 + 文案 + 计数）+ 右侧两枚动作图标，计数 0 整体灰态。
   //
   // #137 的口径：这一行的取值逐条取自旧侧栏插件的正本（`sessionsView.ts` 的 `.recycle-entry*`

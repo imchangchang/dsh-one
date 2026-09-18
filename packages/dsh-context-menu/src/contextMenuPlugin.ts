@@ -6,9 +6,9 @@
  * 官方 web 侧同样可用，故命名 `dsh-*`。
  *
  * 为什么落到第 4 层（CSS/DOM），前 3 层的举证：
- * ① 机制层 1（官方槽位）没有 context-menu 座位：把 48 个官方插件 bundle 全量
- *    扫过一遍（`name: "<slot>"` 注册共 135 个座位名），**没有一个是菜单/右键
- *    相关**（含 menu/context/copy 关键词的座位名：零命中——ui-conversation 的
+ * ① 机制层 1（官方槽位）没有 context-menu 槽位：把 48 个官方插件 bundle 全量
+ *    扫过一遍（`name: "<slot>"` 注册共 135 个槽位名），**没有一个是菜单/右键
+ *    相关**（含 menu/context/copy 关键词的槽位名：零命中——ui-conversation 的
  *    `conversation-queue-dock`/`conversation-todo-dock` 是队列/待办浮层，不是
  *    通用菜单位）。官方唯一的 `contextmenu` 字样在 ui-trajectory 自己的画布
  *    组件里（自用 React prop，不是贡献点）。
@@ -16,7 +16,7 @@
  *    一个**组件** `Menu`（本插件复用它渲染菜单，见下），不给「往官方菜单里加项」
  *    的口。剪贴板用官方 primitives 的 `writeClipboard`（带 execCommand 回退，
  *    比裸 navigator.clipboard 在 webview 里稳）。
- * ③ 机制层 3（装载/传输接缝）与「右键交互」无关。
+ * ③ 机制层 3（装载/传输 seam）与「右键交互」无关。
  *
  * 第 4 层做法与稳定性风险：
  * - 委托挂在**官方对话区容器**（`[data-conversation-scroll]`，见 `@dsh-one/dsh-plugin-kit/mountPoints`
@@ -127,7 +127,7 @@ function clearMenuMark(): void {
 }
 
 interface LayerProps {
-  /** 框架注入的 locale 座位（函数内别名为 tr 避开 i18n 门禁的裸 t() 扫描）。 */
+  /** 框架注入的 locale 槽位（函数内别名为 tr 避开 i18n 门禁的裸 t() 扫描）。 */
   t: (key: string) => string
 }
 

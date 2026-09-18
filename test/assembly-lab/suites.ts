@@ -114,15 +114,15 @@ const CONTRACT_TREES: ReadonlyArray<{
   route: string
   content: { label: string; selector: string }
   /**
-   * 该树必须出现的座位锚点（`[data-slot="<名>"]` 只有「被声明 + 真渲染」才会在
+   * 该树必须出现的槽位锚点（`[data-slot="<名>"]` 只有「被声明 + 真渲染」才会在
    * DOM 里：声明来自该树 root 条目的 children 表，渲染来自该树的 frame）。
-   * 官方改座位名/改归属（`details` → `rightbar` 那一类漂移）时这里先红。
+   * 官方改槽位名/改归属（`details` → `rightbar` 那一类漂移）时这里先红。
    */
   seats: readonly string[]
 }> = [
   { route: 'sidebar', content: { label: '自有工作区树的会话行', selector: '.dshOneTree_sessionRow' }, seats: ['sidebar', 'sidebar.workspaces', 'sidebar.settings'] },
   { route: 'sidebar-official', content: { label: '官方浏览区的会话行', selector: '[class*="_sessionRow"]' }, seats: ['sidebar', 'sidebar.workspaces'] },
-  { route: 'chat', content: { label: '对话区 composer 座位', selector: '[data-slot="conversation.composer.bar"] > *' }, seats: ['main', 'conversation.composer.bar', 'rightbar'] },
+  { route: 'chat', content: { label: '对话区 composer 槽位', selector: '[data-slot="conversation.composer.bar"] > *' }, seats: ['main', 'conversation.composer.bar', 'rightbar'] },
   { route: 'settings', content: { label: '设置内容区', selector: '[data-slot="settings.section"] > *' }, seats: ['main', 'settings.section'] },
 ]
 
@@ -131,7 +131,7 @@ export const CONTRACT_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '底座契约完备性：四棵树在真实网关上零崩溃、零缺失契约（CONTRACT 套件）',
   expect:
-    '实验室四棵树（自有 sidebar 树、官方浏览区对照档、chat 树、settings 树）各自在真实网关只读下打开：**零 `slot entry crashed`**（官方渲染层崩溃 + 页面无 `data-slot-error` 元素）、**零 pageerror**、**零装载未激活**（官方 `web boot: … did not activate` / `waiting for service`，即缺服务/缺钩子那类底座缺口）；该树自己的关键座位**有内容**（不是空壳）、**预期座位锚点都在**（官方改座位名/改归属时这里先红）、该树的 frame 插件 bundle 真的装进了页面（combo 请求里有它的 id、页面上有它的 CSS 标记）；chat 树额外核官方右栏座位（声明 + 官方 ui-sidebar-right 的座位已注册 + 面板几何在官方钳位区间内）。缺 hook 与缺服务在页面上的表现就是 `slot entry crashed` / `did not activate`，所以这两条断言即 hook/服务的完备性断言。',
+    '实验室四棵树（自有 sidebar 树、官方浏览区对照档、chat 树、settings 树）各自在真实网关只读下打开：**零 `slot entry crashed`**（官方渲染层崩溃 + 页面无 `data-slot-error` 元素）、**零 pageerror**、**零装载未激活**（官方 `web boot: … did not activate` / `waiting for service`，即缺服务/缺钩子那类底座缺口）；该树自己的关键槽位**有内容**（不是空壳）、**预期槽位锚点都在**（官方改槽位名/改归属时这里先红）、该树的 frame 插件 bundle 真的装进了页面（combo 请求里有它的 id、页面上有它的 CSS 标记）；chat 树额外核官方右栏槽位（声明 + 官方 ui-sidebar-right 的槽位已注册 + 面板几何在官方钳位区间内）。缺 hook 与缺服务在页面上的表现就是 `slot entry crashed` / `did not activate`，所以这两条断言即 hook/服务的完备性断言。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     for (const entry of CONTRACT_TREES) {
@@ -147,12 +147,12 @@ export const CONTRACT_SUITE: LabSuite = {
         )
         check.ok(`${entry.route}：首屏就绪（${tree.readySelector}）`, opened.ready)
         check.ok(`${entry.route}：${entry.content.label}有内容（${entry.content.selector}）`, content > 0)
-        // 座位锚点：声明 + 渲染都在才会有锚点。官方改座位名/改归属时，
+        // 槽位锚点：声明 + 渲染都在才会有锚点。官方改槽位名/改归属时，
         // 命中的官方贡献会 park 或换名，这里立刻红（不用等用户撞见空面板）。
         const seatCounts = await seatFacts(page, entry.seats)
         const missingSeats = entry.seats.filter((name) => (seatCounts[name] ?? -1) < 0)
-        check.fact(`${entry.route}：座位锚点 ${entry.seats.map((name) => `${name}=${String(seatCounts[name] ?? -1)}`).join(' ')}`)
-        check.ok(`${entry.route}：预期座位锚点都在（${entry.seats.join(' / ')}）`, missingSeats.length === 0, missingSeats.join(','))
+        check.fact(`${entry.route}：槽位锚点 ${entry.seats.map((name) => `${name}=${String(seatCounts[name] ?? -1)}`).join(' ')}`)
+        check.ok(`${entry.route}：预期槽位锚点都在（${entry.seats.join(' / ')}）`, missingSeats.length === 0, missingSeats.join(','))
         check.eq(`${entry.route}：零槽位崩溃标记（data-slot-error）`, slots.errors, [])
         check.eq(`${entry.route}：零槽位崩溃日志（slot entry crashed）`, gaps.crashes, [])
         check.eq(`${entry.route}：零装载未激活（缺服务/缺钩子）`, gaps.bootFails, [])
@@ -176,15 +176,15 @@ export const CONTRACT_SUITE: LabSuite = {
           cssTags.includes(tree.tree.framePluginId),
           cssTags.filter((tag) => tag.startsWith('@dsh-one/')).join(','),
         )
-        // chat 树的官方右栏座位（#79 决策 B）：座位声明在我们这里、贡献来自官方
+        // chat 树的官方右栏槽位（#79 决策 B）：槽位声明在我们这里、贡献来自官方
         // ui-sidebar-right，所以「官方真注册进来了 + 面板几何在官方钳位区间内」
         // 就是这条链路活着的证据。
         if (entry.route === 'chat') {
           const rightbar = await rightbarFacts(page)
           check.fact(
-            `chat：官方右栏 面板元素=${String(rightbar.panel)} 面板宽=${String(rightbar.panelWidth)} 外框宽=${String(rightbar.frameWidth)} 会话座位=${String(rightbar.sessionSeat)}`,
+            `chat：官方右栏 面板元素=${String(rightbar.panel)} 面板宽=${String(rightbar.panelWidth)} 外框宽=${String(rightbar.frameWidth)} 会话槽位=${String(rightbar.sessionSeat)}`,
           )
-          check.ok('chat：官方 ui-sidebar-right 的座位已注册进 rightbar（有子项）', (seatCounts.rightbar ?? -1) > 0, `rightbar=${String(seatCounts.rightbar ?? -1)}`)
+          check.ok('chat：官方 ui-sidebar-right 的槽位已注册进 rightbar（有子项）', (seatCounts.rightbar ?? -1) > 0, `rightbar=${String(seatCounts.rightbar ?? -1)}`)
           check.ok('chat：官方右栏面板元素在（[data-sidebar-right-panel]）', rightbar.panel)
           check.ok(
             'chat：官方右栏面板宽 > 0 且 ≤ 外框 70%（官方钳位区间，见 frameShared.computeColumns）',
@@ -205,8 +205,8 @@ export const CONTRACT_SUITE: LabSuite = {
 /**
  * chat 树官方右栏的**用户路径**：官方把展开钮放在会话头右侧角
  * （`conversation.session.header.corner` 的 ExpandButton，只有非空白会话才有会话头），
- * 点它 → 官方座位经 `ctx.layout.openRightbar(track, fullscreen)` 上报 → 我们的外框
- * 让出轨道。这条链路跨「官方座位 → 我们的 layout 服务 → 我们的外框几何」三层，
+ * 点它 → 官方槽位经 `ctx.layout.openRightbar(track, fullscreen)` 上报 → 我们的外框
+ * 让出轨道。这条链路跨「官方槽位 → 我们的 layout 服务 → 我们的外框几何」三层，
  * 静态断言看不出来，所以这里真点一次。
  *
  * 网关上一个非空白会话都没有时（全新网关）只记观测、不断言——这不是底座缺陷。
@@ -220,7 +220,7 @@ async function rightbarOpenChecks(ctx: SuiteContext, check: Check): Promise<stri
   }
   // 逐个试几个候选：日常实例上「哪条会话排在前面」是当天的活儿决定的，而会话头那枚
   // 官方展开钮按会话（有没有右栏内容）不一定都出。判据没变——只是别把「今天排最前的
-  // 那条恰好不出钮」记成「座位缺了」：试到有钮的那一条为止，一条都没有才判红。
+  // 那条恰好不出钮」记成「槽位缺了」：试到有钮的那一条为止，一条都没有才判红。
   let opened = await openTreePage(ctx.browser, ctx.lab, route('chat'), {
     sessionId: (candidates[0] as { sessionId: string }).sessionId,
     width: 1280,
@@ -242,7 +242,7 @@ async function rightbarOpenChecks(ctx: SuiteContext, check: Check): Promise<stri
   try {
     check.fact(`chat（会话 ${opened.url.split('session=')[1]?.slice(0, 16) ?? '?'}）：会话头右侧角按钮=${JSON.stringify(cornerButtons)} 展开前轨道宽=${String(before.trackWidth)}`)
     if (cornerButtons.length === 0) {
-      check.ok('chat：非空白会话的会话头出现官方右栏展开钮（ExpandButton 座位）', false, '会话头右侧角没有按钮')
+      check.ok('chat：非空白会话的会话头出现官方右栏展开钮（ExpandButton 槽位）', false, '会话头右侧角没有按钮')
       return [await shot(ctx, opened.page, 'contract-chat-rightbar')]
     }
     await opened.page.click('[data-slot="conversation.session.header.corner"] button')
@@ -273,8 +273,8 @@ async function combosRequested(page: OpenedPage['page']): Promise<string[]> {
 }
 
 /**
- * 座位锚点的子项数：`-1` = 锚点不在（该座位没被声明，或声明了但该树的 frame 没渲染它）。
- * `[data-slot]` 锚点由框架渲染器在渲染座位时生成，所以它同时证明「声明」与「渲染」两件事。
+ * 槽位锚点的子项数：`-1` = 锚点不在（该槽位没被声明，或声明了但该树的 frame 没渲染它）。
+ * `[data-slot]` 锚点由框架渲染器在渲染槽位时生成，所以它同时证明「声明」与「渲染」两件事。
  */
 async function seatFacts(page: OpenedPage['page'], names: readonly string[]): Promise<Record<string, number>> {
   return page.evaluate((keys: string[]) => {
@@ -287,7 +287,7 @@ async function seatFacts(page: OpenedPage['page'], names: readonly string[]): Pr
   }, [...names])
 }
 
-/** chat 树官方右栏的观测：面板元素、面板宽（官方座位自己写的 inline width）、外框宽、轨道宽、会话座位数。 */
+/** chat 树官方右栏的观测：面板元素、面板宽（官方槽位自己写的 inline width）、外框宽、轨道宽、会话槽位数。 */
 async function rightbarFacts(
   page: OpenedPage['page'],
 ): Promise<{ panel: boolean; panelOpen: boolean; panelWidth: number; panelLeft: number; frameWidth: number; trackWidth: number; sessionSeat: number }> {
@@ -321,7 +321,7 @@ export const SMOKE_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '三棵树冒烟渲染：侧栏会话树 / 对话区 / 设置页都出真内容（SMOKE 套件）',
   expect:
-    '侧栏树：真实网关的会话行（自有树插件渲染）与分组行都在，行上有标题文本，侧栏壳的新建会话按钮在。对话区：composer 座位里有可编辑输入框。设置页：设置内容区渲染出多行设置项。三棵树控制台零 error。',
+    '侧栏树：真实网关的会话行（自有树插件渲染）与分组行都在，行上有标题文本，侧栏壳的新建会话按钮在。对话区：composer 槽位里有可编辑输入框。设置页：设置内容区渲染出多行设置项。三棵树控制台零 error。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
 
@@ -348,13 +348,13 @@ export const SMOKE_SUITE: LabSuite = {
       const conversation = await slotChildren(chat.page, 'main.conversation', 'main')
       const composerSlot = await slotChildren(chat.page, 'conversation.composer.bar')
       check.fact(
-        `chat：composer 可编辑元素=${String(editable)} 自有对话容器=${String(shellRoot)} main 槽位子项=${String(mainPanel)} main 下的会话面板=${String(conversation)} composer.bar 座位子项=${String(composerSlot)}`,
+        `chat：composer 可编辑元素=${String(editable)} 自有对话容器=${String(shellRoot)} main 槽位子项=${String(mainPanel)} main 下的会话面板=${String(conversation)} composer.bar 槽位子项=${String(composerSlot)}`,
       )
       check.ok('chat：composer 里有可编辑输入框', editable >= 1, `editable=${String(editable)}`)
       check.ok('chat：自有对话容器在（.dshOneShell_main）', shellRoot >= 1)
       check.ok('chat：会话面板挂在 keyed main 槽位上（有子项）', mainPanel > 0, `main=${String(mainPanel)}`)
       check.ok('chat：会话面板在 main 槽位之内（嵌套从属）', conversation > 0, `main 下的会话面板=${String(conversation)}`)
-      check.ok('chat：composer.bar 座位有内容', composerSlot > 0, `composer.bar=${String(composerSlot)}`)
+      check.ok('chat：composer.bar 槽位有内容', composerSlot > 0, `composer.bar=${String(composerSlot)}`)
       check.eq('chat：零 console error', chat.capture.consoleErrors, [])
       screenshots.push(await shot(ctx, chat.page, 'smoke-chat'))
     } finally {
@@ -1319,11 +1319,11 @@ export const SIDEBAR_SUITE: LabSuite = {
 }
 
 // ---------------------------------------------------------------------------
-// F-09 HEADER-UTILITIES：对话区会话头 utilities 座位的条目集合（#87）
+// F-09 HEADER-UTILITIES：对话区会话头 utilities 槽位的条目集合（#87）
 // ---------------------------------------------------------------------------
 
 /**
- * 真实会话（页内要开一个会话，会话头与它的 utilities 座位才存在；数据来自真网关，
+ * 真实会话（页内要开一个会话，会话头与它的 utilities 槽位才存在；数据来自真网关，
  * 只读——只判读会话摘要，不做任何写动作）。
  * 挑选口径：优先**没在跑、非空白**的最近一个带 cwd 的会话——跑着的会话会把整段
  * 流式内容渲进页面，让这一套件慢且不稳；cwd 是 open-in-app 按钮的渲染前提之一
@@ -1341,13 +1341,13 @@ async function pickSessionId(gateway: string): Promise<{ id: string; cwd: string
 export const HEADER_UTILITIES_SUITE: LabSuite = {
   id: 'F-09',
   phase: 'new-feature',
-  name: '对话区会话头 utilities 座位的条目集合：官方 open-in-app 与自有导出都在且都可见（HEADER-UTILITIES 套件）',
+  name: '对话区会话头 utilities 槽位的条目集合：官方 open-in-app 与自有导出都在且都可见（HEADER-UTILITIES 套件）',
   expect:
-    'chat 树在**真实会话**下打开：`conversation.session.header.utilities` 座位里官方 `@deepseek-ai/dsh-client-ui-open-in-app` 的贡献在（DOM 有它的 split button，取 /open-in-app/icon/* 的应用图标）且**可见**（该条目矩形非 0、没有被 display:none 摘掉呈现）；自有 `@dsh-one/dsh-session-export` 的导出按钮同样在且可见；座位里没有任何一个条目被自有 CSS 摘掉呈现（#87 的缺席就是「该座位上一切非自有条目一律 display:none」造成的，这里按条目逐个盯住）；官方 `dsh-session-log-export` 的同 id 条目被本插件的 shadow（priority −1）顶掉、不再渲染（防止两个导出入口并存）。另：官方宿主路由（应用清单 `/open-in-app/apps`）在页面里可达——一条取官方内部基址 `http://dsh.internal`、一条取页面自身源，两条都要 200 且带应用清单（webview 里页面源不是网关，这类按 location.origin 寻址的裸 fetch 由页面传输接缝改写到 loopback）。',
+    'chat 树在**真实会话**下打开：`conversation.session.header.utilities` 槽位里官方 `@deepseek-ai/dsh-client-ui-open-in-app` 的贡献在（DOM 有它的 split button，取 /open-in-app/icon/* 的应用图标）且**可见**（该条目矩形非 0、没有被 display:none 摘掉呈现）；自有 `@dsh-one/dsh-session-export` 的导出按钮同样在且可见；槽位里没有任何一个条目被自有 CSS 摘掉呈现（#87 的缺席就是「该槽位上一切非自有条目一律 display:none」造成的，这里按条目逐个盯住）；官方 `dsh-session-log-export` 的同 id 条目被本插件的 shadow（priority −1）顶掉、不再渲染（防止两个导出入口并存）。另：官方宿主路由（应用清单 `/open-in-app/apps`）在页面里可达——一条取官方内部基址 `http://dsh.internal`、一条取页面自身源，两条都要 200 且带应用清单（webview 里页面源不是网关，这类按 location.origin 寻址的裸 fetch 由页面传输 seam 改写到 loopback）。',
   run: async (ctx, check) => {
     const picked = await pickSessionId(ctx.lab.gateway)
     if (picked === null) {
-      check.ok('网关上有带 cwd 的会话可供打开（会话头才有 utilities 座位）', false, '真网关上没有带 cwd 的会话')
+      check.ok('网关上有带 cwd 的会话可供打开（会话头才有 utilities 槽位）', false, '真网关上没有带 cwd 的会话')
       return []
     }
     check.fact(`选中会话 ${picked.id}（cwd=${picked.cwd}，候选 ${String(picked.candidates)} 个）`)
@@ -1364,7 +1364,7 @@ export const HEADER_UTILITIES_SUITE: LabSuite = {
       const probe = await page.evaluate((slotSel: string) => {
         const slot = document.querySelector(slotSel)
         if (slot === null) return { present: false, entries: [] as unknown[] }
-        // 一条贡献 = 座位的一个直属子元素（框架按条目挂载，见官方 outlet 的 renderSlot）。
+        // 一条贡献 = 槽位的一个直属子元素（框架按条目挂载，见官方 outlet 的 renderSlot）。
         // 「可见」按几何判定：display:none / 祖先被摘 → 矩形为 0（#87 就是 display:none）。
         const entries = Array.from(slot.children).map((child) => {
           const rect = child.getBoundingClientRect()
@@ -1391,9 +1391,9 @@ export const HEADER_UTILITIES_SUITE: LabSuite = {
         }
       }, S)
 
-      check.ok('chat 树会话头有 utilities 座位（真实会话下）', probe.present === true, S)
+      check.ok('chat 树会话头有 utilities 槽位（真实会话下）', probe.present === true, S)
       if (probe.present !== true) return screenshots
-      check.fact(`座位条目：${JSON.stringify(probe.entries)}`)
+      check.fact(`槽位条目：${JSON.stringify(probe.entries)}`)
 
       const entries = probe.entries as Array<{
         display: string
@@ -1409,7 +1409,7 @@ export const HEADER_UTILITIES_SUITE: LabSuite = {
       const officialExport = entries.filter((e) => e.officialExportButtons > 0)
       const visible = entries.filter((e) => e.display !== 'none' && e.width > 0)
 
-      check.eq('座位里官方 open-in-app 的贡献恰有一条（应用图标哨兵）', openInApp.length, 1)
+      check.eq('槽位里官方 open-in-app 的贡献恰有一条（应用图标哨兵）', openInApp.length, 1)
       check.ok(
         'open-in-app 条目可见（矩形非 0，未被自有 CSS 摘掉）',
         openInApp[0] !== undefined && openInApp[0].display !== 'none' && openInApp[0].width > 0,
@@ -1420,14 +1420,14 @@ export const HEADER_UTILITIES_SUITE: LabSuite = {
         probe.iconLoaded === true,
         `iconLoaded=${String(probe.iconLoaded)} splitButton=${String(probe.splitButton)}`,
       )
-      check.eq('座位里自有导出按钮恰有一条', ownExport.length, 1)
+      check.eq('槽位里自有导出按钮恰有一条', ownExport.length, 1)
       check.ok(
         '自有导出按钮可见',
         ownExport[0] !== undefined && ownExport[0].display !== 'none' && ownExport[0].width > 0,
         JSON.stringify(ownExport[0] ?? null),
       )
       check.eq(
-        '座位的每个条目都可见（没有任何条目被自有 CSS 摘掉——#87 的缺席形态）',
+        '槽位的每个条目都可见（没有任何条目被自有 CSS 摘掉——#87 的缺席形态）',
         entries.length - visible.length,
         0,
       )
@@ -1440,7 +1440,7 @@ export const HEADER_UTILITIES_SUITE: LabSuite = {
 
       // 宿主路由可达（webview 形态的第二个根因）：官方 open-in-app 用裸 fetch 取
       // 应用清单，按 location.origin / 官方内部基址 http://dsh.internal 寻址。
-      // 页面传输接缝把这两类「宿主寻址」URL 改写到 loopback —— 这里逐条实测。
+      // 页面传输 seam 把这两类「宿主寻址」URL 改写到 loopback —— 这里逐条实测。
       const origin = await page.evaluate(() => globalThis.location.origin)
       const routes = await page.evaluate(async () => {
         const read = async (label: string, url: string): Promise<{ label: string; url: string; status: number; apps: string[]; error?: string }> => {
@@ -1922,7 +1922,7 @@ export const MULTIOPEN_SUITE: LabSuite = {
 
 /**
  * 侧栏骨架（#99 B 段）的四区断言：自绘顶栏（官方搜索栏 + 折叠展开全部 + 添加工作区两项
- * 菜单 + 设置齿轮）、单胶囊分组条、底部回收站入口行（官方 `sidebar.footer.action` 座位，
+ * 菜单 + 设置齿轮）、单胶囊分组条、底部回收站入口行（官方 `sidebar.footer.action` 槽位，
  * 与官方 cordis-panel 并存）、底部设置行隐藏。搜索栏按 **#132** 的新口径测**两态**：
  * 初始是收起态（一枚 28px 放大镜），点开才展开成官方展开态（30px / 10px 圆角），
  * Esc 收起并清空——两态各自的断言都在下面，不留「只看一态」的空档。
@@ -1935,7 +1935,7 @@ export const SKELETON_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '侧栏骨架四区（#99 立、#135 起顶栏那一行是「胶囊 + 四项」）：官方搜索栏两态 + 单胶囊分组条 + 底部回收站入口行（SIDEBAR-SKELETON 套件）',
   expect:
-    '#99 定的四区骨架在真实装配页上成立：① 顶栏那一行（#135 起**五行并一行**：行首是分组过滤胶囊，右边依次是搜索栏、折叠展开全部、添加工作区、设置齿轮）——搜索栏 #132 起是**两态**（初始收起态 28px 圆胶囊 + 放大镜、点开后展开态 30px 高 / 10px 圆角 / .5px 实线边框且有输入框与清除钮，Esc 收起并清空）、四枚工具控件都在，胶囊与它们**同在这一行里**（几何关系由 F-39 判），且折叠全部真的收起整棵树；② 添加工作区是两项菜单（选已有文件夹 / 创建新工作区目录），第二项经宿主能力口发出 `vscode.workspaceCreate`；③ 设置齿轮经宿主能力口发出 `vscode.openSettings`（假宿主只记录，真宿主开设置页），同时官方 `sidebar.settings` 那一行不再渲染；④ 分组过滤条是单胶囊 + 成员计数 + ▾（#135 起它住在顶栏那一行里、不在列表区），下拉含「全部工作区 / 各组 / 新建分组… / 管理分组…」，管理分组对话框列出全部组；⑤ 回收站入口行在官方 `sidebar.footer.action` 座位里、与官方 cordis-panel 条目并存、不在自有浏览区 DOM 内，点它开现有抽屉。全程零 pageerror。',
+    '#99 定的四区骨架在真实装配页上成立：① 顶栏那一行（#135 起**五行并一行**：行首是分组过滤胶囊，右边依次是搜索栏、折叠展开全部、添加工作区、设置齿轮）——搜索栏 #132 起是**两态**（初始收起态 28px 圆胶囊 + 放大镜、点开后展开态 30px 高 / 10px 圆角 / .5px 实线边框且有输入框与清除钮，Esc 收起并清空）、四枚工具控件都在，胶囊与它们**同在这一行里**（几何关系由 F-39 判），且折叠全部真的收起整棵树；② 添加工作区是两项菜单（选已有文件夹 / 创建新工作区目录），第二项经宿主能力口发出 `vscode.workspaceCreate`；③ 设置齿轮经宿主能力口发出 `vscode.openSettings`（假宿主只记录，真宿主开设置页），同时官方 `sidebar.settings` 那一行不再渲染；④ 分组过滤条是单胶囊 + 成员计数 + ▾（#135 起它住在顶栏那一行里、不在列表区），下拉含「全部工作区 / 各组 / 新建分组… / 管理分组…」，管理分组对话框列出全部组；⑤ 回收站入口行在官方 `sidebar.footer.action` 槽位里、与官方 cordis-panel 条目并存、不在自有浏览区 DOM 内，点它开现有抽屉。全程零 pageerror。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const groupsState = {
@@ -2208,7 +2208,7 @@ export const SKELETON_SUITE: LabSuite = {
       const reExpanded = await expandedCount()
       check.ok('再点一次 = 展开全部（所有有会话的工作区重新展开）', reExpanded > 0, `expanded=${String(reExpanded)}`)
 
-      // ---- ⑥ 底部回收站入口行（官方 sidebar.footer.action 座位） ----
+      // ---- ⑥ 底部回收站入口行（官方 sidebar.footer.action 槽位） ----
       const entry = await page.evaluate(() => {
         const slot = document.querySelector('[data-slot="sidebar.footer.action"]')
         const row = document.querySelector('[data-dshone-tree="recycle-entry"]')
@@ -2224,7 +2224,7 @@ export const SKELETON_SUITE: LabSuite = {
           ),
         }
       })
-      check.ok('底部回收站入口行在官方 sidebar.footer.action 座位里', entry.slotFound && entry.rowFound && entry.inSlot, JSON.stringify(entry))
+      check.ok('底部回收站入口行在官方 sidebar.footer.action 槽位里', entry.slotFound && entry.rowFound && entry.inSlot, JSON.stringify(entry))
       check.ok('它不在自有浏览区 DOM 里（确实从顶栏搬走了）', entry.insideBrowseArea === false)
       // 与官方条目并存：官方那条 `cordis-panel` 属于 ui-cordis 插件，它在**没有动态
       // 插件时渲染 null**（官方 CordisPanel 的 `if (all.length === 0) return null`），
@@ -2234,7 +2234,7 @@ export const SKELETON_SUITE: LabSuite = {
       const combos = await combosRequested(page)
       const sidebarCombo = combos.find((url) => url.includes('@dsh-one/vscode-sidebar-ui-layout/client.js'))
       check.ok(
-        '座位里与官方条目并存（官方 ui-cordis 仍在这棵树的清单里，我们只往 list 槽加了一条自有 id 的条目）',
+        '槽位里与官方条目并存（官方 ui-cordis 仍在这棵树的清单里，我们只往 list 槽加了一条自有 id 的条目）',
         sidebarCombo !== undefined && sidebarCombo.includes('@deepseek-ai/dsh-client-ui-cordis/client.js'),
         `combo=${String(sidebarCombo?.slice(0, 120))}`,
       )

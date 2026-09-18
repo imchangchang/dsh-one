@@ -1,5 +1,5 @@
 /**
- * 宿主能力桥（#65 批 1；#84 起同时是「宿主能力口」在 VS Code 侧的实现）——装配页里
+ * 宿主调用通道（#65 批 1；#84 起同时是「宿主能力口」在 VS Code 侧的实现）——装配页里
  * 的自有插件向扩展宿主请求「只有宿主能做的事」（git 二进制、VS Code API、文件保存
  * 对话框），走一条请求-响应消息通道：
  *
@@ -8,13 +8,13 @@
  *                { type: 'dshOne.hostResult', id: <回声>, ok: false, error: { code, message } }
  *
  * 前端插件不直接走这条通道，而是调**能力口**（`packages/dsh-plugin-kit/src/hostCapabilities.ts`）：
- * 能力口在 VS Code 侧把调用落到本桥的白名单调用上，在官方 web 侧落到宿主半插件的
+ * 能力口在 VS Code 侧把调用落到本通道的白名单调用上，在官方 web 侧落到宿主半插件的
  * 网关 RPC 上——插件代码两端一样（#84）。所以下面每个 `call` 名字都对应能力口里的
  * 一个方法，两边同名同参数。
  *
- * 走第几层机制：这条桥是 dsh-one 自有外壳与自有插件之间的通道，不触碰任何官方
+ * 走第几层机制：这一条是 dsh-one 自有外壳与自有插件之间的通道，不触碰任何官方
  * 组件（官方机制层 1-3 都不涉及宿主能力；官方也没有「插件向宿主取 git 数据」
- * 的接缝）。通道复用既有统一获取点 `__DSH_ONE_VSCODE__`（probe.ts 首调
+ * 的 seam）。通道复用既有统一获取点 `__DSH_ONE_VSCODE__`（probe.ts 首调
  * acquireVsCodeApi 后挂的共享实例，webview 全页只允许 acquire 一次）。
  *
  * 安全（这是外部输入进入宿主的唯一入口，按白名单 + 参数校核 + 结构化错误收口）：
@@ -95,7 +95,7 @@ export interface HostCallResult {
   error?: HostCallError
 }
 
-/** 宿主能力桥依赖（工作区根、git 可执行文件路径、日志、落盘三件套）。 */
+/** 宿主调用通道依赖（工作区根、git 可执行文件路径、日志、落盘三件套）。 */
 export interface HostBridgeDeps {
   /**
    * VS Code 当前打开的文件夹（`vscode.workspace.workspaceFolders` 的 fsPath 列表）。
@@ -487,7 +487,7 @@ export function defaultHostBridgeDeps(): HostBridgeDeps {
 }
 
 /**
- * 把能力桥挂到一条装配 webview 上：收 dshOne.hostCall，跑白名单调用，回
+ * 把宿主调用通道挂到一条装配 webview 上：收 dshOne.hostCall，跑白名单调用，回
  * dshOne.hostResult。三棵树（chat/侧栏/设置）都挂同一份（能力是通用基础设施，
  * 后续多项复用）。返回 Disposable。
  */
@@ -501,7 +501,7 @@ export function subscribeHostCalls(
     if (record === undefined || record.type !== 'dshOne.hostCall') return
     const id = record.id
     const call = record.call
-    // id/call 形状不对就静默丢弃（无法可靠回执，且不是本桥的正常流量）。
+    // id/call 形状不对就静默丢弃（无法可靠回执，且不是本通道的正常流量）。
     if (typeof id !== 'string' || id === '' || typeof call !== 'string') return
     void runHostCall(call, record.args, deps)
       .then((result) => {

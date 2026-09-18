@@ -55,7 +55,7 @@ async function shot(ctx: { shots: string }, page: OpenedPage['page'], name: stri
   return file
 }
 
-/** 假宿主里与「开外链」有关的两个记录（`openedUrls` = 能力桥；`openedByWindow` = 页面 window.open）。 */
+/** 假宿主里与「开外链」有关的两个记录（`openedUrls` = 宿主调用通道；`openedByWindow` = 页面 window.open）。 */
 interface LinkHostFacts {
   openedUrls: string[]
   openedByWindow: string[]
@@ -246,7 +246,7 @@ export const EXTERNAL_LINK_SUITE: LabSuite = {
       check.fact(`白名单含 mailto：mailto 锚点发出的宿主调用 ${JSON.stringify(mail.opened)}`)
       check.eq('白名单含 mailto：mailto 锚点同样交给宿主打开一次', mail.opened, ['mailto:lab@example.com'])
       check.eq(
-        'VS Code 侧只走能力桥，没有顺手走页面 window.open（一次点击一个出口）',
+        'VS Code 侧只走宿主调用通道，没有顺手走页面 window.open（一次点击一个出口）',
         (await hostFacts(settings.page)).openedByWindow,
         [],
       )

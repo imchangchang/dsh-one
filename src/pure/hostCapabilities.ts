@@ -2,14 +2,14 @@
  * 宿主能力口（#84）的**线协议契约**：调用名、参数形状、参数校核与错误口径。
  *
  * 「宿主能力口」= 前端插件向「宿主那一侧」要能力的唯一入口。两侧各有一份实现
- * （VS Code 侧 = 扩展宿主的能力桥；官方 web 侧 = **宿主半插件**，跑在 dsh 宿主
+ * （VS Code 侧 = 扩展宿主侧的宿主调用通道；官方 web 侧 = **宿主半插件**，跑在 dsh 宿主
  * 进程里，经官方 RPC 机制暴露），前端插件只调抽象口、不碰宿主细节，所以同一份
  * 插件两端都能用（AGENTS.md 铁律「能移植的必须移植」）。
  *
  * 本模块是纯逻辑（不依赖 node / vscode / cordis），三处共用：
  * - 宿主半插件 `packages/dsh-host-capabilities/src/`（线协议的服务端）；
  * - 前端 SDK `packages/dsh-plugin-kit/src/hostCapabilities.ts`（线协议的客户端）；
- * - 扩展侧能力桥 `src/ui/assembly/hostBridge.ts`（VS Code 侧同一口的实现）。
+ * - 扩展侧宿主调用通道 `src/ui/assembly/hostBridge.ts`（VS Code 侧同一口的实现）。
  *
  * ## 走第几层机制（AGENTS.md「官方机制优先」）
  * 官方侧走**层 2（官方服务 API）**：宿主半是一个 cordis 插件，把能力注册成
@@ -48,7 +48,7 @@ export const HOST_CAPABILITY_METHODS = {
   stateWrite: 'stateWrite',
   /** 删持久状态。 */
   stateDelete: 'stateDelete',
-  /** 只读 git 提交查询（沿用能力桥的安全口径）。 */
+  /** 只读 git 提交查询（沿用宿主调用通道的安全口径）。 */
   gitShow: 'gitShow',
   /** 把一段内容写到宿主的用户可见位置。 */
   saveContent: 'saveContent',
@@ -61,11 +61,11 @@ export function capabilityEndpoint(method: HostCapabilityMethod): string {
   return `${HOST_CAPABILITY_SERVICE}/${method}`
 }
 
-/** 能力错误码：能力桥既有的码（`hostCalls.ts`，VS Code 侧与宿主半共用一套口径）
+/** 能力错误码：宿主调用通道既有的码（`hostCalls.ts`，VS Code 侧与宿主半共用一套口径）
  * 加能力口自己的几个。 */
 export type HostCapabilityErrorCode =
   | HostCallErrorCode
-  /** 页面所在的 shell 既没有能力桥也没有可用宿主半（抽象口无实现）。 */
+  /** 页面所在的 shell 既没有宿主调用通道也没有可用宿主半（抽象口无实现）。 */
   | 'unavailable'
   /** 调用名不在能力表里。 */
   | 'unknown-capability'
@@ -74,7 +74,7 @@ export type HostCapabilityErrorCode =
   /** 用户在保存对话框里取消（不是失败，消费方通常静默）。 */
   | 'cancelled'
 
-/** 能力错误体（码的集合比能力桥的错误码更宽，含能力口自己的四个码）。 */
+/** 能力错误体（码的集合比宿主调用通道的错误码更宽，含能力口自己的四个码）。 */
 export interface HostCapabilityError {
   code: HostCapabilityErrorCode
   message: string
@@ -172,7 +172,7 @@ export function parseBase64(value: unknown): string | HostCallError {
 
 /* ------------------------------------------------------------------ *
  * 「取网关上的一条内容并交给用户」与「把一段内容落盘」两项宿主能力的参数。
- * 两边（VS Code 能力桥 / 宿主半）共用同一份校核，口径不会漂。
+ * 两边（VS Code 宿主调用通道 / 宿主半）共用同一份校核，口径不会漂。
  * ------------------------------------------------------------------ */
 
 /** `file.download` 的参数：网关上的一条路径 + 建议文件名。 */
@@ -225,8 +225,8 @@ export function parseDownloadArgs(args: unknown): DownloadArgs | HostCallError {
 
 /* ------------------------------------------------------------------ *
  * 「开外链」能力的参数。这条能力**没有宿主半端点**（取舍见前端 SDK 的能力表）：
- * 官方 web 侧由页面自己 `window.open`，校核只在前端 SDK 与 VS Code 能力桥两处用，
- * 所以放这里（node 无关的契约模块），宿主桥照旧从 hostCalls.ts 取（转出口）。
+ * 官方 web 侧由页面自己 `window.open`，校核只在前端 SDK 与 VS Code 宿主调用通道两处用，
+ * 所以放这里（node 无关的契约模块），宿主侧照旧从 hostCalls.ts 取（转出口）。
  * ------------------------------------------------------------------ */
 
 /** 外链允许的协议白名单（页面把它交给系统/浏览器打开，只认这三种）。 */

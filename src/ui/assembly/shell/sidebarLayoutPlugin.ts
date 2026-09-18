@@ -15,9 +15,9 @@
  * - 设置入口 = **顶栏最右的齿轮**（#99 起由 workspace tree 插件渲染，经宿主能力口
  *   `openSettings` 触发——见 hostCapabilities.ts 的能力表与 settingsGearPlugin 的
  *   说明）；官方底部那一行（`sidebar.settings`，官方 SettingsRoot）由
- *   `@dsh-one/vscode-settings-gear` 影子渲染空件藏掉。设置页仍是独立编辑器页
+ *   `@dsh-one/vscode-settings-gear` 遮蔽渲染空件藏掉。设置页仍是独立编辑器页
  *   （@dsh-one/vscode-settings-ui-layout）。
- * - 头部抛光（#70 VS Code 验收「很生硬」返修）：品牌位影子（brand.mark/name
+ * - 头部抛光（#70 VS Code 验收「很生硬」返修）：品牌位遮蔽（brand.mark/name
  *   渲染空件 priority -1）+ logoRow 整行隐藏——VS Code 原生视图头已自报
  *   家门，官方 DeepSeek 品牌块重复且占 60px；头部密度只微调（root 顶
  *   padding 6→4px），官方其余默认不动。品牌块想换 DSH One 鲸鱼 logo 时，把
@@ -213,7 +213,7 @@ export const DENSITY_PROFILE: Readonly<Record<string, { official: string; vscode
   'pill-padding-end': { official: '4px', vscode: '2px' },
   // 回收站入口行的行高**不再走这张表**（#137）：那一行整套按旧侧栏规格取定值，高度由
   // 「7px 纵向内边距 + 标题行高 20px + 7px」撑出 34px，不随宿主密度变。这里原本有一条
-  // `footer-row-height`（官方同座位条目 `Nqubda_badge{height:42px}` / VS Code 档 26px），
+  // `footer-row-height`（官方同槽位条目 `Nqubda_badge{height:42px}` / VS Code 档 26px），
   // 随之一并退场——树侧不再消费它，留着会让「键集两边一致」这条契约断掉。
   // 抽屉里「按工作区分块」的块头高度**不再走这张表**（#144）：块头按用户要求与侧栏工作区行
   // 收敛成同一套折叠语言，高度改吃**行族那个键** `row-height`（标准档 = 官方 34px，两档同值），
@@ -268,7 +268,7 @@ export const DENSITY_CSS =
 //   `lib/client.js` 里该按钮是 SidebarRoot 的无条件 JSX（紧跟 logoRow、className
 //   取自 css-module 的 `newSession`），没有任何 prop 开关。
 //   层 1 的「同名槽位遮蔽」在这里等于顶替官方侧栏壳的角色——品牌位、全局面板行、
-//   工作区与设置两个座位、底部动作条、收起轨都得我们自己渲染，与 AGENTS.md 铁律
+//   工作区与设置两个槽位、底部动作条、收起轨都得我们自己渲染，与 AGENTS.md 铁律
 //   「优先与官方插件共存，不顶替其角色」相抵；为摘一个按钮不值得。
 // - **层 2/3 没有对应服务 API 与 seam**：官方没有「隐藏 New Session」这类入口。
 // - 于是只剩层 4：按 css-module 名后缀定位、display:none。稳定性风险与 logoRow
@@ -464,7 +464,7 @@ export function apply(ctx: ShellContext): void {
       },
       SidebarFrame,
     )
-    // 品牌位影子：藏掉官方 DeepSeek 品牌块（VS Code 原生视图头已自报家门，
+    // 品牌位遮蔽：藏掉官方 DeepSeek 品牌块（VS Code 原生视图头已自报家门，
     // 双重品牌头「很生硬」#70 验收返修）。想换自有品牌时把 Nothing 换成渲染件。
     const disposeBrandMark = ctx.slots.inject('sidebar.brand.mark', () =>
       ctx.slots.register({ name: 'sidebar.brand.mark', priority: -1 }, Nothing),
