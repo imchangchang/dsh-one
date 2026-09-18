@@ -304,13 +304,48 @@ test('block list 逐条复核（#202）：chat 树不再下线 ui-settings-gener
   assert.ok(SIDEBAR_BLOCKED_IDS.includes('@deepseek-ai/dsh-client-ui-settings-general'))
   // settings 树本来就不下线它（那正是设置页的内容）。
   assert.ok(!SETTINGS_BLOCKED_IDS.includes('@deepseek-ai/dsh-client-ui-settings-general'))
-  // 设置子页组里另外两件（Plugins / plugin-inventory）在 chat 树继续下线：#202 的
-  // 整改范围是「承载断线提示的那一件」，这两件不在里面。留一句给下一次逐条复核：
-  // 它们注册的槽位同样全在 `sidebar.settings` 之下，形状与本件一致——按同一条判据
-  // 它们也停车、放行同样零渲染，摘不摘都不改今天的观感（复核时按 #180 的判据处理）。
-  for (const id of ['@deepseek-ai/dsh-client-ui-settings-plugins', '@deepseek-ai/dsh-client-ui-settings-plugin-inventory']) {
-    assert.ok(CHAT_BLOCKED_IDS.includes(id), `${id} 本次不动（#202 只摘 ui-settings-general）`)
+  // 设置子页组里另外两件（Plugins / plugin-inventory）在 chat 树也继续下线这条到此为止：
+  // #204 把它们从 chat 树摘了（判据与本件同形，见下面的 #204 那一条）。
+  assert.ok(!CHAT_BLOCKED_IDS.includes('@deepseek-ai/dsh-client-ui-settings-plugins'))
+  assert.ok(!CHAT_BLOCKED_IDS.includes('@deepseek-ai/dsh-client-ui-settings-plugin-inventory'))
+})
+
+/**
+ * 设置子页组里 #204 从 chat 树摘除的那两件：Plugins 设置节 + 它的插件清单页签。
+ */
+const SETTINGS_PAGE_PLUGINS = [
+  '@deepseek-ai/dsh-client-ui-settings-plugins',
+  '@deepseek-ai/dsh-client-ui-settings-plugin-inventory',
+]
+
+test('block list 逐条复核（#204）：chat 树也不再下线设置子页组的那两件（它们注册的槽位那棵树一处都没声明）', () => {
+  // 判据与 ui-settings-general（#202）同形：这两件等待的槽位（`settings.section` /
+  // `settings.plugins.tab` / `settings.plugin.item`）全在 `sidebar.settings` 之下，由官方
+  // ui-settings-general 的 `SettingsRoot` 注册声明；chat 树没有官方侧栏壳，`sidebar.settings`
+  // 一处都没声明（#204 在真树上读过本树的槽位声明表：46 个名字里 `sidebar` /
+  // `sidebar.settings` / `settings.*` 一个都没有）⇒ 这几处贡献的回调永不跑、整件停车、
+  // 零渲染，挂着它只是白背一个官方 id 依赖。
+  //
+  // 实验室实测（各一台自起的全新 `DSH_HOME` 隔离实例、只换 chat 树清单里这两个 id）：
+  // 本页 combo 58 → 60 条（两件真的进来了）、12 枚槽位锚点逐枚同值（`settings.section` /
+  // `settings.plugins.tab` / `settings.plugin.item` 三处两边都是 0）、整页截图 md5 相同、
+  // 元素集合只多出它们自己注入的 5 张 `<style>`（那 5 张的 125 条规则命中页面上 0 个
+  // 元素）、零崩溃 / 零未激活 / 零 pageerror。
+  for (const id of SETTINGS_PAGE_PLUGINS) {
+    assert.ok(!CHAT_BLOCKED_IDS.includes(id), `${id} 在 chat 树一处槽位都没声明，不该继续下线`)
+    // sidebar 树那一份继续挂着：那棵树里它们同样停车（`settings.*` 的声明方
+    // ui-settings-general 在那棵树上也被下线），处置沿用 #180 对同类「纯流量代价」项的口径。
+    assert.ok(SIDEBAR_BLOCKED_IDS.includes(id), `${id} 在 sidebar 树继续下线`)
+    // settings 树本来就不下线它们（Plugins 设置节正是那一页的内容之一）。
+    assert.ok(!SETTINGS_BLOCKED_IDS.includes(id))
   }
+  // 摘完之后 chat 树只剩两条形态理由：官方外框（与 VS Code 容器冲突，#77）与官方
+  // 侧栏壳（本树没有侧栏位，由 sidebar 树承担）。
+  assert.deepEqual(
+    [...CHAT_BLOCKED_IDS],
+    ['@deepseek-ai/dsh-client-ui-layout', '@deepseek-ai/dsh-client-ui-sidebar'],
+    'chat 树 block list 只剩这两条',
+  )
 })
 
 // ---------------------------------------------------------------------------
