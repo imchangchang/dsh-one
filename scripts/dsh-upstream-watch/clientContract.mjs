@@ -55,9 +55,9 @@ const MIN_SEGMENTS = 40
 const MIN_CATALOG_ENTRIES = 30
 
 /**
- * 必须存在的 slot 名（`names` 是「同一座位的各版本名字」，任一在场即通过：
+ * 必须存在的 slot 名（`names` 是「同一槽位的各版本名字」，任一在场即通过：
  * 0.1.2 线的 single `conversation`/`details` 与 0.1.6 线的 keyed `main`/`rightbar`
- * 是同一座位的两代命名，官方两代都算我们的契约）。
+ * 是同一槽位的两代命名，官方两代都算我们的契约）。
  */
 export const SLOT_DEPENDENCIES = [
   {
@@ -457,7 +457,7 @@ function locate(text, segments, name, scope) {
 /** 四行结果的 id 与名字（probe 侧与「combo 取不到」分支共用同一份，避免两处漂移）。 */
 const ROW = {
   index: { id: 'client-combo-index', name: 'combo 取法前提：插件段边界 + 官方 slot 契约目录' },
-  slots: { id: 'client-slots', name: `slot 名在场（${SLOT_DEPENDENCIES.length} 组：遮蔽/声明/注入/渲染的座位）` },
+  slots: { id: 'client-slots', name: `slot 名在场（${SLOT_DEPENDENCIES.length} 组：遮蔽/声明/注入/渲染的槽位）` },
   hooks: { id: 'client-root-hooks', name: `root 级 hook 在场（provideRoot 下发 + \`use<Name>\` props 映射，${ROOT_HOOK_DEPENDENCIES.length} 条）` },
   identifiers: { id: 'client-identifiers', name: `我们取用过的字段/方法名在场（${IDENTIFIER_DEPENDENCIES.length} 组，按插件作用域查）` },
 }

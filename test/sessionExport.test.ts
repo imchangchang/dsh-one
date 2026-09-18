@@ -54,7 +54,7 @@ test('插件 id 按命名铁律用 dsh-*；槽位贡献用官方同 id + priorit
   // 位置的 CSS——它会把官方后来加进同一 slot 的条目（open-in-app）一起摘掉。
   const css = /const REAL_CSS = '([^']*)'/.exec(source)?.[1] ?? ''
   assert.ok(!css.includes('data-slot'), '自有 CSS 不得按 slot 选择器决定别人的条目呈现')
-  assert.ok(!/display\s*:\s*none/.test(css), '自有 CSS 不得隐藏座位里的任何条目')
+  assert.ok(!/display\s*:\s*none/.test(css), '自有 CSS 不得隐藏槽位里的任何条目')
   assert.doesNotMatch(source, /@dsh-one\/vscode-session-export/, '不许残留旧 id')
   // 可移植的判据：插件自己不再碰 VS Code 通道（能力口在两侧各配一个实现）。
   assert.doesNotMatch(source, /acquireVsCodeApi/, '插件不得直接碰 VS Code API')
@@ -69,7 +69,7 @@ test('客户端 bundle 里只经能力口调宿主（dist 未构建时跳过）'
     return
   }
   const bundle = fs.readFileSync(CLIENT_BUNDLE, 'utf8')
-  // bundle 里只该经能力口调宿主：VS Code 桥的调用名与网关端点名都在，且没有裸
+  // bundle 里只该经能力口调宿主：VS Code 侧宿主调用通道的调用名与网关端点名都在，且没有裸
   // postMessage 到旧的自定义消息类型。
   assert.ok(bundle.includes('file.download'), 'bundle 应经能力口调宿主下载')
   assert.ok(bundle.includes('dshOneHostCapabilities'), 'bundle 应带官方侧端点名（网关 RPC 分支）')

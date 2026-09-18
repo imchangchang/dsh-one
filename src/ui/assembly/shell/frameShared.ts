@@ -34,7 +34,7 @@
  * `ctx.slots.provideRoot` 与 `ctx.reflect.provide` 交了什么）与
  * `dsh-client-ui-layout/lib/types/client/*.d.ts`（契约签名），逐项对照本节清单；
  * `npm run verify:lab` 的 CONTRACT 套件是常驻核对（四棵树零未激活、零槽位崩溃、
- * 关键座位有内容、根条目声明表覆盖预期座位名）。
+ * 关键槽位有内容、根条目声明表覆盖预期槽位名）。
  *
  * ## 为什么不能「加载官方 ui-layout + 只遮蔽它的 root slot」（#77 实测结论）
  *
@@ -49,9 +49,9 @@
  *    `slot "sidebar" is already declared`。
  * ② **渲染授权是按条目的**。renderer 的 `boundRenderSlot(host, entry)` 用
  *    `entry.children?.[key]` 判权（`dsh-client-ui-renderer/lib/client.js`），
- *    没有 children 声明的 root 条目渲染不出任何座位——遮蔽官方条目后契约全活着
+ *    没有 children 声明的 root 条目渲染不出任何槽位——遮蔽官方条目后契约全活着
  *    （实测：layout 服务在、子槽位声明在、别人的注册都在、零报错），但**没有任何
- *    人渲染那些座位**，页面是空白的。
+ *    人渲染那些槽位**，页面是空白的。
  * ③ **服务提供点在同一隔离域唯一**。第二个 `ctx.provide('layout', …)` 抛
  *    `service "layout" has been registered at <fiber>`（cordis `src/reflect.ts`），
  *    而失败发生在 `apply` 的 effect 里 → 已收集的清理函数逆序回滚（官方那份
@@ -238,7 +238,7 @@ export class LayoutController {
    * 官方 ui-layout 构造时就是这么给的（`dsh-client-ui-layout/lib/client.js:515`）：
    * `new LayoutController(instance.actions, (id) => ctx.slots.entries("main")
    * .some((entry) => entry.options.key === id))`。缺省 `() => false` = 本树没有
-   * keyed `main` 座位（sidebar 树的 root children 只有 sidebar / shell.overlay，
+   * keyed `main` 槽位（sidebar 树的 root children 只有 sidebar / shell.overlay，
    * 任何面板 key 都不成立）。
    */
   constructor(hasMainPanel: (panelId: string) => boolean = () => false) {
@@ -284,11 +284,11 @@ export class LayoutController {
    * 官方右侧栏上报呈现形态（track = 是否占外框网格轨道、fullscreen = 是否盖满）。
    * 官方语义（`dsh-client-ui-layout/lib/types/client/service.d.ts` 的 ILayout）：
    * 这是**右侧栏占据者上报自己的呈现组成**，外框据此定轨道宽度与拖拽把手位置。
-   * 官方 ui-sidebar-right 的座位在每次呈现变化时调它
+   * 官方 ui-sidebar-right 的槽位在每次呈现变化时调它
    * （`dsh-client-ui-sidebar-right/lib/client.js` 的 `syncPresentation`：
    * `shown ? layout.openRightbar(track, fullscreen) : layout.closeRightbar()`）。
-   * chat 树声明了 `rightbar` 座位并渲染它，所以这条上报要落进布局状态（见 store
-   * 的 openRightbar）；sidebar/settings 树没声明该座位，座位自然 park、不会调到这里。
+   * chat 树声明了 `rightbar` 槽位并渲染它，所以这条上报要落进布局状态（见 store
+   * 的 openRightbar）；sidebar/settings 树没声明该槽位，槽位自然 park、不会调到这里。
    */
   openRightbar(track: boolean, fullscreen: boolean): void {
     this.#require().openRightbar(track, fullscreen)
@@ -333,7 +333,7 @@ export interface PanelInfoSnapshot {
  * `usePanelInfo is not a function`，会话行整块消失（#76 现场日志实锤）。
  *
  * 取舍：这份快照是**恒定 null** 的静默源。消费它的官方组件只在「侧栏会话树 /
- * 右栏」这些座位里挂载（chat 树没有 sidebar 座位、sidebar 树没有会话面板、
+ * 右栏」这些槽位里挂载（chat 树没有 sidebar 槽位、sidebar 树没有会话面板、
  * settings 树只渲染设置页），因此三棵树都不依赖选中态：settings 树虽然把设置页
  * 注册成 keyed `main` 上的条目并选中它（#95），但那条条目的渲染是按 key 显式取的
  * （见 settingsLayoutPlugin 的 renderSlot），不走 `activePanelId`。恒定 null 与官方

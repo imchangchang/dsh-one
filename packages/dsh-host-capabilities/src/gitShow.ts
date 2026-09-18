@@ -1,5 +1,5 @@
 /**
- * 宿主半的只读 git 查询（#84 能力②）：**沿用能力桥同一套安全口径**——hash 形状
+ * 宿主半的只读 git 查询（#84 能力②）：**沿用宿主调用通道同一套安全口径**——hash 形状
  * 严格校核、cwd 经 realpath 限域、git 一律 execFile（argv 数组，不拼 shell）。
  * 这些校核函数直接复用扩展侧那一份（`src/pure/hostCalls.ts` + `gitWorkspaceQuery.ts`），
  * 不是复制：口径只有一处，两侧不可能漂。

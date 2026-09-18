@@ -242,7 +242,7 @@ export const RENAME_OPEN_SYNC_SUITE: LabSuite = {
       check.ok('② 收尾：Esc 退出编辑态（不留半开的输入框给后面看）', !(await rowFacts(page, targetId)).renaming)
 
       // ---- ④ 没有宿主桥（官方 web 那一侧的处境）→ 返回 false、不抛错 ----
-      // 删掉页面上的能力桥 SDK：`hostCallAvailable()` 读到的是这个全局，删掉之后能力口
+      // 删掉页面上的宿主调用通道 SDK：`hostCallAvailable()` 读到的是这个全局，删掉之后能力口
       // 走的就是「这一端没有桥」那条路（= 官方 web 侧）。这一步在套件最后做。
       const beforeNoBridge = await panelHostFacts(page)
       await page.evaluate(() => {

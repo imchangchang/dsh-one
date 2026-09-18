@@ -188,7 +188,7 @@ async function main() {
       `${String(savedPath)} = ${String(savedBytes)}`,
     )
 
-    // 7) 只读 git 查询（安全口径与能力桥同一份代码）
+    // 7) 只读 git 查询（安全口径与宿主调用通道同一份代码）
     const git = await rpc(cookie, ENDPOINT('gitShow'), { hash, cwd: repo })
     record(
       'gitShow 查到临时仓库里的提交',

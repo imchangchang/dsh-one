@@ -715,7 +715,7 @@ export async function linkLayerFacts(page: Page): Promise<LinkLayerFacts> {
  * 为什么必须有它：cordis 插件 fiber 失败（例如 `slot "X" is not declared`）
  * **不进浏览器控制台**——官方 client logger 没有 console exporter（#74 实测首屏
  * console 0 行），整个 scope 静默失败，只能靠派生症状（服务在已失活上下文里被读）
- * 暴露。这类「官方改了座位名/父子声明就整块不活」的漂移要有自己的断言。
+ * 暴露。这类「官方改了槽位名/父子声明就整块不活」的漂移要有自己的断言。
  *
  * 机制（三层，全部走官方既有接口，不改官方代码；@see AGENTS.md 的机制优先序）：
  * 1. 包 `__ModuleLoader__` 的 `load`：每个注册的 factory 包一层，模块 materialize

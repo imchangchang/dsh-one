@@ -714,7 +714,7 @@ async function main(): Promise<number> {
           date: new Date().toISOString(),
         },
         coverageNote:
-          '本报告是浏览器验证（第一道验证）：装配页由仓库真实模块（pageHtml / wireFilter / trees / assemblyMirror）构建，数据面是实验室自起的隔离实例（临时 DSH_HOME、官方 RPC 播种的真工作区与会话；`--gateway` 时才连外部实例），宿主通道是假宿主（按同一协议应答）。未覆盖：真 VS Code webview 宿主层（CSP 差异、剪贴板、原生菜单、多 webview 生命周期）、真模型输出（模型由仓库 test/mock-llm 的假端点代行）、macOS 之外的平台。这些见 VS Code 验证（scripts/dev-ui-test.sh，最终准绳）与 test/sandbox 沙盒。',
+          '本报告是浏览器验证（第一道验证）：装配页由仓库真实模块（pageHtml / wireFilter / trees / assemblyMirror）构建，数据面是实验室自起的隔离实例（临时 DSH_HOME、官方 RPC 播种的真工作区与会话；`--gateway` 时才连外部实例），宿主通道是假宿主（按同一协议应答）。未覆盖：真 VS Code webview 宿主层（剪贴板、原生菜单、多 webview 生命周期）、真模型输出（模型由仓库 test/mock-llm 的假端点代行）、macOS 之外的平台。这些见 VS Code 验证（scripts/dev-ui-test.sh，最终准绳）与 test/sandbox 沙盒。',
         items,
       },
       null,

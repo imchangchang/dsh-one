@@ -1174,7 +1174,7 @@ async function conversationHeaderReady(page: Page): Promise<boolean> {
  * 只在回合结束时才渲染这一排（`data.closing === null` 那条分支整块返回 `null`），
  * 而空白会话（一条消息都没有）永远不合上回合——「对话区 · 助手动作『好的回答』」这一枚
  * 就是死在这里的（隔离实例上客户端落脚的正好是播种出来的那条空白会话）。判据看的是
- * 这一排动作的**座位**在不在，不是某一枚按钮的文案。
+ * 这一排动作的**槽位**在不在，不是某一枚按钮的文案。
  */
 async function assistantActionsPresent(page: Page): Promise<boolean> {
   return page.evaluate(
@@ -1192,7 +1192,7 @@ async function assistantActionsPresent(page: Page): Promise<boolean> {
  *
  * `sessionCompletedTurns(row) > 0` 这一条是 #195 加的：没有**已结束回合**的会话里，
  * 官方那一排助手动作（`conversation.chat.assistant-actions`）压根不渲染，拿它当夹具
- * 会让依赖这一排的交互点空转——而「完成过至少一轮」正是那个座位存在的充分前提
+ * 会让依赖这一排的交互点空转——而「完成过至少一轮」正是那个槽位存在的充分前提
  * （回合计数来自宿主 side 的 `sessionStats` 投影，见 `src/server/dshRpc.ts` 的
  * `sessionCompletedTurns`）。
  */

@@ -23,7 +23,7 @@
  * \`tree.ts\`（主组件：组合各件 + 状态与订阅）、\`rows.ts\`（分组头行 / 会话行 /
  * 搜索结果行）、\`toolbar.ts\`（顶部工具栏）、\`groupFilterBar.ts\`（分组过滤条）、
  * \`selection.ts\`（批量选择）、\`recycleDrawer.ts\`（回收站抽屉）、\`recycleEntry.ts\`
- * （底部回收站入口行）、\`recycleBinStore.ts\`（回收站状态与动作：两个座位共享的
+ * （底部回收站入口行）、\`recycleBinStore.ts\`（回收站状态与动作：两个槽位共享的
  * 模块级 store）、\`recycleDrawerStore.ts\`（回收站抽屉的开合态：入口行与树主组件
  * 共享，见 #114）、\`tagGroups.ts\`（会话标签组的组头与拖拽：组 pill、折叠计数、
  * 落点判定与自定义 MIME）、\`flash.ts\`（飘提示）、\`modals.ts\`（对话框，含归档
@@ -81,7 +81,7 @@
  * **多开入口（#72）**：会话行菜单（仍是官方 `Menu` 原语，`items` 多一项
  * `openInNewTab`）与**行右键**都能开出这个菜单，菜单项走宿主能力口。逐层举证：
  * 官方侧没有「往官方行菜单里加一项」的口（官方 `SessionNodeItem` 的
- * `sessionMenuItems` 是它自己的常量数组，无座位、无服务、无接缝），而本插件
+ * `sessionMenuItems` 是它自己的常量数组，无槽位、无服务、无 seam），而本插件
  * 已经**整槽遮蔽**了 `sidebar.workspaces`（层 1）——行由我们渲染，菜单项就是
  * 我们自己的渲染内容，用的还是官方 `Menu` 原语（层 2 组件：`items` 形状、
  * 定位、外点关闭、Esc 关闭全按官方行为）。行右键同样落在自有渲染上：行是我们
@@ -126,14 +126,14 @@
  * 侧），**归档 = 删除**（终点动作，走官方 `uiWorkspace.archiveSession`，UI 上一律
  * 先过确认弹窗）。两者在界面上是分开的两个入口（会话行菜单两项），不共用一条路。
  * 状态按 AGENTS.md 铁律住在宿主能力口（键 `recycle-bin`，与旧侧栏那份文件同名同形），
- * 两个座位（树主组件与底部入口行）共享同一个模块级 store。
+ * 两个槽位（树主组件与底部入口行）共享同一个模块级 store。
  *
  * ## 已知取舍（下一步的差异化层处理）
  * - **视图偏好**（分组方式/排序方式/当前分组/展开集合/回收站块折叠）走官方客户端
  *   既有惯例的 `localStorage`（键 `dsh.workspaceTree.view`，见
- *   `pure/workspaceTreePrefs.ts`），不接官方 `store` 座位：那个座位是**注册期**声明，
+ *   `pure/workspaceTreePrefs.ts`），不接官方 `store` 槽位：那个槽位是**注册期**声明，
  *   接入即改注册形状，与「只换渲染」的边界冲突。差别只在「谁能读到」——localStorage
- *   是这台机器这个浏览器的看法，而官方 store 座位会被框架托管；偏好本身不缺持久化。
+ *   是这台机器这个浏览器的看法，而官方 store 槽位会被框架托管；偏好本身不缺持久化。
  * - 「按最近更新」在组内按 updatedAt 倒序（官方是手动序 + 活动晋升，常见情况下
  *   结果一致）。
  * - 工作区/会话重命名与工作区删除走官方 Modal 原语自渲染（官方同款组件、同款
@@ -429,7 +429,7 @@ export function apply(ctx: TreeContext): void {
 
   /**
    * #103：回收站（本地集合）与归档动作接进模块级 store——树主组件与底部入口行是
-   * **两个座位、同一份 bundle**，状态与动作必须只有一份（见 recycleBinStore.ts 的文件头）。
+   * **两个槽位、同一份 bundle**，状态与动作必须只有一份（见 recycleBinStore.ts 的文件头）。
    * 本地集合走宿主能力口（键 `recycle-bin`），归档走官方 `uiWorkspace.archiveSession`
    *（缺席时退回 `workspaces.archiveSession`，与 #81 的处置一致）。
    */
@@ -637,7 +637,7 @@ export function apply(ctx: TreeContext): void {
       },
       searchResultLimit: sessions.searchResultLimit,
       // #82：本插件的持久状态走**宿主能力口**（`stateRead/stateWrite`）——VS Code 侧
-      // 落到扩展宿主的能力桥，官方 web 侧落到宿主半的网关 RPC，插件代码两端一样。
+      // 落到扩展宿主侧的宿主调用通道，官方 web 侧落到宿主半的网关 RPC，插件代码两端一样。
       // 键 `groups` 与 `~/.dsh/dsh-one/groups.json` 同名同形：旧侧栏建的分组开箱即见，
       // 不需要任何数据搬家（理由写在 pure/treeGroups.ts 的头注释里）。
       loadGroups: async (): Promise<GroupFile> => {
@@ -718,7 +718,7 @@ export function apply(ctx: TreeContext): void {
     // 逐字相同。
     const disposePanelSessions = caps.onPanelSessions((sessionIds) => setPanelOpenSessions(sessionIds))
     // 对既有槽位名（官方 ui-sidebar 的 children 表声明）必须走 slots.inject：
-    // 直接 register 会在「未声明」时抛错。single 槽影子：priority −1 < 官方
+    // 直接 register 会在「未声明」时抛错。single 槽遮蔽：priority −1 < 官方
     // WorkspaceBrowser 的默认 0 → 本件渲染。
     const disposeInject = ctx.slots.inject('sidebar.workspaces', () =>
       ctx.slots.register(

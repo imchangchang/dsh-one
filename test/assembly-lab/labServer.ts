@@ -97,7 +97,7 @@ export const LAB_TREES: ReadonlyArray<LabTreeRoute> = [
     title: 'sidebar 树（自有工作区树）',
     tree: SIDEBAR_TREE,
     readySelector: '.dshOneTree_root',
-    note: '侧栏位装配：自有 @dsh-one/dsh-workspace-tree 以 shadow 顶掉官方浏览区（sidebar.workspaces 座位）。',
+    note: '侧栏位装配：自有 @dsh-one/dsh-workspace-tree 以 shadow 顶掉官方浏览区（sidebar.workspaces 槽位）。',
   },
   {
     route: 'sidebar-official',

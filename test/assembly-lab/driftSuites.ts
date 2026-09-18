@@ -5,7 +5,7 @@
  * - **每日上游探针**（`scripts/dsh-upstream-watch/` 的 `clientContract.mjs`）离线扫
  *   官方 combo，查的是**名字还在不在**（slot / root hook / 字段名 / combo 结构），
  *   CI 每天跑，红了自动建 issue。它不知道我们的三棵树装起来是什么样。
- * - **F-01 CONTRACT**（`suites.ts`）在浏览器里查**装起来的症状**：座位锚点、
+ * - **F-01 CONTRACT**（`suites.ts`）在浏览器里查**装起来的症状**：槽位锚点、
  *   槽位崩溃、装载未激活、页面报错。
  * - **本文件的 F-10 / F-11** 补的是这两者都盖不住的两块：
  *   F-10 查 **fiber 状态**（cordis scope 失败不进控制台，见 `fiberProbeScript`
@@ -50,7 +50,7 @@ export const FIBER_SUITE: LabSuite = {
   phase: 'new-feature',
   name: 'fiber 级契约：四棵树里没有任何 cordis scope 进 FAILED（FIBER 套件）',
   expect:
-    '实验室四棵树（自有 sidebar 树、官方浏览区对照档、chat 树、settings 树）在真实网关只读下打开，页面里装上 cordis fiber 探针（包 `__ModuleLoader__.load` 的 factory 记插件 id → 包 `@deepseek-ai/dsh-client-modules` 的 apply 拿 ctx → 监听 `internal/plugin` 与 `internal/status`，见 `fiberProbeScript`）：**没有任何 scope 进 FAILED**（官方 Fiber 状态枚举里的 3）。这条断言要抓的是 F-01 抓不到的那一类——cordis 插件 fiber 失败**不进浏览器控制台**（官方 client logger 没有 console exporter），#74 那条 `slot "conversation.hero.agentPreset" is not declared` 就是靠派生症状才被发现的；F-01 看的是装起来的症状（座位锚点、槽位崩溃、页面报错），这条看的是**装载本身**。同时钉住探针本身没瞎：接上了事件总线、登记到了该树的自有 frame 插件、真观察到 scope 状态变化、探针自身零异常——否则「零失败」是空的。',
+    '实验室四棵树（自有 sidebar 树、官方浏览区对照档、chat 树、settings 树）在真实网关只读下打开，页面里装上 cordis fiber 探针（包 `__ModuleLoader__.load` 的 factory 记插件 id → 包 `@deepseek-ai/dsh-client-modules` 的 apply 拿 ctx → 监听 `internal/plugin` 与 `internal/status`，见 `fiberProbeScript`）：**没有任何 scope 进 FAILED**（官方 Fiber 状态枚举里的 3）。这条断言要抓的是 F-01 抓不到的那一类——cordis 插件 fiber 失败**不进浏览器控制台**（官方 client logger 没有 console exporter），#74 那条 `slot "conversation.hero.agentPreset" is not declared` 就是靠派生症状才被发现的；F-01 看的是装起来的症状（槽位锚点、槽位崩溃、页面报错），这条看的是**装载本身**。同时钉住探针本身没瞎：接上了事件总线、登记到了该树的自有 frame 插件、真观察到 scope 状态变化、探针自身零异常——否则「零失败」是空的。',
   run: async (ctx, check) => {
     for (const name of ['sidebar', 'sidebar-official', 'chat', 'settings']) {
       const tree = route(name)

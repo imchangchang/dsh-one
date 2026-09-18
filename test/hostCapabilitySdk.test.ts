@@ -1,6 +1,6 @@
 /**
  * 前端 SDK（#84）的单测：**路由与线形态**——
- * - 有 VS Code 能力桥时落到桥的白名单调用（VS Code 侧实现）；
+ * - 有 VS Code 宿主调用通道时落到它的白名单调用（VS Code 侧实现）；
  * - 没有桥时落到官方网关 RPC（`ctx.connection.rpc.call('/api', 'dshOneHostCapabilities/x', { args })`），
  *   参数键与宿主半形参名一致、错误按形态归类（失败体 / HTTP 404 = 宿主半没装）。
  *

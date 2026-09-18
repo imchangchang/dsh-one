@@ -1,11 +1,11 @@
 /**
- * 宿主能力桥的页面侧薄封装（#65 批 1）：底层是 pageHtml 注入的页面侧 SDK
+ * 宿主调用通道的页面侧薄封装（#65 批 1）：底层是 pageHtml 注入的页面侧 SDK
  * （globalThis.__DSH_ONE_HOST__，见 ui/assembly/hostSdk.ts），本模块只做类型投影与
  * 「SDK 缺席」的兜底拒绝。
  *
  * **插件不直接用本模块**（#84 起）：插件调的是宿主能力口
- * （`@dsh-one/dsh-plugin-kit/hostCapabilities`），由它决定这次调用落在这条桥上
- * （VS Code 侧）还是落在宿主半的网关 RPC 上（官方 web 侧）。本模块是那条桥的
+ * （`@dsh-one/dsh-plugin-kit/hostCapabilities`），由它决定这次调用落在这条通道上
+ * （VS Code 侧）还是落在宿主半的网关 RPC 上（官方 web 侧）。本模块是那条通道的
  * 页面侧门面，只服务能力口（#83 起三个 `dsh-*` 插件都经能力口，已无插件直连本模块）。
  *
  * 能力口与本模块（外加 mountPoints.ts）同住私有包 `@dsh-one/dsh-plugin-kit`：

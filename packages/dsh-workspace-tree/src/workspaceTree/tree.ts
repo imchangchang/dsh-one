@@ -235,7 +235,7 @@ export function WorkspaceTree(props: TreeProps): unknown {
   const [selection, setSelection] = useState<readonly string[]>([])
   const [busy, setBusy] = useState(false)
   const [selectionError, setSelectionError] = useState<string | null>(null)
-  // 回收站抽屉的开合态住模块级 store（#114：入口行在另一个座位，它也要读到同一份，
+  // 回收站抽屉的开合态住模块级 store（#114：入口行在另一个槽位，它也要读到同一份，
   // 才能把点击翻成展开还是收起——见 `recycleDrawerStore.ts`）。本组件是**唯一写它的人**。
   const drawerOpen = useRecycleDrawerOpen()
   const [recycleError, setRecycleError] = useState<string | null>(null)
@@ -767,7 +767,7 @@ export function WorkspaceTree(props: TreeProps): unknown {
   /**
    * #110：动作失败的**可见反馈**。归档 / 分叉 / 多开三条线原来或不声不响地吞掉、
    * 或只往控制台写一行（用户看不见）；统一飘一条提示——工具就是 #103 立起的
-   * `flashTip`（可复用、2.2 秒自动消失，任何座位都能发），所以这里只把原因并进
+   * `flashTip`（可复用、2.2 秒自动消失，任何槽位都能发），所以这里只把原因并进
    * 文案键，不另造一套反馈通道。
    */
   const reportFailure = (key: string, reason: unknown): void => {

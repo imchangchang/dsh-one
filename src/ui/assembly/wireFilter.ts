@@ -2,7 +2,7 @@
  * blocklist 模式的运行时装配清单（#64，#70 起按树参数化）：面板打开时扩展宿主
  * （node 侧，无 CORS）用 serverAuth 的 cookie GET 网关 `/`，从注入 HTML 提取官方
  * __DSH_BOOT__ wire 与前端资产名，按该树的 block list 过滤后内联进装配页——
- * 插件集 = 网关启动的全量插件 − block list + 自有 shell 插件。
+ * 插件集 = 网关启动的全量插件 − block list + 自有外框插件。
  * （替代原静态 allowlist：18 包 pin + 构建期 manifest.json 已删除。)
  *
  * 关键事实（探针结论，见 #64 汇报)：
@@ -21,7 +21,7 @@
  *   设置子页组保留（那正是这一页的内容）。
  *
  * 每一条为什么在**这一棵**树上还要下线，理由写在各自的清单里（#180：22 个 id
- * 逐条复核过一遍，判据是「这棵树有没有声明它注册的座位」——没声明的整件停车，
+ * 逐条复核过一遍，判据是「这棵树有没有声明它注册的槽位」——没声明的整件停车，
  * 放回来不会多渲染任何东西，就不该继续挂在依赖名单上）。
  */
 
@@ -82,20 +82,20 @@ const UI_LAYOUT: BlockedPlugin = {
  * 对话流卡片组，**只在 settings 树里下线**（#71 瘦身，2026-09-18 #180 逐条复核后
  * 从这里摘掉了 sidebar 树）。
  *
- * 为什么 sidebar 树不必再下线它们：这 7 件注册的座位全在对话区（`conversation.*` /
+ * 为什么 sidebar 树不必再下线它们：这 7 件注册的槽位全在对话区（`conversation.*` /
  * `tool.call.*`），而 sidebar 树**一个都没声明**——它的 frame 只声明 `sidebar` 与
- * `shell.overlay`，官方 ui-conversation（那些座位的声明方）也在这棵树上被下线，
+ * `shell.overlay`，官方 ui-conversation（那些槽位的声明方）也在这棵树上被下线，
  * 整棵对话子树因此不存在（#180 在真树上读过槽位声明表：sidebar 树共 10 个名字，
- * 一个 `conversation.*` 都没有）。座位没声明 = 官方 `slots.inject` 的回调永不跑 =
+ * 一个 `conversation.*` 都没有）。槽位没声明 = 官方 `slots.inject` 的回调永不跑 =
  * 整件停车、不渲染任何东西、不抛错，所以在那棵树上挂着它只是白背一个 id 依赖。
  *
  * 为什么 settings 树继续下线：设置页声明了 keyed `main`（#74：官方 ui-conversation
  * 的整棵对话子树挂在这个名字上，不声明它，官方 ui-agent-preset 的会话级 scope 会抛
- * `slot "conversation.hero.agentPreset" is not declared`），于是这些座位在设置页里
+ * `slot "conversation.hero.agentPreset" is not declared`），于是这些槽位在设置页里
  * **是声明了的**，放回会真的注册进那棵子树。今天渲染不出来只因为设置页只渲染自己
  * 那条 keyed 条目（`renderSlot('main', {}, { entryKey: dshOne.settings })`）——把设置页
  * 的形态押在「我们恰好只渲染一条 keyed 条目」这条实现事实上不划算，所以这棵树继续
- * 下线。判据是「这棵树有没有声明它注册的座位」，不是「放回去今天看起来会不会变」。
+ * 下线。判据是「这棵树有没有声明它注册的槽位」，不是「放回去今天看起来会不会变」。
  *
  * 放回 sidebar 树那一步的 inject 闭包核过（7 件的 inject 服务在那棵树里都有提供方）：
  * `slots` / `sessions` / `locale` / `remote.*` 与树无关；`commandUi` 由 ui-commands
@@ -122,11 +122,11 @@ const FLOW_SETTINGS_TREE: ReadonlyArray<BlockedPlugin> = [
  *   service: commandUi)`，整页连自有根节点都不出现）。这是**服务级**硬约束，不是形态
  *   判断。settings 树里这个服务在（ui-conversation 只被 sidebar 树下线），所以那棵树
  *   的理由仍是上一条清单的形态理由。
- * - directory-picker-native 注册的两处座位里，`sidebar.workspaces.directoryFlow`
+ * - directory-picker-native 注册的两处槽位里，`sidebar.workspaces.directoryFlow`
  *   在 **sidebar 树真被声明**（官方 ui-workspace 的 WorkspaceBrowser 声明它，自有树
  *   还要读它的占用态做「官方目录选择器接管」，见 dsh-workspace-tree）：放回它就会往
  *   我们自己的树里注册官方原生目录选择器，形态与 #176 那条添加工作区流程都会变。
- *   它在 settings 树里的两处座位同样都被声明（`conversation.hero.workspace.directoryFlow`
+ *   它在 settings 树里的两处槽位同样都被声明（`conversation.hero.workspace.directoryFlow`
  *   随 ui-conversation 的子树成立、`sidebar.workspaces.directoryFlow` 由 ui-workspace
  *   声明），所以两棵树都继续下线。
  */
@@ -141,13 +141,13 @@ const FLOW_BOTH_TREES: ReadonlyArray<BlockedPlugin> = [
 /**
  * #180 从这份名单里摘除的（留档，别再挂回去）：
  *
- * - **ui-reference**：**没有任何座位贡献**（12.5KB 的 client.js 里一次
+ * - **ui-reference**：**没有任何槽位贡献**（12.5KB 的 client.js 里一次
  *   `slots.register` / `slots.inject` 都没有，只注册 `@` 触发源与自己的词典，
  *   见官方 `dsh-client-ui-reference/lib/client.js` 的 `apply`）。它在对话区里也
  *   只是给 composer 的 `@` 菜单贡献候选，自己什么也不画——原来那条
  *   「reference cards; no conversation area」的理由是错的。两棵树里放回都
  *   零渲染。
- * - **ui-skill**：唯一注册的座位是 `tool.call.toolview`，而这个座位由 ui-tool
+ * - **ui-skill**：唯一注册的槽位是 `tool.call.toolview`，而这个槽位由 ui-tool
  *   声明、ui-tool 在两棵树里都下线 ⇒ 两棵树都没声明它 ⇒ 整件停车（另有一处
  *   `/` 触发源注册，只在 composer 渲染时才有去处）。两棵树里放回都零渲染。
  *
@@ -155,10 +155,10 @@ const FLOW_BOTH_TREES: ReadonlyArray<BlockedPlugin> = [
  *   唯二**真的会发布**会话等待态的插件（第三个调用点 ui-session 只注册那条口子、
  *   自己不发布），而等待态正是侧栏会话行黄点的数据源（#140）——把发布者挡掉，
  *   侧栏页的等待态表恒空，等提问 / 等审批的会话就显示成绿点。它们的卡片只往
- *   `conversation.composer` 座位渲染，官方那两件用的是 `slots.inject`（等目标槽名
- *   被声明后再注册的正规挂法），sidebar 树没声明那个座位、注册条件永不满足，所以
+ *   `conversation.composer` 槽位渲染，官方那两件用的是 `slots.inject`（等目标槽名
+ *   被声明后再注册的正规挂法），sidebar 树没声明那个槽位、注册条件永不满足，所以
  *   在那棵树上放行既不多渲染东西也不抛错。（**更正**：#180 在真树上读声明表时发现
- *   「侧栏 / 设置两棵树里没人声明这个座位」这句原注释只对 sidebar 树成立——设置页
+ *   「侧栏 / 设置两棵树里没人声明这个槽位」这句原注释只对 sidebar 树成立——设置页
  *   声明了 keyed `main`，`conversation.composer` 在那棵树里是声明了的。）
  * - ui-model-selection 也曾在这条清单里。2026-09-16 摘除，当时的理由写的是
  *   「0.1.6-alpha.1 的 wire 里已经没有这个条目」——**那条观察是错的**（#164 更正）：
@@ -167,8 +167,8 @@ const FLOW_BOTH_TREES: ReadonlyArray<BlockedPlugin> = [
  *   `ui-settings-models` 两行禁掉了；全新 `DSH_HOME` 上这两条一直在官方 wire 里
  *   （0.1.6-alpha.1 实测，见 F-55）。教训：**「官方有没有这个插件」只能看全新
  *   `DSH_HOME` 的 wire**，被自己的补丁改过的 profile 拿来做这个判断一定得出反的结论。
- *   它今天三棵树都不下线：只在 `conversation.input.model` 座位渲染，sidebar 树没声明
- *   那个座位（停车），settings 树声明了但不渲染对话区。
+ *   它今天三棵树都不下线：只在 `conversation.input.model` 槽位渲染，sidebar 树没声明
+ *   那个槽位（停车），settings 树声明了但不渲染对话区。
  */
 
 /** 设置子页组（#71 瘦身）：设置独立成页后 chat/sidebar 树不再载设置子页。 */
@@ -177,7 +177,7 @@ const SETTINGS_PAGES: ReadonlyArray<BlockedPlugin> = [
   // ui-settings-models 曾在这条清单里（Models 设置节）。2026-09-16 摘除，当时的理由
   // 与上面那一段摘除留档里 ui-model-selection 同一份错误观察（日常 profile 被另一仓的
   // `@dsh-one/dsh-llm-provider` 补丁改过），更正与教训见那一段。
-  // 它留在清单外是对的：chat / sidebar 两棵树不声明设置区座位，放着不渲染任何东西。
+  // 它留在清单外是对的：chat / sidebar 两棵树不声明设置区槽位，放着不渲染任何东西。
   { id: '@deepseek-ai/dsh-client-ui-settings-plugins', reason: 'Plugins section; only the settings tree needs it after settings became a page' },
   { id: '@deepseek-ai/dsh-client-ui-settings-plugin-inventory', reason: 'plugin-inventory section; only the settings tree needs it after settings became a page' },
 ]
@@ -198,9 +198,9 @@ const SETTINGS_PAGES: ReadonlyArray<BlockedPlugin> = [
 // `@deepseek-ai/dsh-client-ui-model-selection: pending (waiting for service:
 // commandUi)`，而 boot 的规矩是**一个条目没激活就整页抛错**——于是侧栏树整个
 // 挂不上（页面上连 `.dshOneTree_root` 都不出现）。ui-model-selection 留在清单外
-// （它只在 conversation.input.model 座位渲染，本树不声明那个座位），就必须把
+// （它只在 conversation.input.model 槽位渲染，本树不声明那个槽位），就必须把
 // ui-commands 一起放回来；ui-permission-presets 当初被挡的直接理由就是「依赖
-// ui-commands 的 commandUi」，commandUi 回来之后它没有别的冲突点（它的座位
+// ui-commands 的 commandUi」，commandUi 回来之后它没有别的冲突点（它的槽位
 // `conversation.input.permission` 本树同样不声明，放着不渲染任何东西），一并放回。
 //
 // 为什么日常实例上看不出来：这台机器的日常 profile 装了 `@dsh-one/dsh-llm-provider`，
@@ -219,7 +219,7 @@ export const SIDEBAR_BLOCK_LIST: ReadonlyArray<BlockedPlugin> = [UI_LAYOUT, ...F
  * chat 树 block list（#64 行为 + #71 瘦身）：官方外框、官方侧栏、设置子页组。
  * 对话流卡片全保留（本树渲染它们）；composer hero 的 agent preset 与权限
  * 选择保留（新会话功能）；官方右栏系（ui-sidebar-right + 文件/终端/文档预览）
- * 不在此列——自有 frame 的 root 条目声明 `rightbar` 座位并渲染它（#79 决策 B），
+ * 不在此列——自有 frame 的 root 条目声明 `rightbar` 槽位并渲染它（#79 决策 B），
  * 这几件在这棵树上真生效。
  */
 export const CHAT_BLOCK_LIST: ReadonlyArray<BlockedPlugin> = [
@@ -241,9 +241,9 @@ export const SETTINGS_BLOCK_LIST: ReadonlyArray<BlockedPlugin> = [
   {
     id: '@deepseek-ai/dsh-client-ui-sidebar',
     // 设置页 frame 只声明侧栏壳的四个子槽（品牌位/工作区树/底部动作），不声明
-    // `sidebar` 座位本身、也不渲染它——所以官方 ui-sidebar 的注册**不会被触发**
+    // `sidebar` 槽位本身、也不渲染它——所以官方 ui-sidebar 的注册**不会被触发**
     // （它的 register 在 `ctx.slots.inject("sidebar", …)` 里，
-    // dsh-client-ui-sidebar/lib/client.js:375：座位没声明就整件停车）。
+    // dsh-client-ui-sidebar/lib/client.js:375：槽位没声明就整件停车）。
     // spike #69 当年写的理由（「无人声明 'sidebar' 时 loud throw」）在
     // 0.1.6-alpha.1 的官方产物里**不成立**，#180 逐条复核时按源码更正；
     // 下线它的理由改成形态本身：设置页不是侧栏位页，侧栏壳不该进来。
@@ -275,7 +275,7 @@ export const SIDEBAR_FRAME_PLUGIN_ID = '@dsh-one/vscode-sidebar-ui-layout'
 
 /**
  * settings 树自有 frame 插件 id（#70 设置独立成页：block list 同 chat 树 =
- * layout + sidebar，官方 SettingsRoot 不进页，设置座位由整页宿主直渲）。
+ * layout + sidebar，官方 SettingsRoot 不进页，设置槽位由整页宿主直渲）。
  */
 export const SETTINGS_FRAME_PLUGIN_ID = '@dsh-one/vscode-settings-ui-layout'
 
@@ -287,7 +287,7 @@ export const SETTINGS_FRAME_PLUGIN_ID = '@dsh-one/vscode-settings-ui-layout'
 export const THEME_FOLLOW_PLUGIN_ID = '@dsh-one/vscode-theme-follow'
 
 /**
- * 侧栏树设置入口影子插件 id（#70 设置独立成页）：single 槽
+ * 侧栏树设置入口遮蔽插件 id（#70 设置独立成页）：single 槽
  * sidebar.settings 以 priority -1 顶掉官方 SettingsRoot，齿轮点击
  * postMessage 宿主开设置面板。
  */
@@ -331,7 +331,7 @@ export const CONTEXT_MENU_PLUGIN_ID = '@dsh-one/dsh-context-menu'
  * composerClearPlugin.ts 的机制分层）。
  *
  * 命名是 `dsh-*` 而非 `vscode-*`（#83）：键位监听挂在官方对话区容器上（composer
- * 座位就在这棵子树里），只依赖官方座位属性。
+ * 槽位就在这棵子树里），只依赖官方槽位属性。
  */
 export const COMPOSER_CLEAR_PLUGIN_ID = '@dsh-one/dsh-composer-clear'
 

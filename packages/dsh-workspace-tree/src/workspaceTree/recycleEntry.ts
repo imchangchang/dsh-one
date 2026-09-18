@@ -1,9 +1,9 @@
 /**
  * 底部回收站入口行（#99 B 段立的形态，#103 接上语义）：**在官方 `sidebar.footer.action`
- * 座位里**。
+ * 槽位里**。
  *
  * ## 为什么在这里、长什么样
- * #98 的布局规范把回收站入口从顶栏挪到侧栏底部，座位用官方侧栏壳声明的
+ * #98 的布局规范把回收站入口从顶栏挪到侧栏底部，槽位用官方侧栏壳声明的
  * `sidebar.footer.action`（list 槽，owner share = `{ wide }`，与官方 ui-cordis 的
  * `cordis-panel` 那条**并存**——它同样是这个槽的注册者，谁也不顶掉谁）。形态按旧侧栏的
  * 那一行：🗑 + 文案 + 计数 + 右侧两枚动作图标；**计数 0 时整体灰态、两枚图标禁用**。
@@ -31,8 +31,8 @@
  *（动作只有一个执行处，界面各处不会各写一套）。入口行只发请求。
  *
  * ## 抽屉怎么被这行开合（同一 bundle 内的模块级信号）
- * 抽屉与它的动作住在树主组件里（`sidebar.workspaces` 座位那条渲染），入口行在另一个
- * 座位（`sidebar.footer.action`）——两条 entry 属于**同一个插件、同一份 bundle**，
+ * 抽屉与它的动作住在树主组件里（`sidebar.workspaces` 槽位那条渲染），入口行在另一个
+ * 槽位（`sidebar.footer.action`）——两条 entry 属于**同一个插件、同一份 bundle**，
  * 于是用本模块里一个极小的订阅点（{@link recycleEntrySignal}）把请求传过去。
  * 不碰 DOM 查询、不新增槽位名、不跨插件借状态。
  */
@@ -67,7 +67,7 @@ export const recycleEntrySignal = {
   },
 }
 
-/** 官方全局钩子的最小面（框架给每条 entry 的标准座位）。 */
+/** 官方全局钩子的最小面（框架给每条 entry 的标准槽位）。 */
 interface RecycleEntryProps {
   /** 官方侧栏壳给的形态（宽行 / 收起轨）；本件两态都渲染，轨态收成图标一行。 */
   wide?: boolean

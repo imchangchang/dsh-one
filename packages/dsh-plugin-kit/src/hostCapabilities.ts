@@ -10,8 +10,8 @@
  *
  * | 能力 | VS Code 侧 | 官方 web 侧 |
  * | --- | --- | --- |
- * | `gitShow` | 扩展宿主能力桥（`hostCall('git.show')`，安全口径在宿主侧） | 宿主半插件（网关 RPC） |
- * | `stateRead/Write/Delete` | 扩展宿主能力桥（**代行宿主半的同一份状态存储模块**） | **宿主半插件** |
+ * | `gitShow` | 扩展宿主侧的宿主调用通道（`hostCall('git.show')`，安全口径在宿主侧） | 宿主半插件（网关 RPC） |
+ * | `stateRead/Write/Delete` | 扩展宿主侧的宿主调用通道（**代行宿主半的同一份状态存储模块**） | **宿主半插件** |
  * | `saveContent` | 扩展宿主弹保存框写盘 | 宿主半插件写宿主磁盘 |
  * | `downloadGatewayFile` | 扩展宿主经 loopback 代理取内容 + 弹保存框 | 浏览器原生 `fetch` + `a[download]` |
  * | `openExternal` | 扩展宿主 `vscode.env.openExternal` | 页面原生 `window.open` |
@@ -23,14 +23,14 @@
  * | `newSessionInWorkspace`（+ `sessionNewInWorkspace`， #176） | 扩展宿主跑既有 `dshOne.session.new(<工作区 id>)` 命令（建会话 + 开对话页） | **无**——官方 web 添加工作区后建不建会话归官方自己的 directory-flow，页面在那一端只添加、不开会话（能力恒缺席） |
  * | `openWorkspaceFolder`（+ `workspaceOpen`） | 扩展宿主 `dshOne.workspace.openFolder` 命令（`vscode.openFolder`，可要求新窗口） | **无**——官方 web 是浏览器里的一页，没有「编辑器窗口」可以放这个文件夹，能力恒缺席 |
  * | `openWorkspaceTerminal`（+ `workspaceTerminal`） | 扩展宿主 `dshOne.workspace.openTerminal` 命令（VS Code 集成终端，cwd = 该文件夹） | **无**——同上，浏览器页里没有集成终端 |
- * | `currentWorkspaceFolders`（+ `loadCurrentFolders`） | 扩展宿主能力桥（`vscode.workspaceFolders` = `vscode.workspace.workspaceFolders` 的 fsPath 列表） | **空表**——浏览器里那一页根本没有「VS Code 打开的文件夹」这个概念（侧栏树的「当前工作区」判定读它，空表 = 没有当前工作区） |
+ * | `currentWorkspaceFolders`（+ `loadCurrentFolders`） | 扩展宿主侧的宿主调用通道（`vscode.workspaceFolders` = `vscode.workspace.workspaceFolders` 的 fsPath 列表） | **空表**——浏览器里那一页根本没有「VS Code 打开的文件夹」这个概念（侧栏树的「当前工作区」判定读它，空表 = 没有当前工作区） |
  * | `shellName` | `'vscode'` | `'web'` |
  *
  * 四处刻意的取舍（写清楚免得后来人以为是漏配）：
  * 1. **状态两侧同一份实现与同一个家**（都是宿主半的状态存储模块，都落
  *    `~/.dsh/dsh-one/<键>.json`）：AGENTS.md 铁律「插件状态按官方惯例存储」
  *    ——同一份用户数据不能有两个家，否则必然漂移（#82 要清的就是这个）。
- *    VS Code 侧的桥调用**不是第二份实现**：扩展宿主 import 的是宿主半包里的
+ *    VS Code 侧的通道调用**不是第二份实现**：扩展宿主 import 的是宿主半包里的
  *    `stateStore` 模块本体（见 `src/ui/assembly/hostBridge.ts` 的 `stateCall`），
  *    这么做的原因是宿主半还没进 VS Code 用的那个 profile（#84 的已知遗留①），
  *    走网关会在没装它的实例上 404、插件状态当场失效。
@@ -46,7 +46,7 @@
  *    `parseAllowedUrl`），VS Code 侧再交宿主 `vscode.env.openExternal`（它由客户端
  *    侧执行，远端场景同样正确）。
  * 5. **`openSessionInNewTab` 只是 VS Code 侧能力**：它要的是「编辑器标签页」这个
- *    容器，官方 web 是单页应用、没有对应的官方服务或接缝，宿主半也没有可暴露的
+ *    容器，官方 web 是单页应用、没有对应的官方服务或 seam，宿主半也没有可暴露的
  *    动作（浏览器里开新标签页＝丢掉 dsh 客户端自己的会话状态）。所以这条不登记进
  *    `pure/hostCapabilities.ts` 的线协议契约：契约里的是「两端都该有」的能力，
  *    这条只有一端有，本来该由 `editorTabs` 如实上报缺席。
@@ -120,7 +120,7 @@ export interface HostCapabilities {
   stateRead(key: string): Promise<unknown>
   stateWrite(key: string, value: unknown): Promise<void>
   stateDelete(key: string): Promise<boolean>
-  /** 查一条提交；查不到用结果里的 `found: false` 表达（与能力桥同一形状，不抛错）。 */
+  /** 查一条提交；查不到用结果里的 `found: false` 表达（与宿主调用通道同一形状，不抛错）。 */
   gitShow(args: { hash: string; cwd?: string }): Promise<CommitInfoResult>
   saveContent(args: { suggestedName: string; base64: string }): Promise<{ path: string }>
   downloadGatewayFile(args: { path: string; suggestedName: string }): Promise<DownloadResult>
@@ -133,7 +133,7 @@ export interface HostCapabilities {
    * 这套宿主有没有「编辑器标签页」（#72）：**同步判定**，消费方按它决定入口出不
    * 出现（菜单项不能等一次异步探测）。
    *
-   * VS Code 侧 = 页面装了我们注入的宿主能力桥（后端真正是 VS Code 编辑器，有
+   * VS Code 侧 = 页面装了我们注入的宿主调用通道（后端真正是 VS Code 编辑器，有
    * 标签页这个容器）；官方 web 侧恒为 false——官方 web 没有「编辑器标签页」这个
    * 概念，宿主半插件也没有对应 RPC（这不是漏配：同一条能力两端语义不同，缺的
    * 那一端少的就是入口本身，插件其余行为不变）。
@@ -155,7 +155,7 @@ export interface HostCapabilities {
    * （#121 报的就是这个现场）。所以判据加这一条真条件。
    *
    * **官方 web 侧恒 false**：那一端没有「宿主面板」这个概念（同一份理由见本文件头
-   * 的能力表），消费方按「按打开处理」走官方自己的会话切换。答不出来时（能力桥不认
+   * 的能力表），消费方按「按打开处理」走官方自己的会话切换。答不出来时（宿主调用通道不认
    * 这条调用等异常路径）同样回 false——「没开」的处置就是按打开处理，与 #121 之前的
    * 点击行为一致，是个安全的降级方向。
    */
@@ -184,7 +184,7 @@ export interface HostCapabilities {
    *
    * **官方 web 侧永不推送**（订阅返回的退订函数是空操作，也不发任何调用）：那一端没有
    * 「宿主面板」这件事实（同一份理由见本文件头的能力表），集合恒为空 = 不抑制任何提醒，
-   * 行为与今天完全一致。答不出来时（能力桥缺席 / 快照读失败）同样按空集处理——空集
+   * 行为与今天完全一致。答不出来时（宿主调用通道缺席 / 快照读失败）同样按空集处理——空集
    * 的处置就是「照官方规则渲染」，与这一条之前的行为一致，是个安全的降级方向。
    */
   onPanelSessions(listener: (sessionIds: readonly string[]) => void): () => void
@@ -309,7 +309,7 @@ async function capabilityCall(
   return payload as Record<string, unknown>
 }
 
-/** VS Code 侧能力桥调用（把桥的错误码原样透出，消费方两端看到同一套 code）。 */
+/** VS Code 侧走宿主调用通道（错误码原样透出，消费方两端看到同一套 code）。 */
 async function bridgeCall(name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
   try {
     const data = await hostCall<unknown>(name, args)
@@ -363,7 +363,7 @@ export function hostCapabilities(ctx?: CapabilityContext): HostCapabilities {
   const viaBridge = (): boolean => hostCallAvailable()
   return {
     async stateRead(key) {
-      // 两侧同一份实现（宿主半的状态存储模块）：VS Code 侧走能力桥（扩展宿主代行
+      // 两侧同一份实现（宿主半的状态存储模块）：VS Code 侧走宿主调用通道（扩展宿主代行
       // 同一个 store 模块，见 hostBridge 的 stateCall 说明），官方侧走宿主半的 RPC。
       if (viaBridge()) {
         const data = await bridgeCall('state.read', { key })
@@ -434,7 +434,7 @@ export function hostCapabilities(ctx?: CapabilityContext): HostCapabilities {
       }
       throw fail('unavailable', 'this shell has no editor tabs; the host half serves no session tab action')
     },
-    // #121：会话行点击的两条。没有桥 = 官方 web 一侧（或页面还没装上桥）：那一端没有
+    // #121：会话行点击的两条。没有宿主调用通道 = 官方 web 一侧（或页面还没装上它）：那一端没有
     // 「宿主面板」这个概念，查询如实回 false（= 一律按打开处理），动作静默返回
     //（那边的「打开」由官方那条入口负责，消费方已经先走过它了）。
     async isSessionInPanel(sessionId) {
@@ -534,7 +534,7 @@ export function hostCapabilities(ctx?: CapabilityContext): HostCapabilities {
       }
       await bridgeCall('vscode.openTerminal', { path })
     },
-    // #112：当前 VS Code 打开的文件夹。**没有桥 = 官方 web 一侧**（或页面还没装上桥）：
+    // #112：当前 VS Code 打开的文件夹。**没有宿主调用通道 = 官方 web 一侧**（或页面还没装上它）：
     // 这一端没有「VS Code 打开的文件夹」这个概念，如实回空表——调用方（侧栏树）按
     // 「没有当前工作区」渲染（不显示徽标、不置顶），与「VS Code 空窗口」同一个形态。
     // 与上面几条 workspace* 能力不同，这里不抛 `unavailable`：文件夹表是个**只读查询**，

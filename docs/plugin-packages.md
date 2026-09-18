@@ -81,7 +81,7 @@ packages/dsh-git-card/
 三个可移植插件（提交卡 / 右键菜单 / 清空件）都要「在对话区容器上挂东西、向宿主请假」，
 这两件事的实现各只有一份，放在私有包 `packages/dsh-plugin-kit/` 里
 （`src/hostCapabilities.ts` 是宿主能力口、`src/mountPoints.ts` 是挂载点，
-`src/hostClient.ts` 是能力口底下的桥）；各插件按 `@dsh-one/dsh-plugin-kit/hostCapabilities`
+`src/hostClient.ts` 是能力口底下的宿主调用通道）；各插件按 `@dsh-one/dsh-plugin-kit/hostCapabilities`
 这样的子路径取用，构建期由各插件自己的 bundle 各打一份进去。这个包 `private: true`
 且不发 npm，所以对装包链路是零影响——`lib/client.js` 依旧是自包含的。
 
@@ -154,7 +154,7 @@ node scripts/verify-plugins-official.mjs --keep   # 保留临时 HOME 与截图�
    `__DSH_BOOT__` 的行里、每个包的 combo 段被真的请求过、官方启动审计没有
    `Failed to load plugins`、页面零 pageerror / 零 console error。
 5. 逐条跑端到端行为：清空件（Esc ×2 + Ctrl+Z 反悔）、工作区树（官方
-   `sidebar.workspaces` 座位里是自有树的行）、提交卡（悬停出卡，内容来自宿主半的
+   `sidebar.workspaces` 槽位里是自有树的行）、提交卡（悬停出卡，内容来自宿主半的
    `/api/dshOneHostCapabilities/gitShow`）、会话导出（自有按钮在官方会话头里，官方同
    id 条目被 shadow）、行内码右键菜单。
 

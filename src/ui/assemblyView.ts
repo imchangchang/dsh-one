@@ -209,7 +209,7 @@ function subscribeAssemblyProbe(webview: vscode.Webview, logger: Logger): vscode
 }
 
 /**
- * 宿主能力桥的依赖（三棵树共用）：VS Code 工作区目录 + ~/.dsh + **网关上各会话的
+ * 宿主调用通道的依赖（三棵树共用）：VS Code 工作区目录 + ~/.dsh + **网关上各会话的
  * 工作目录集合**。后者是因为 git.show 的 cwd 按「当前会话所属工作区」传（页面侧从
  * 官方 sessions 服务取，见 gitCardPlugin），那个目录未必是 VS Code 打开的目录，
  * 但它一定出现在网关的会话清单里——用这份服务端数据当允许根，页面伪造不了。
@@ -482,7 +482,7 @@ async function prepareChatPanel(
 }
 
 /**
- * 面板的共用接线与首帧：探针、活跃上报（标题跟随）、宿主能力桥、主题广播登记，
+ * 面板的共用接线与首帧：探针、活跃上报（标题跟随）、宿主调用通道、主题广播登记，
  * 以及 dispose 时按形态回收（多开面板释放自己那一格映射；单例面板才记
  * 「用户关过」）。两种形态只差这些登记动作，页面本身是同一份装配页。
  */
@@ -519,7 +519,7 @@ function mountChatPanel(params: {
     if (moved) broadcastPanelSessions()
     if (typeof m.title === 'string' && m.title !== '') panel.title = `dsh: ${m.title}`
   })
-  // 宿主能力桥（#65 批 1）：页面插件（git 卡片/右键菜单/多开入口等）经它取 git 数据、
+  // 宿主调用通道（#65 批 1）：页面插件（git 卡片/右键菜单/多开入口等）经它取 git 数据、
   // 开多开标签页与 VS Code 动作；白名单 + 参数校核在 hostBridge 内收口。
   const hostSub = subscribeHostCalls(panel.webview, logger, hostBridgeDeps(manager, logger, () => mirror.origin))
   trackAssemblyWebview(context, panel.webview)

@@ -11,8 +11,8 @@
  *   槽位两版都声明：0.1.2 线登记 single `conversation`，0.1.6 线登记 keyed
  *   `main`（key = `conversation`），渲染哪个由注册表实际有贡献的那个决定。
  *   `rightbar` 是 #79 决策 B 的接入点：声明后官方 ui-sidebar-right 才注册它的
- *   座位，文件/终端/文档预览三个官方插件在这棵树上真正可用。
- * - ShellFrame：主区会话面板 + details 面板 + 官方右栏座位 + shell.overlay 层；
+ *   槽位，文件/终端/文档预览三个官方插件在这棵树上真正可用。
+ * - ShellFrame：主区会话面板 + details 面板 + 官方右栏槽位 + shell.overlay 层；
  *   切会话时关 details（官方 AppFrame 语义，无侧栏/拖拽维度）。右栏几何照官方
  *   AppFrame 的两步解算（frameShared.computeColumns），呈现上报走 ctx.layout。
  *
@@ -162,7 +162,7 @@ function DocumentTitle({ title, productTitle }: { title?: string; productTitle: 
 /** 遮罩兜底超时：目标会话迟迟未激活（id 无效/网络慢）也揭幕，绝不白屏死锁。 */
 const OPENING_MASK_TIMEOUT_MS = 5000
 
-/** 与 session-boot 插件的状态共享方式：各自读 __DSH_ONE_BOOT__ 全局（第 3 层接缝），
+/** 与 session-boot 插件的状态共享方式：各自读 __DSH_ONE_BOOT__ 全局（第 3 层 seam），
  * 无跨 bundle 模块作用域可共享，也不值得为单一布尔起 cordis 服务。 */
 const bootSessionId = (): string | undefined => {
   const raw = (globalThis as { __DSH_ONE_BOOT__?: { sessionId?: unknown } }).__DSH_ONE_BOOT__?.sessionId
@@ -172,7 +172,7 @@ const bootSessionId = (): string | undefined => {
 function ShellFrame({ useStore, useSessions, usePanelInfo, actions, renderSlot, SessionProvider, conversationSeat, t }: ShellFrameProps) {
   const panels = useStore((s) => s)
   // 容器实测宽（官方 AppFrame 同款：ResizeObserver + rAF 节流量自己的盒宽）——
-  // 右栏宽度偏好按它推导，所以必须在座位挂载前尽量到位（首帧量一次）。
+  // 右栏宽度偏好按它推导，所以必须在槽位挂载前尽量到位（首帧量一次）。
   const frameRef = useRef<HTMLDivElement | null>(null)
   useLayoutEffect(() => {
     const el = frameRef.current
@@ -252,8 +252,8 @@ function ShellFrame({ useStore, useSessions, usePanelInfo, actions, renderSlot, 
       ? renderSlot('main', {}, { entryKey: activePanelId ?? 'conversation' })
       : renderSlot('conversation', {})
   // 右栏几何（官方 AppFrame 同款两步解算，数值规则见 frameShared.computeColumns）：
-  // 座位拿到的是「正常态」宽度 `normal.rightbar`，占不占轨道看 `rightbarTrack`
-  // （`cols.rightbar`）。没让轨道时官方座位自己贴着外框右缘悬在内容之上——
+  // 槽位拿到的是「正常态」宽度 `normal.rightbar`，占不占轨道看 `rightbarTrack`
+  // （`cols.rightbar`）。没让轨道时官方槽位自己贴着外框右缘悬在内容之上——
   // 这正是官方右栏「是一条轨道，不是一个盒子」的语义（窄容器下就是这么呈现的）。
   const rightbarPref = rightbarPreference(panels.rightbar, panels.viewportWidth)
   const rightbarNormal = computeColumns(panels.viewportWidth, 0, rightbarPref).rightbar
@@ -275,8 +275,8 @@ function ShellFrame({ useStore, useSessions, usePanelInfo, actions, renderSlot, 
           { className: 'dshOneShell_details', style: { width: panels.details } },
           h(SessionProvider, null, renderSlot('details', {})),
         ),
-      // 官方右栏座位（#79 决策 B）：文件/终端/文档预览三个官方插件经
-      // `ctx.slots.inject('rightbar', …)` 等这个座位被声明后自己注册进来
+      // 官方右栏槽位（#79 决策 B）：文件/终端/文档预览三个官方插件经
+      // `ctx.slots.inject('rightbar', …)` 等这个槽位被声明后自己注册进来
       // （ui-sidebar-right 的 RightbarRoot），呈现上报走 ctx.layout（见 frameShared
       // 的 openRightbar）。props 三个字段是官方契约（官方 AppFrame 同款）：
       // width = 正常态面板宽、viewportWidth = 外框宽、canShow = 容器装不装得下。
@@ -320,7 +320,7 @@ export function apply(ctx: ShellContext): void {
         // 不声明 sidebar 子槽：chat 树 block 了 ui-sidebar，侧栏贡献整树缺席。
         // 会话面板两版槽位都声明（0.1.2 的 single `conversation` / 0.1.6 的
         // keyed `main`），渲染哪个见 conversationSeat 镜像。
-        // `rightbar`（#79 决策 B）声明后官方 ui-sidebar-right 才会注册它的座位
+        // `rightbar`（#79 决策 B）声明后官方 ui-sidebar-right 才会注册它的槽位
         // （官方件用 `ctx.slots.inject('rightbar', …)` 等声明），文件/终端/
         // 文档预览三个插件随之在这棵树上真正可用。
         children: {

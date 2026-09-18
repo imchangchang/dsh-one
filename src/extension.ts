@@ -236,7 +236,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // 自研外壳，命令面板进；点活动栏 DSH One 图标也会自动打开（见
     // autoOpenAssembledChat）。
     registerAssembledChat(context, manager, logger),
-    // 装配设置面板（#70 设置独立成页）：官方 settings.* 座位整页渲染。
+    // 装配设置面板（#70 设置独立成页）：官方 settings.* 槽位整页渲染。
     registerAssembledSettings(context, manager, logger),
     vscode.commands.registerCommand('dshOne.restart', async () => {
       await manager.restart()

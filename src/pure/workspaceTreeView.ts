@@ -71,7 +71,7 @@ export interface SessionListLike {
  * **为什么必须分叉**：`current` 恒 undefined 的后果是静默的——侧栏树按「当前会话所在
  * 分组默认展开」定默认展开态（`autoExpandGroup`），拿不到 current 就永远不展开：页面
  * 看着有工作区，点开全是空的（#191 实测 alpha.2 上 `.dshOneTree_sessionRow` = 0，而同
- * 一个座位上官方浏览区照常出 5 行）。字段在的时候原样返回同一份 list（引用不变，
+ * 一个槽位上官方浏览区照常出 5 行）。字段在的时候原样返回同一份 list（引用不变，
  * `useMemo` 的依赖语义不动）。
  */
 export function withCurrentSession(list: SessionListLike): SessionListLike {

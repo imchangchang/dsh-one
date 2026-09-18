@@ -1,5 +1,5 @@
 /**
- * @dsh-one/vscode-settings-gear——侧栏树**底部设置行的隐藏影子**（#70 起，形态随 #99 改）。
+ * @dsh-one/vscode-settings-gear——侧栏树**底部设置行的遮蔽条目（shadow）**（#70 起，形态随 #99 改）。
  *
  * ## 它现在做什么
  * single 槽 `sidebar.settings` 以 priority −1 顶掉官方 SettingsRoot（注册表原文
@@ -22,7 +22,7 @@
  */
 /**
  * 遮蔽组件：什么都不渲染（官方设置行藏起来的全部实现）。返回 null 而不是空元素
- * ——与 sidebarLayoutPlugin 的品牌位影子同一做法，槽位容器里不留下任何节点。
+ * ——与 sidebarLayoutPlugin 遮蔽品牌位的做法相同，槽位容器里不留下任何节点。
  */
 function Nothing(): unknown {
   return null
@@ -41,9 +41,9 @@ export const inject = ['slots']
 
 export function apply(ctx: GearContext): void {
   ctx.effect(() => {
-    // 对既有座位名（官方 ui-sidebar 的 children 表声明）必须走 slots.inject：
+    // 对既有槽位名（官方 ui-sidebar 的 children 表声明）必须走 slots.inject：
     // 直接 register 会在「未声明」时抛错（跨插件 effect 时序不保证声明已落）。
-    // single 槽影子：priority -1 < 官方 SettingsRoot 的默认 0 → 本件渲染（空）。
+    // single 槽遮蔽：priority -1 < 官方 SettingsRoot 的默认 0 → 本件渲染（空）。
     return ctx.slots.inject('sidebar.settings', () =>
       ctx.slots.register({ name: 'sidebar.settings', priority: -1 }, Nothing),
     )

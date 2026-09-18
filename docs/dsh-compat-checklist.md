@@ -91,7 +91,7 @@ npm run verify:lab-version next --suite F-01,F-10,F-11    # 也可以点套件
 脚本（`scripts/verify-lab-version.mjs`）只做两件事：`npm install --prefix <临时目录>
 @deepseek-ai/dsh@<版本>`（**不动本机已装的 dsh**），再把那个目录的 `.bin` 放到 `PATH` 前面跑
 `npm run verify:lab`（实验室按默认跑法起自己的隔离实例：独立 `DSH_HOME`、随机端口、跑完按
-PID 收）。退出码就是实验室的：0 = 四棵树零崩溃、零装载未激活、预期座位有内容。
+PID 收）。退出码就是实验室的：0 = 四棵树零崩溃、零装载未激活、预期槽位有内容。
 
 ### 这样抓到的（0.1.6-alpha.2，2026-09-18）
 
@@ -126,7 +126,7 @@ PID 收）。退出码就是实验室的：0 = 四棵树零崩溃、零装载未
 | 跑什么 | 命令 | 覆盖什么 | 前置 |
 |---|---|---|---|
 | 上游探针 | `node scripts/dsh-upstream-watch/probe.mjs --command dsh --expect-version <版本>`（CI 里由 dsh-upstream-watch 每日自动跑） | 伺服面（wire + 网关前端产物：`/` 的启动契约、combo 端点、Origin 栅栏）+ 客户端契约面（combo 里的 slot/hook/字段名）+ 官方产物面（本机官方包里的内部标识符） | 本机有 dsh；探针自起临时 `DSH_HOME` 实例，只读 |
-| 浏览器验证（候选版本） | `npm run verify:lab-version <版本>` | **候选版本**上四棵树装不装得起来：零崩溃、零装载未激活、座位有内容（F-01 CONTRACT）。脚本把候选版本装到临时目录再用它跑实验室，不动本机安装 | 见上一节「装配面」 |
+| 浏览器验证（候选版本） | `npm run verify:lab-version <版本>` | **候选版本**上四棵树装不装得起来：零崩溃、零装载未激活、槽位有内容（F-01 CONTRACT）。脚本把候选版本装到临时目录再用它跑实验室，不动本机安装 | 见上一节「装配面」 |
 | 浏览器验证（本机版本） | `npm run verify:lab` | 同上，但验的是本机已装的那一版；改装配相关代码后跑它 | `npm run build` 过 |
 | 宿主半验证 | `npm run verify:host-half` | 网关侧插件半（`packages/dsh-host-capabilities`）与官方 dsh 的兼容 | 见 `scripts/verify-host-half-official.mjs` |
 

@@ -8,7 +8,7 @@
  *   <head>：base href（一切相对 URL 落回 mirror）→ 诊断探针（内联，仅 webview 激活）
  *   → 队列 facade（内联）→ modulepreload/CSS →
  *   __DSH_BOOT__ wire → 阻塞 bootstrap script → 主 bundle（type=module）→
- *   __DSH_TRANSPORT__ 接缝（内联）
+ *   __DSH_TRANSPORT__ seam（内联）
  *   <body>：主题预置 → __DSH_BOOT_READY__ resolve → 版本门信息条（可选）→ #root
  *
  * **本页不带 CSP**（#188，用户拍板）：官方 dsh 网页整页没有 CSP（网关 `/` 不带 CSP meta），
@@ -26,7 +26,7 @@
  * `nonce` 属性（#188 明确不要一股脑删掉）：没有政策可匹配、它今天不放行任何东西，留着只是
  * 让「把 CSP 加回来」这条退路的 diff 小一点。
  *
- * __DSH_TRANSPORT__ 是 webview 形态独有的接缝：页面源是 vscode-webview://，
+ * __DSH_TRANSPORT__ 是 webview 形态独有的 seam：页面源是 vscode-webview://，
  * 而 dsh-client-connection 的 RPC fetch 与 api-gateway 的 remote stream 都按
  * location.origin 寻址——webview 里 location.origin 不是 mirror，必须在这里把
  * 两条通道显式改写到 loopback mirror（fetch 重写源 + openStream 自建 WS 说
@@ -130,7 +130,7 @@ const QUEUE_FACADE_JS = `(() => {
 })()`
 
 /**
- * 传输接缝：把官方客户端按 location.origin 寻址的宿主通道改写到 loopback mirror。
+ * 传输 seam：把官方客户端按 location.origin 寻址的宿主通道改写到 loopback mirror。
  * - fetch（`__DSH_TRANSPORT__.fetch`）：connection RPC 的 POST
  *   （/api/<channel>/<endpoint>）换源到 mirror。
  * - openStream：remote stream 走自建 WS 说 /api/remote.mux 协议（open/item/error/
@@ -152,8 +152,8 @@ const QUEUE_FACADE_JS = `(() => {
  *   判定细节：webview 的 `vscode-webview://` 是**不透明源**（`origin` 序列化成
  *   `"null"`，与 `blob:` / `data:` 撞值），所以那一支比 `protocol + host` 而不是
  *   origin；比 origin 会把 blob: 一起改写掉。
- * ownsHost（官方机制第 3 层：__DSH_TRANSPORT__ 官方预留接缝的既有字段，
- * client-connection 源码 4755 行 isLoopback 判定消费）：传输接缝拥有
+ * ownsHost（官方机制第 3 层：__DSH_TRANSPORT__ 官方预留 seam 的既有字段，
+ * client-connection 源码 4755 行 isLoopback 判定消费）：传输 seam 拥有
  * loopback 宿主权威——页面一切 RPC 经 loopback 代理带 cookie 到网关，
  * 网关视角即 127.0.0.1。isLoopback 判定 = transport.ownsHost || location
  * 是 loopback 主机名；VS Code webview 的 vscode-webview:// 主机名不是
