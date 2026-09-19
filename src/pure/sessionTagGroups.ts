@@ -41,9 +41,15 @@
  *
  * ## 组只与成员一起出现（空组处理；预设组只是不落清理，不落渲染）
  * 建自建组的唯一入口是「把某个会话归进一个新建的组」，所以**不存在天生没成员的自建组**；
- * 反过来说，一个自建组如果连一个还活着的成员都没有了（组内会话被归档 / 从 dsh 侧消失），
- * 它留着就只是看不见也删不掉的垃圾——{@link pruneTagGroups} 会在基线就绪后把它连同
- * 归属一起清掉。**只进过回收站的会话仍算活着**：它还在 dsh 上，随时能还原回组里。
+ * 反过来说，一个自建组如果连一个还活着的成员都没有了（组内会话被归档 / 从 dsh 侧消失 /
+ * **被移进回收站**），它留着就只是看不见也删不掉的垃圾——{@link pruneTagGroups} 会在基线
+ * 就绪后把它连同归属一起清掉。**回收站里的会话不算活着**（#216：与旧侧栏
+ * `sessionsStore.ts` 的 `pruneEmptyCustomTags` 同一口径——回收站与归档是同一套逻辑，只是
+ * 呈现不同）：进回收站那一刻清理就当场跑一次，不再等到归档那一步。
+ *
+ * 组还在（还有别的活跃成员）时，移进回收站的会话**归属照旧留着**：从回收站还原就回到
+ * 原组（与回收站「恢复回原 workspace 组」同一口径，可逆）。组已经被清掉的那些会话，
+ * 还原后落在「未归组」——它们与组之间的那行记录在清理时一起没了。
  *
  * ## 空的预设组不占位（#214）
  * 三个预设组**恒在**（{@link withPresetTagGroups} 恒补、{@link deleteTagGroup} 拒删、
@@ -226,9 +232,25 @@ export function tagGroupNameError(bucket: TagGroupBucket, name: string, excludeI
   return null
 }
 
-/** 新组的默认色：按已有组数在 6 色里轮换（建完随时可改，所以不必问）。 */
+/**
+ * 新组的默认色（#215）：**优先**取第一个「本工作区还没有任何组在用」的颜色（按
+ * `TAG_COLORS` 的顺序），6 色全被占用时回落到按组数轮换。
+ *
+ * 占用判断在**视图桶**上做（`withPresetTagGroups`）：预设组的当前颜色算占用，所以把
+ * 「进行中」改成紫色之后，新组的默认色不会再是紫色——判的是**颜色**，不是组的数量
+ * （改前那种「按已有组数取」必然让前三个自建组与三个预设组撞色）。
+ *
+ * 回落那一支是明知无解的兜底：6 色都有组在用，选哪个都必然与某个组同色，此时按组数
+ * 轮换取一个（组数也取视图桶的，这样同一幅界面无论预设组有没有落进持久数据，默认色
+ * 都一样）。**这里只是默认值**：色板 6 色都能手选，用户手选一个已经在用的颜色照旧
+ * 落盘——「优先」不是「禁止」。
+ */
 export function nextTagColor(bucket: TagGroupBucket): TagColor {
-  return TAG_COLORS[bucket.tags.length % TAG_COLORS.length] ?? 'orange'
+  const view = withPresetTagGroups(bucket)
+  const used = new Set(view.tags.map((tag) => tag.color))
+  const free = TAG_COLORS.find((color) => !used.has(color))
+  if (free !== undefined) return free
+  return TAG_COLORS[view.tags.length % TAG_COLORS.length] ?? 'orange'
 }
 
 /** 建组结果：成功给新桶与新组 id，失败给原因（界面按原因出文案）。 */
@@ -357,11 +379,16 @@ export function tagGroupSessionIds(bucket: TagGroupBucket, groupId: string): str
 
 /**
  * 剔掉「一个活着的成员都没有」的**自建**组（连同它们的归属）：组只与成员一起出现，
- * 成员全没了（归档 / 从 dsh 侧消失）的组留着也看不见、删不掉。
+ * 成员全没了（归档 / 从 dsh 侧消失 / **被移进回收站**）的组留着也看不见、删不掉。
+ *
+ * **判据由调用方给**：`isAlive(sessionId)` = 这个会话在这个标签组眼里还活着。装配侧栏
+ * 喂进来的是「在基线里 ∧ 不在归档 ∧ **不在回收站**」（#216，调用点见 `tree.ts` 的空组
+ * 清理那一段）——回收站里的会话不算活跃成员，所以它所在的组若因此失去最后一个成员，
+ * 清理就当场把组与归属一起带走（旧侧栏 `pruneEmptyCustomTags` 同一口径）。组还有别的
+ * 活跃成员时，被移进回收站那条会话的归属**留着**：还原回来就回到原组（可逆）。
  *
  * 预设组与指向预设组的归属一律不清（预设组恒存在，没有成员也照样在场；此刻没成员
- * 不等于它没了）。`isAlive(sessionId)` = 这个会话还在 dsh 侧（**进过回收站的仍算
- * 活着**——它随时能还原回组里，见文件头）。没有可清理的组返回 null。
+ * 不等于它没了）。没有可清理的组返回 null。
  */
 export function pruneTagGroups(bucket: TagGroupBucket, isAlive: (sessionId: string) => boolean): TagGroupBucket | null {
   if (bucket.tags.length === 0) return null

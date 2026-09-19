@@ -302,7 +302,7 @@ export function TagGroupCreateModal({
 }: {
   open: boolean
   tr: Translate
-  /** 默认色（按已有组数轮换，见 `nextTagColor`）。 */
+  /** 默认色（优先取本工作区还没用过的颜色，见 `nextTagColor`）。 */
   defaultColor: TagColor
   /** 名字校验（调用方把它接到纯函数 `sessionTagGroups.tagGroupNameError` 上）。 */
   validate: (name: string) => 'empty' | 'duplicate' | null
