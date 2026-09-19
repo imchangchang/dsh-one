@@ -578,14 +578,20 @@ export function WorkspaceTree(props: TreeProps): unknown {
     setTagNewSession(null)
   }, [tagNewSession, list.current, workspaces, tagFile])
 
-  // 标签组的空组清理（#107）：组只与成员一起出现，成员全没了（归档 / 从 dsh 侧消失）
-  // 的组连归属一起剔掉。与回收站清账同一道闸——基线未就绪（列表空）时什么都不做，
-  // 否则冷启动会把用户全部的标签组当成空组清光。**进过回收站的会话仍算活着**：它还在
-  // dsh 上，随时能还原回组里（判据写在 pure/sessionTagGroups.ts 的 pruneTagGroups）。
+  // 标签组的空组清理（#107）：组只与成员一起出现，成员全没了（归档 / 从 dsh 侧消失 /
+  // 被移进回收站）的组连归属一起剔掉。与回收站清账同一道闸——基线未就绪（列表空）时
+  // 什么都不做，否则冷启动会把用户全部的标签组当成空组清光。
+  //
+  // **回收站里的会话不算活着**（#216，与旧侧栏 `pruneEmptyCustomTags` 同一口径：回收站
+  // 与归档是同一套逻辑，只是呈现不同）——判据写在 pure/sessionTagGroups.ts 的
+  // pruneTagGroups。移入回收站 / 还原 / 归档都换一次回收站快照（`bin.ids` 是新数组），
+  // 所以这条依赖的就是**当场重跑**：那一下之后同一个渲染周期里组与归属就落地，不留到
+  // 下次基线刷新。组还有别的活跃成员时，被移进回收站那条会话的归属留着（还原回原组）。
   useEffect(() => {
     const baselineReady = workspacePhase === 'ready' && list.ids.length > 0
     if (!baselineReady) return
-    const alive = new Set(list.ids.filter((id) => !archived.has(id)))
+    const recycledIdsIn = new Set(bin.ids)
+    const alive = new Set(list.ids.filter((id) => !archived.has(id) && !recycledIdsIn.has(id)))
     let next: TagGroupsFile | null = null
     for (const [workspaceId, bucket] of Object.entries(tagFile.workspaces)) {
       const pruned = pruneTagGroups(bucket, (sessionId) => alive.has(sessionId))
@@ -595,7 +601,7 @@ export function WorkspaceTree(props: TreeProps): unknown {
       setTagFile(next)
       saveTagGroups(next)
     }
-  }, [tagFile, list.ids, workspacePhase, archivedSessionIds])
+  }, [tagFile, list.ids, workspacePhase, archivedSessionIds, bin.ids])
 
   // 排序 = 官方顺序，**唯一例外**是置顶项在这一层排最前（#98 定稿，`pinnedFirst`）。
   // #131 起这里不再有「最近更新」那一档：顺序只来自官方会话服务给的那一份。
@@ -1892,6 +1898,8 @@ export function WorkspaceTree(props: TreeProps): unknown {
     h(TagGroupCreateModal, {
       open: tagCreate !== null,
       tr,
+      // 默认色（#215）：`nextTagColor` 自己会过一遍视图桶，所以这里传真实桶也拿不到
+      //「漏看预设组颜色」的默认色——预设组的当前颜色算占用。
       defaultColor: nextTagColor(tagCreate === null ? emptyTagBucket() : tagBucket(tagCreate.groupKey)),
       validate: (name: string) => tagGroupNameError(tagCreate === null ? emptyTagBucket() : tagBucket(tagCreate.groupKey), name),
       onClose: () => setTagCreate(null),

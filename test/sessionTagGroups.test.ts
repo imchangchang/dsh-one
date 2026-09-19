@@ -5,6 +5,7 @@ import {
   deleteTagGroup,
   emptyTagBucket,
   emptyTagGroups,
+  nextTagColor,
   parseTagGroups,
   pruneTagGroups,
   reorderTagGroups,
@@ -24,6 +25,7 @@ import {
   type TagGroupBucket,
   type TagGroupDef,
 } from '../src/pure/sessionTagGroups.ts'
+import { TAG_COLORS } from '../src/pure/sessionTags.ts'
 import type { SessionNode } from '../src/pure/workspaceTreeView.ts'
 
 /** 一个最小会话节点（只需要 id + 排序/计数用到的字段）。 */
@@ -259,7 +261,7 @@ test('组间排序：只接受与全集等长的置换，无变化/缺项/多项
   )
 })
 
-test('空组清理：成员全没了（归档/消失）的组连归属一起清掉；回收站里的仍算活着', () => {
+test('空组清理：成员全没了（归档 / 移入回收站 / 消失）的组连归属一起清掉——判据由调用方给', () => {
   const bucket = bucketOf(['A:a,b', 'B:c', 'C:'])
   // C 从建出来就没有成员（旧文件里可能存着这种），一并清掉。
   const alive = (id: string): boolean => id === 'c'
@@ -275,6 +277,87 @@ test('空组清理：成员全没了（归档/消失）的组连归属一起清�
   const pruned = pruneTagGroups({ tags: view.tags, sessionTags: { ...view.sessionTags, ghost: 'preset-todo' } }, () => false)
   assert.deepEqual(pruned?.tags.map((tag) => tag.id), PRESETS)
   assert.deepEqual(pruned?.sessionTags, { ghost: 'preset-todo' })
+})
+
+test('空组清理的判据（#216）：装配侧栏喂「不在回收站」——回收站里的会话不算活跃成员，组当场消失；还剩活跃成员就留着', () => {
+  /** 装配侧栏那份判据（`tree.ts` 的空组清理）：在基线里 ∧ 不在归档 ∧ 不在回收站。 */
+  const predicate = (baseline: readonly string[], archived: readonly string[], recycled: readonly string[]) => {
+    const known = new Set(baseline)
+    const gone = new Set(archived)
+    const bin = new Set(recycled)
+    return (sessionId: string): boolean => known.has(sessionId) && !gone.has(sessionId) && !bin.has(sessionId)
+  }
+
+  // ① 自建组 A 的唯一成员被移进回收站 → 组定义与那条归属都清掉（改前口径下这里返回 null：
+  //    组要等到从回收站归档、`archived` 才让它变死人，那正是 #216 要改掉的那一步）。
+  const bucket = bucketOf(['A:a', 'B:b,c'])
+  const pruned = pruneTagGroups(bucket, predicate(['a', 'b', 'c'], [], ['a']))
+  assert.deepEqual(pruned?.tags.map((tag) => tag.id), ['t-B'])
+  assert.deepEqual(pruned?.sessionTags, { b: 't-B', c: 't-B' })
+  // 负向对照：同一份数据、判据换回旧口径（回收站里的仍算活着）→ 没有可清理的组。
+  assert.equal(pruneTagGroups(bucket, predicate(['a', 'b', 'c'], [], [])), null)
+
+  // ② 组里还有别的活跃成员 → 组照旧在，被移进回收站那条的归属也留着（还原回原组，可逆）。
+  //    用一份「同时还有一个组被清掉」的桶，好让这一次读到的是一份真被改过的桶。
+  const mixed = bucketOf(['A:a', 'B:b,c', 'D:d'])
+  const mixedPruned = pruneTagGroups(mixed, predicate(['a', 'b', 'c', 'd'], [], ['c', 'd']))
+  assert.deepEqual(mixedPruned?.tags.map((tag) => tag.id), ['t-A', 't-B'])
+  assert.deepEqual(mixedPruned?.sessionTags, { a: 't-A', b: 't-B', c: 't-B' })
+
+  // ③ 归档那一步的清理是另一条路（不经过回收站）：直接归档也让组失去最后一个活跃成员。
+  assert.deepEqual(
+    pruneTagGroups(bucket, predicate(['a', 'b', 'c'], ['a'], []))?.tags.map((tag) => tag.id),
+    ['t-B'],
+  )
+  // 两条路都能让组死掉时同样干净：归档 + 回收站一起，组里剩下的那条也进了回收站。
+  assert.deepEqual(
+    pruneTagGroups(bucket, predicate(['b', 'c'], ['a'], ['b']))?.tags.map((tag) => tag.id),
+    ['t-B'],
+  )
+  assert.deepEqual(
+    pruneTagGroups(bucket, predicate(['b', 'c'], ['a'], ['b', 'c']))?.tags.map((tag) => tag.id),
+    [],
+  )
+
+  // ④ 预设组不吃这条清理：它唯一那条成员被移进回收站，定义与归属都留着。
+  const presetOnly = { tags: withPresetTagGroups(bucketOf([])).tags, sessionTags: { x: 'preset-todo' } }
+  assert.deepEqual(pruneTagGroups(presetOnly, predicate([], [], ['x'])), null)
+})
+
+test('新组默认色（#215）：优先取本工作区还没用过的颜色；预设组的当前颜色算占用；全占用才回落到按组数轮换', () => {
+  const def = (id: string, color: string, name: string | null = null): TagGroupDef => ({ id, name, color: color as TagGroupDef['color'] })
+  const bucketWith = (...defs: TagGroupDef[]): TagGroupBucket => ({ tags: defs, sessionTags: {} })
+
+  // ① 只有三个预设组（黄 / 蓝 / 绿）→ 第一个自建组的默认色是橙。
+  //    改前这里按「已有组数」取 TAG_COLORS[0] = 黄，必然与「待办」撞色。
+  assert.equal(nextTagColor(emptyTagBucket()), 'orange')
+  // ② 已有橙组 → 紫；③ 再加紫组 → 红。
+  assert.equal(nextTagColor(bucketWith(def('t-1', 'orange'))), 'purple')
+  assert.equal(nextTagColor(bucketWith(def('t-1', 'orange'), def('t-2', 'purple'))), 'red')
+  // 判的是颜色不是数量：同样两个自建组，占用的是别的颜色时默认色跟着不同
+  //（三个预设组恒占黄 / 蓝 / 绿，所以这里第一个空色是橙；按旧口径「数量 2」会取到绿——正是撞色那种）。
+  assert.equal(nextTagColor(bucketWith(def('t-1', 'yellow'), def('t-2', 'green'))), 'orange')
+  // 预设组的定义已落进持久数据时，默认色与没落时逐字相同（同一幅界面只有一个答案）。
+  assert.equal(
+    nextTagColor(bucketWith(def('preset-todo', 'yellow'), def('preset-doing', 'blue'), def('preset-done', 'green'))),
+    'orange',
+  )
+  // ④ 六色全被占用（三个预设组 + 橙 / 紫 / 红三个自建组）→ 回落到按组数轮换：
+  //    视图桶 6 个组 → 6 % 6 = 0 → 黄。此刻选哪个都必然与某个组同色，这是明知无解的兜底。
+  const saturated = bucketWith(def('t-1', 'orange'), def('t-2', 'purple'), def('t-3', 'red'))
+  assert.equal(nextTagColor(saturated), 'yellow')
+  assert.equal(TAG_COLORS.length, 6)
+  // ⑤ 用户把预设组改过色 → 那个颜色算被占用（正面证明看的是颜色而不是数量）。
+  //    「待办」改成紫：视图桶占用 = 紫（待办）/ 蓝（进行中）/ 绿（已完成）→ 第一个空色是黄。
+  assert.equal(nextTagColor(bucketWith(def('preset-todo', 'purple', null))), 'yellow')
+  assert.notEqual(nextTagColor(bucketWith(def('preset-todo', 'purple', null))), 'purple')
+  //    同一份桶按旧口径（数量 1 → TAG_COLORS[1]）会是蓝，与新口径不同——这条差值就是本 issue 的判据。
+  assert.notEqual(nextTagColor(bucketWith(def('preset-todo', 'purple', null))), 'blue')
+
+  // ⑥ 默认色只是默认值：用户手选一个已经在用的颜色照旧落盘（「优先」不是「禁止」）。
+  const created = createTagGroup(emptyTagBucket(), '黄组', 't-y', 'yellow')
+  assert.equal(created.ok, true)
+  assert.deepEqual(created.ok ? created.bucket.tags : [], [{ id: 't-y', name: '黄组', color: 'yellow' }])
 })
 
 test('切块：空组不占位、未归组的殿后；组内置顶 = 在该组内靠前，组间位置不受置顶影响', () => {
