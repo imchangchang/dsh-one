@@ -43,7 +43,7 @@
 
 **集成线**：默认 `main`。`#11` 系列（Preact 迁移 + 对齐官方 dsh web）已于 2026-09-10 归档关闭：改动整线保留在 `develop/dsh-web-alignment`（远端同名分支），**仅作参考代码，不再开发、不再合入**；该系列 issue（#2/#11/#29/#40-#58 中相关条目）已关闭，真实问题重新梳理顶层结构后另立新 issue。`scripts/dev-merge.sh` 的 `MERGE_TARGET=<分支>` 能力保留（默认 `main`），两道静态自检（`check-i18n.sh` / `check-platform-compat.sh`）的合并基点都跟随目标分支。
 
-**验证线 `develop/cordis-chat`**（2026-09-14 起）：对话区官方 cordis 组件装配的验证线（#60 v1 整壳嵌入验收失败退回 `b:open` 后另立），条目 = #63（spike）→ #64（goal 1：对话区官方组件装配、侧栏保持自研）→ #65（goal 2：特有功能插件化）→ #66（goal 3：通用组件上游化）。该线任务合入用 `MERGE_TARGET=develop/cordis-chat`；`main` 保持自研 vanilla 前端不动，发布仍从 `main`。
+**验证线 `develop/cordis-chat`（已结束：2026-09-14 起 → 2026-09-19 整线合入 `main`）**：对话区官方 cordis 组件装配的验证线（#60 v1 整壳嵌入验收失败退回 `b:open` 后另立），条目 = #63（spike）→ #64（goal 1：对话区官方组件装配、侧栏保持自研）→ #65（goal 2：特有功能插件化）→ #66（goal 3：通用组件上游化）。整线已于 2026-09-19 合入 `main`（merge `9fbc5da9`）：**集成线回到 `main`**，此后任务照 `MERGE_TARGET=main`（默认）合入、发布也从 `main` 出；分支 `develop/cordis-chat`（本地与远端）只作历史保留，不再开发、不再合入。
 
 **本线用词铁律——不准造词**：下表术语是唯一标准说法，issue、comment、汇报、代码注释、文档、对话里一律用标准词，禁止自造缩略词或新词（反面教材：「剥段」→ 标准词「插件整包过滤」）。现有词表表达不了的概念，先用一句平实的话说全、再登记进本表；宁可多写几个字，不让读者猜。
 
@@ -105,8 +105,6 @@
 | **双前端** | 我们工程词 | 同一网关实例上，官方 dsh web 拿全量清单正常使用，dsh-one 前端自己过滤——不给 dsh 加 profile、不改服务端 |
 | **浏览器验证** | 我们工程词 | 用 Playwright 开普通浏览器页面跑装配断言（快、自动化，是第一道验证）；harness 常驻 `test/assembly-lab/`（`npm run verify:lab`），不再放在各 worktree 的 `.dev-host/` 里 |
 | **VS Code 验证** | 我们工程词 | 用 `dev-ui-test.sh` 起隔离 VS Code 窗口加载扩展实测（慢、是最终准绳）；口语所称「真窗」「实验室」一律改用这两个词 |
-
-**验证线 `develop/cordis-chat`**（2026-09-14 起）：对话区官方 cordis 组件装配的验证线（#60 v1 整壳嵌入验收失败退回 `b:open` 后另立），条目 = #63（spike）→ #64（goal 1：对话区官方组件装配、侧栏保持自研）→ #65（goal 2：特有功能插件化）→ #66（goal 3：通用组件上游化）。该线任务合入用 `MERGE_TARGET=develop/cordis-chat`；`main` 保持自研 vanilla 前端不动，发布仍从 `main`。
 
 ## CHANGELOG 写法
 

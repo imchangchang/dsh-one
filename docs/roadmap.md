@@ -9,7 +9,7 @@
 ### 已完成的阶段
 
 - **管理面原生化**：会话列表 / 新建 / 重命名 / 归档 / 聚焦（侧栏 `dshOne.chat` 视图，数据层 `src/ui/sessionsStore.ts`），按 workspace 分组、当前文件夹置顶。
-- **装配对话区（#64 M1，验证线 develop/cordis-chat）**：插件整包过滤（blocklist：官方外框 + 官方侧栏）+ 自有外框插件接管根外框与主题 + loopback 代理（登录 cookie、跨来源改写、sec-fetch-* 剥离）。浏览器验证 + VS Code 验证两道关全过。
+- **装配对话区（#64 M1，2026-09-19 起在 `main` 上）**：插件整包过滤（blocklist：官方外框 + 官方侧栏）+ 自有外框插件接管根外框与主题 + loopback 代理（登录 cookie、跨来源改写、sec-fetch-* 剥离）。浏览器验证 + VS Code 验证两道关全过；对话区的 cordis 装配整线（`develop/cordis-chat`，条目 #63 → #64 → #65 → #66）已于 2026-09-19 合入 `main`。
 - **默认打开与旧聊天区下线（#68）**：点活动栏 DSH One 图标自动打开装配对话区（每窗口一次，手动关过不再强开）；旧自研聊天区全部代码、命令、harness、ledger 场景下线。
 
 ### 装配线后续（按 issue 顺序）

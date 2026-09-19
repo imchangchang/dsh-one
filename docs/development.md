@@ -50,7 +50,7 @@ npm run build      # 打出 dist/ 与 packages/*/lib/
 
 ```bash
 scripts/check-platform-compat.sh agent/my-task                 # 基点默认 main
-COMPAT_BASE=develop/cordis-chat scripts/check-platform-compat.sh agent/my-task
+COMPAT_BASE=<集成线分支> scripts/check-platform-compat.sh agent/my-task   # 集成线不是 main 时（历史上用过 develop/cordis-chat，该线 2026-09-19 已合入 main）
 ```
 
 ### 平台兼容性自检要什么
