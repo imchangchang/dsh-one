@@ -50,15 +50,17 @@ import {
   setSessionsTagGroup,
   splitByTagGroups,
   tagBucketOf,
+  tagGroupDisplayName,
   tagGroupNameError,
   tagGroupSessionIds,
   updateTagGroup,
+  withPresetTagGroups,
   withTagBucket,
   type TagGroupBucket,
   type TagGroupDef,
   type TagGroupsFile,
 } from '../../../../src/pure/sessionTagGroups.ts'
-import type { TagColor } from '../../../../src/pure/sessionTags.ts'
+import { isPresetTagId, type TagColor } from '../../../../src/pure/sessionTags.ts'
 import type { GroupFile } from '../../../../src/pure/dshStateFile.ts'
 import { FlashHost, flashTip } from './flash.ts'
 import { onSessionOwnedElsewhere } from './sessionOwnedNotice.ts'
@@ -379,6 +381,13 @@ export function WorkspaceTree(props: TreeProps): unknown {
   }
   /** 某个分组键（工作区 id / 未分组桶）名下的标签组桶；没有就是空桶（不建键）。 */
   const tagBucket = (groupKey: string): TagGroupBucket => tagBucketOf(tagFile, groupKey)
+  /**
+   * **视图侧**的桶（#213）：在真实桶之上补出三个预设组（`pure/sessionTagGroups.ts` 的
+   * `withPresetTagGroups`，不改持久数据）。凡「显示或让用户挑组」的地方都用它——
+   * 组块渲染、组 pill 菜单、会话行「移到分组…」那一节；凡「改数据」的地方仍用
+   * `tagBucket`（写进去的只有用户真做过的事）。
+   */
+  const tagViewBucket = (groupKey: string): TagGroupBucket => withPresetTagGroups(tagBucket(groupKey))
   /** 把一个桶写回去；`null` = 没变化，跳过落盘。 */
   const applyTagBucket = (groupKey: string, next: TagGroupBucket | null): void => {
     if (next === null) return
@@ -1128,9 +1137,14 @@ export function WorkspaceTree(props: TreeProps): unknown {
     applyTagBucket(groupKey, setSessionTagGroup(bucket, sessionId, null))
   }
 
-  /** 拖 pill 换组序：先摘下源组，再插到目标组的前/后（旧侧栏同一算法）。 */
+  /**
+   * 拖 pill 换组序：先摘下源组，再插到目标组的前/后（旧侧栏同一算法）。
+   * 在**视图桶**上做（#213）：三个预设组也占据界面上的位置，拖拽提交的是整份显示顺序；
+   * 写回时预设组跟着落进持久数据，此后它们的顺序就听数据的了（`withPresetTagGroups`
+   * 不会再插一遍）。
+   */
   const reorderTag = (groupKey: string, sourceId: string, targetId: string, before: boolean): void => {
-    const bucket = tagBucket(groupKey)
+    const bucket = tagViewBucket(groupKey)
     const ids = bucket.tags.map((tag) => tag.id)
     if (!ids.includes(sourceId) || !ids.includes(targetId)) return
     ids.splice(ids.indexOf(sourceId), 1)
@@ -1140,6 +1154,10 @@ export function WorkspaceTree(props: TreeProps): unknown {
 
   /** 组 pill 菜单的动作（菜单项由 `tagGroupMenuItems` 树出，这里只按 id 派发）。 */
   const onTagMenuSelect = (groupKey: string, def: TagGroupDef, members: readonly SessionNode[], id: string): void => {
+    // #213：预设组不可改名、不可删除——菜单里已经不出现这两项，这里再拒一道（两道都不
+    // 靠对方：菜单是呈现，动作层是判据；纯模型里 `deleteTagGroup` / `updateTagGroup`
+    // 还有第三道）。
+    if ((id === 'tag-rename' || id === 'tag-delete') && isPresetTagId(def.id)) return
     if (id === 'tag-new-session') {
       // 未分组桶没有工作区，开不出会话（那一桶里的会话来自已删除的工作区）。
       if (groupKey === UNGROUPED_KEY) return
@@ -1166,27 +1184,34 @@ export function WorkspaceTree(props: TreeProps): unknown {
       return
     }
     if (id === 'tag-rename') {
-      setTagRename({ groupKey, id: def.id, name: def.name })
+      setTagRename({ groupKey, id: def.id, name: tagGroupDisplayName(def, tr) })
       return
     }
     if (id === 'tag-delete') {
-      setTagDelete({ groupKey, id: def.id, name: def.name })
+      setTagDelete({ groupKey, id: def.id, name: tagGroupDisplayName(def, tr) })
       return
     }
     if (id.startsWith('tag-color-')) {
-      applyTagBucket(groupKey, updateTagGroup(tagBucket(groupKey), def.id, { color: id.slice('tag-color-'.length) as TagColor }))
+      // 在**视图桶**上换色：预设组的定义可能还没落进持久数据，这一下顺手把它落下去。
+      // 预设组可换色是照旧侧栏的口径（`sessionsStore.ts` 的 `setTagColor` 对预设组没有门槛），
+      // 见 tagGroups.ts 的菜单说明。
+      applyTagBucket(groupKey, updateTagGroup(tagViewBucket(groupKey), def.id, { color: id.slice('tag-color-'.length) as TagColor }))
     }
   }
 
   /**
-   * 行菜单「标签组」一节的项（#107）：本工作区的组 + 「不归入标签组」+「新建标签组…」。
-   * 恒渲染这一节（一个组都没有时也渲染）：不然新建第一个组没有入口——拖拽只能把会话
-   * 拖进**已经存在**的组。
+   * 行菜单「移到分组…」一节的项（#107）：本工作区的标签组 + 「不归入标签组」+
+   * 「新建标签组…」。恒渲染这一节（一个组都没有时也渲染）：不然新建第一个组没有入口
+   * ——拖拽只能把会话拖进**已经存在**的组。
+   *
+   * 用**视图桶**（#213）：三个预设组恒在这份清单里（名字走 l10n），任何一条会话都能直接
+   * 归进它们——这正是旧侧栏 `presetTagSnapshots` 要保证的那件事。`current` 取自真实桶：
+   * 归属本来就只有一份（指向预设组还是自建组在这里没有分别）。
    */
   const tagItemsFor = (sessionId: string): { items: unknown[]; selectedIds: string[] } => {
     const groupKey = groupKeyOfSession(sessionId)
-    const bucket = tagBucket(groupKey)
-    const current = bucket.sessionTags[sessionId]
+    const bucket = tagViewBucket(groupKey)
+    const current = tagBucket(groupKey).sessionTags[sessionId]
     // 文案包一层带标记的 span：菜单项的类名是官方哈希，验证套件与样式都不该认它
     //（与行菜单其它项同一做法，见 rows.ts 的 sessionMenuItem）。
     // #109：这一节的项住在会话行菜单「移到分组…」的**就地展开**里（不再是菜单末尾的一节），
@@ -1199,7 +1224,7 @@ export function WorkspaceTree(props: TreeProps): unknown {
       items: [
         ...bucket.tags.map((tag) => ({
           id: `${TAG_MENU_PREFIX}${tag.id}`,
-          label: label(tag.id, tag.name),
+          label: label(tag.id, tagGroupDisplayName(tag, tr)),
           icon: h(TagColorSwatch, { color: tag.color }),
         })),
         { id: `${TAG_MENU_PREFIX}__none`, label: label('__none', tr('tag.none')) },
@@ -1452,7 +1477,8 @@ export function WorkspaceTree(props: TreeProps): unknown {
             orderedGroups.map((group) => {
               const split = splitByTagGroups(
                 group.sessions,
-                tagBucket(group.key),
+                // #213：视图桶——三个预设组恒在（没有成员也出块，是用户往里拖会话的落点）。
+                tagViewBucket(group.key),
                 (node) => pinnedIds.has(node.id),
               )
               // #108：组头三态全选（成员取整组，不看折叠态——收着的组也能一次勾满）。
@@ -1513,7 +1539,10 @@ export function WorkspaceTree(props: TreeProps): unknown {
                     sessions: block.sessions,
                     isUnread: (sessionId: string) => unreadIds.has(sessionId),
                     menuItems: tagGroupMenuItems({
-                      name: block.def.name,
+                      // #213：预设组的名字走 l10n（`def.name` 是 null），预设组还少两项
+                      //（改名 / 删除组），由 `tagGroupMenuItems` 按 id 认出来。
+                      id: block.def.id,
+                      name: tagGroupDisplayName(block.def, tr),
                       color: block.def.color,
                       total: block.sessions.length,
                       archivable: block.sessions.filter((node) => cannotArchiveReason(eligibilityOf(node)) === null).length,
