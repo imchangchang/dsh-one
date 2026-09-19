@@ -41,9 +41,9 @@ import {
   Menu,
   StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { tagGroupCounts, type TagGroupDef } from '../../../../src/pure/sessionTagGroups.ts'
+import { tagGroupCounts, tagGroupDisplayName, type TagGroupDef } from '../../../../src/pure/sessionTagGroups.ts'
 import type { SessionNode } from '../../../../src/pure/workspaceTreeView.ts'
-import { TAG_COLORS, type TagColor } from '../../../../src/pure/sessionTags.ts'
+import { TAG_COLORS, isPresetTagId, type TagColor } from '../../../../src/pure/sessionTags.ts'
 import type { Translate } from './types.ts'
 
 /** 会话行拖拽的载荷类型（旧侧栏同名）。 */
@@ -87,6 +87,12 @@ export function tagCollapseKey(groupKey: string, tagId: string): string {
  * 组 pill 的菜单（#107 定稿的八项：标题行 + 组内新建会话 / 整组归档 / 整组移入回收站 /
  * 移出标签组 / 改名 / 颜色 / 删除组）。
  *
+ * **预设组少两项**（#213）：预设组不可改名、不可删除（`pure/sessionTags.ts` 写明的固定
+ * id 语义，动作层也各拒一道），所以「改名」与「删除组」那一节都不出现——菜单是
+ * 标题行 + 组内新建会话 / 整组归档 / 整组移入回收站 / 移出标签组 / 颜色。**颜色照旧
+ * 可改**：旧侧栏对预设组的选色没有门槛（`sessionsStore.ts` 的 `setTagColor` 只查组
+ * 存不存在），照它的口径。
+ *
  * 为什么是「一条小标题 + 一节颜色」而不是二级子菜单：官方 `Menu` 的项**有** `submenu` 这一档
  * （#172 读官方源码核过），但它是**右侧飞出的一层**（官方 `._submenu_1nxmc_9` 绝对定位在
  * `left:calc(100% + 10px)`），窄侧栏（260px）里放不下——我们自己的二级菜单因此改成「就地展开」
@@ -95,11 +101,13 @@ export function tagCollapseKey(groupKey: string, tagId: string): string {
  * 形态摊成一节（标题「颜色」+ 6 个色块项），当前色走官方 `selectedIds` 打勾；`separator` /
  * `label` 两种类型项在本插件的行菜单里也已经在用。菜单项只在菜单里出现，不做常驻占位。
  *
+ * @param id 组 id（预设组按它认出来）
  * @param counts 组内会话的三个数（菜单要写「整组（N 个会话）」并据此禁用）
  * @param counts.archivable 够格归档的条数，0 = 整组都不可归档 → 那一项禁用
  * @param counts.recyclable 够格移入回收站的条数，0 = 整组都置顶 → 那一项禁用
  */
 export function tagGroupMenuItems(opts: {
+  id: string
   name: string
   color: TagColor
   total: number
@@ -108,6 +116,7 @@ export function tagGroupMenuItems(opts: {
   tr: Translate
 }): unknown[] {
   const { tr, name, total, archivable, recyclable } = opts
+  const preset = isPresetTagId(opts.id)
   // 每项的文案包一层带 `data-dshone-tree-item` 的 span：菜单项的类名是官方哈希，
   // 验证套件与样式都不该认它（与行菜单同一做法，见 rows.ts 的 sessionMenuItem）。
   // #113：菜单项图标按官方紧凑档的图标位给尺寸——14×14 是官方该档的项内图标盒
@@ -132,7 +141,10 @@ export function tagGroupMenuItems(opts: {
       ...(recyclable === 0 ? { title: tr('tag.recycle.blocked') } : {}),
     },
     { id: 'tag-ungroup', label: label('tag-ungroup', tr('tag.ungroup')) },
-    { id: 'tag-rename', label: label('tag-rename', tr('tag.rename')), icon: h(IconEditOutline16, { size: 14 }) },
+    // 预设组不可改名：这一项整个不出现（动作层也拒，见 tree.ts 的 onTagMenuSelect）。
+    ...(preset
+      ? []
+      : [{ id: 'tag-rename', label: label('tag-rename', tr('tag.rename')), icon: h(IconEditOutline16, { size: 14 }) }]),
     { type: 'separator', id: 'tag-color-separator' },
     { type: 'label', id: 'tag-color-label', text: tr('tag.color') },
     ...TAG_COLORS.map((candidate) => ({
@@ -140,13 +152,18 @@ export function tagGroupMenuItems(opts: {
       label: label(`tag-color-${candidate}`, tr(TAG_COLOR_LABEL[candidate])),
       icon: h(TagColorSwatch, { color: candidate }),
     })),
-    { type: 'separator', id: 'tag-delete-separator' },
-    {
-      id: 'tag-delete',
-      label: label('tag-delete', tr('tag.delete')),
-      icon: h(IconTrashOutline16, { size: 14 }),
-      danger: true,
-    },
+    // 预设组删不掉：分隔线与那一项都不出现（动作层也拒，见 deleteTagGroup）。
+    ...(preset
+      ? []
+      : [
+          { type: 'separator', id: 'tag-delete-separator' },
+          {
+            id: 'tag-delete',
+            label: label('tag-delete', tr('tag.delete')),
+            icon: h(IconTrashOutline16, { size: 14 }),
+            danger: true,
+          },
+        ]),
   ]
 }
 
@@ -262,13 +279,16 @@ export function TagGroupBlock({
   const [pillDrop, setPillDrop] = useState<'before' | 'after' | null>(null)
   const counts = tagGroupCounts(sessions, isUnread)
   const hasCounts = counts.pending + counts.running + counts.unread > 0
+  // #213：组名在这一处解析——预设组的 `name` 是 null（名字走 l10n，见纯模型），
+  // 自建组就是用户原文；块里所有写名字的地方（pill、aria、提示）都用这一个。
+  const name = tagGroupDisplayName(def, tr)
 
   const anchor = h(
     'button',
     {
       type: 'button',
       className: 'dshOneTree_rowIconButton',
-      'aria-label': tr('actions.tag.aria', { name: def.name }),
+      'aria-label': tr('actions.tag.aria', { name }),
       'data-dshone-tree-action': 'tag-menu',
       'data-dshone-tree-tag-target': def.id,
       onClick: (event: { stopPropagation(): void }) => {
@@ -287,7 +307,7 @@ export function TagGroupBlock({
       {
         className: 'dshOneTree_tagPill',
         draggable: true,
-        title: tr('tag.pill.aria', { name: def.name }),
+        title: tr('tag.pill.aria', { name }),
         'data-dshone-tree-tag-pill': def.id,
         'data-dshone-tag-drop': pillDrop ?? '',
         onDragStart: (event: DragLike) => {
@@ -322,7 +342,7 @@ export function TagGroupBlock({
         },
       },
       h('span', { className: 'dshOneTree_tagDot' }),
-      h('span', { className: 'dshOneTree_tagName' }, def.name),
+      h('span', { className: 'dshOneTree_tagName' }, name),
     ),
     h(
       'button',
@@ -332,7 +352,7 @@ export function TagGroupBlock({
         'data-dshone-tree-action': 'tag-toggle',
         'data-dshone-tree-tag-target': def.id,
         'aria-expanded': !collapsed,
-        'aria-label': collapsed ? tr('tag.expand', { name: def.name }) : tr('tag.collapse', { name: def.name }),
+        'aria-label': collapsed ? tr('tag.expand', { name }) : tr('tag.collapse', { name }),
         onClick: (event: { stopPropagation(): void }) => {
           event.stopPropagation()
           onToggleCollapse()

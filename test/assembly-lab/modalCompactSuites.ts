@@ -469,7 +469,14 @@ export const MODAL_COMPACT_SUITE: LabSuite = {
       await page.fill('[data-dshone-tree="tag-name-input"]', 'Lab Tag')
       await page.click('[data-dshone-tree-action="tag-create-confirm"]')
       await page.waitForTimeout(400)
-      const tagId = await page.evaluate(() => document.querySelector('[data-dshone-tree-tag]')?.getAttribute('data-dshone-tree-tag') ?? '')
+      // 定位刚建的那个组：按块上的**组名**认（`Lab Tag` 是上面填进去的）——#213 起每个
+      // 工作区块里还恒有三个预设组的块，「文档里第一个块」不再等于「刚建的那个」。
+      const tagId = await page.evaluate(() => {
+        const named = Array.from(document.querySelectorAll('[data-dshone-tree-tag]')).find(
+          (block) => (block.querySelector('.dshOneTree_tagName')?.textContent ?? '') === 'Lab Tag',
+        )
+        return named?.getAttribute('data-dshone-tree-tag') ?? ''
+      })
       check.ok('新建标签组：确认后真的建出来了（组块出现）', tagId !== '', tagId)
 
       // ---- ① 重命名标签组 / 删除标签组确认 ----

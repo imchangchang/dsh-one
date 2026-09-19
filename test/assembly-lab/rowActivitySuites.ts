@@ -133,6 +133,14 @@ interface RowReading {
   docOverflow: Overflow
 }
 
+/**
+ * 工作区行的定位器（**必须带 `data-dshone-tree-row="workspace"`**）：#213 起标签组块也带
+ * 同一个 `data-dshone-tree-key`（值是它所属的分组键 = 工作区 id），裸按 key 选会一次匹配到
+ * 「工作区行 + 那个区块里的每个组块」——Playwright 严格模式当场报错（实测：一个区块里
+ * 三个预设组的块 = 四个匹配），`document.querySelector` 则会悄悄读到别的元素。
+ */
+const workspaceRowSelector = (key: string): string => `[data-dshone-tree-row="workspace"][data-dshone-tree-key="${key}"]`
+
 /** 读一行工作区行（`keySelector` 定位那一行；缺省取「有计数的那一行」）。 */
 async function readRow(page: OpenedPage['page'], keySelector?: string): Promise<RowReading | null> {
   return page.evaluate((selector: string | undefined) => {
@@ -275,7 +283,7 @@ export const ROW_ACTIVITY_SUITE: LabSuite = {
       check.fact(`工作区行（按标题文字宽降序）：${JSON.stringify(rows.slice().sort((a, b) => b.textWidth - a.textWidth).slice(0, 5))}`)
       for (const candidate of rows.filter((row) => row.key !== '').sort((a, b) => b.textWidth - a.textWidth)) {
         if (!candidate.expanded) {
-          await opening.page.click(`[data-dshone-tree-key="${candidate.key}"]`)
+          await opening.page.click(workspaceRowSelector(candidate.key))
           await opening.page.waitForTimeout(400)
         }
         const sessionId = await opening.page.evaluate(
@@ -371,7 +379,7 @@ export const ROW_ACTIVITY_SUITE: LabSuite = {
       for (const width of WIDTHS) {
         await page.setViewportSize({ width, height: 900 })
         await page.waitForTimeout(300)
-        const reading = await readRow(page, `[data-dshone-tree-key="${key}"]`)
+        const reading = await readRow(page, `${workspaceRowSelector(key)}`)
         if (reading === null) {
           check.ok(`④ w=${String(width)}：那一行还在`, false, 'row gone')
           continue
@@ -405,7 +413,7 @@ export const ROW_ACTIVITY_SUITE: LabSuite = {
       // ---- ④ 窄到标题真被截断：文字让位、计数照常 ----
       await page.setViewportSize({ width: NARROW_WIDTH, height: 900 })
       await page.waitForTimeout(300)
-      const narrow = await readRow(page, `[data-dshone-tree-key="${key}"]`)
+      const narrow = await readRow(page, `${workspaceRowSelector(key)}`)
       if (narrow === null) {
         check.ok('④ 窄宽度下：那一行还在', false, 'row gone')
       } else {
@@ -455,9 +463,9 @@ export const ROW_ACTIVITY_SUITE: LabSuite = {
 
       // ---- ⑤ 回归：悬停时计数留在原地、胶囊照旧让位、动作按钮照常出现 ----
       const nonCurrent = currentFacts.keys.find((candidate) => candidate !== key)
-      await page.hover(`[data-dshone-tree-key="${key}"]`)
+      await page.hover(`${workspaceRowSelector(key)}`)
       await page.waitForTimeout(250)
-      const hovered = await readRow(page, `[data-dshone-tree-key="${key}"]`)
+      const hovered = await readRow(page, `${workspaceRowSelector(key)}`)
       check.fact(`⑤ 悬停当前工作区行：${JSON.stringify({ rowEndDisplay: hovered?.rowEndDisplay ?? null, activity: hovered?.activityRect ?? null, buttons: hovered?.actionButtons ?? null })}`)
       check.ok('⑤ 悬停时计数仍在场且位置不变（它不在行尾那一层里）', hovered !== null && hovered.activityRect.w > 0 && Math.abs(hovered.activityRect.x - probe.activityRect.x) <= 1, JSON.stringify({ rest: probe.activityRect.x, hover: hovered?.activityRect.x ?? null }))
       check.eq('⑤ 悬停时行尾层让位（胶囊那一层照旧隐藏）', hovered?.rowEndDisplay, 'none')
@@ -467,9 +475,9 @@ export const ROW_ACTIVITY_SUITE: LabSuite = {
         JSON.stringify({ buttons: hovered?.actionButtons ?? null }),
       )
       if (nonCurrent !== undefined) {
-        await page.hover(`[data-dshone-tree-key="${nonCurrent}"]`)
+        await page.hover(workspaceRowSelector(nonCurrent))
         await page.waitForTimeout(250)
-        const other = await readRow(page, `[data-dshone-tree-key="${nonCurrent}"]`)
+        const other = await readRow(page, workspaceRowSelector(nonCurrent))
         check.fact(`⑤ 悬停非当前工作区行（${nonCurrent.slice(0, 8)}）：${JSON.stringify({ buttons: other?.actionButtons ?? null, activity: other?.hasActivity ?? null })}`)
         check.ok('⑤ 非当前工作区行的动作按钮是四枚', other !== null && other.actionButtons === 4, JSON.stringify({ buttons: other?.actionButtons ?? null }))
         check.ok('⑤ 没有计数的行上不渲染计数（只跑着的那一行有）', other !== null && !other.hasActivity, JSON.stringify({ hasActivity: other?.hasActivity ?? null }))
@@ -478,8 +486,8 @@ export const ROW_ACTIVITY_SUITE: LabSuite = {
       }
 
       // ---- ⑤ 回归：工作区行右键菜单照旧 ----
-      await page.hover(`[data-dshone-tree-key="${key}"]`)
-      const rowBox = await page.locator(`[data-dshone-tree-key="${key}"]`).boundingBox()
+      await page.hover(`${workspaceRowSelector(key)}`)
+      const rowBox = await page.locator(`${workspaceRowSelector(key)}`).boundingBox()
       if (rowBox === null) {
         check.ok('⑤ 拿到工作区行的位置（右键菜单要用）', false, 'no bounding box')
       } else {

@@ -464,11 +464,12 @@ export const SUBMENU_INDENT_SUITE: LabSuite = {
     try {
       await expandAllWorkspaces(page)
 
-      // ---- ③ 前半：没有标签组 / 没有自定义分组时的两次缺席 ----
+      // ---- ③ 前半：没有自建标签组 / 没有自定义分组时的两次缺席 ----
       // 会话菜单的「移到分组…」**恒在场**（tree.ts 的口径：#107 里一个组都没有时也渲染，
       // 不然新建第一个组没有入口——拖拽只能把会话拖进已经存在的组），所以这一侧要断的是
-      // 「**标签组那几条子项**一条都不出现，只剩两条固定入口」；工作区菜单的「分组…」才是
-      // 真缺席（`groups` 为空时整项不渲染）。
+      // 「**自建标签组那几条子项**一条都不出现（#213 起三个预设组恒在，不算在这一侧），
+      // 其余是预设组 + 两条固定入口」；工作区菜单的「分组…」才是真缺席（`groups` 为空时
+      // 整项不渲染）。
       const fixture = await sessionFixture(page)
       check.fact(`夹具会话：${JSON.stringify(fixture)}`)
       check.ok(
@@ -488,25 +489,28 @@ export const SUBMENU_INDENT_SUITE: LabSuite = {
       check.fact(
         `没有标签组时「移到分组…」展开后子项：${JSON.stringify(bareExpanded.children.map((child) => child.text))}`,
       )
-      check.eqTexts('没有标签组时只剩两条固定入口（不归入标签组 / 新建标签组）', bareExpanded.children.map((child) => child.text), [
-        '不归入标签组',
-        '新建标签组',
-      ])
+      check.eqTexts(
+        '#213：没有自建标签组时展开出三个预设组 + 两条固定入口（不归入标签组 / 新建标签组）',
+        bareExpanded.children.map((child) => child.text),
+        ['待办', '进行中', '已完成', '不归入标签组', '新建标签组'],
+      )
       check.ok(
-        '没有标签组时没有任何 `tag:` 子项（标签组那几条随数据缺席）',
+        '没有自建标签组时没有任何自建组的 `tag:t-` 子项（那几条随数据缺席；预设组恒在，不在此列）',
         bareExpanded.children.every((child) => !child.marker.startsWith('tag:t-')),
         JSON.stringify(bareExpanded.children.map((child) => child.marker)),
       )
       check.eq('没有标签组时展开也不关菜单（父项行为不变）', bareExpanded.menuCount, 1)
       const bareParent = bareExpanded.parent
-      if (bareParent !== null && bareExpanded.children.length === 2) {
+      if (bareParent !== null && bareExpanded.children.length === 5) {
         const bareRelations = bareExpanded.children.map((child) => child.labelLeft - bareParent.labelLeft)
         check.fact(`没有标签组时：子项文字左缘 − 父项文字左缘 = ${JSON.stringify(bareRelations.map((value) => Number(value.toFixed(2))))}`)
         check.ok(
-          `两条固定入口都是无图标的子项，缩进与有图标的一样（${String(EXPECTED_INDENT)}px，空图标槽占位生效）`,
+          `三条预设组 + 两条固定入口都是无图标的子项，缩进与有图标的一样（${String(EXPECTED_INDENT)}px，空图标槽占位生效）`,
           bareRelations.every((value) => Math.abs(value - EXPECTED_INDENT) <= 1),
           JSON.stringify(bareRelations.map((value) => Number(value.toFixed(2)))),
         )
+      } else {
+        check.fact(`没有标签组时的子项数是 ${String(bareExpanded.children.length)}（不是 #213 之后的 3 个预设组 + 2 条固定入口）——缩进那一段没跑`)
       }
       await page.keyboard.press('Escape')
       await page.waitForTimeout(200)
@@ -588,9 +592,12 @@ export const SUBMENU_INDENT_SUITE: LabSuite = {
           })),
         )}`,
       )
-      check.eqTexts('展开出四个子项（组一 / 组二 / 不归入标签组 / 新建标签组）', expanded.children.map((child) => child.text), [
+      check.eqTexts('#213：展开出两个自建组 + 三个预设组 + 两条固定入口（不归入标签组 / 新建标签组）', expanded.children.map((child) => child.text), [
         '组一',
         '组二',
+        '待办',
+        '进行中',
+        '已完成',
         '不归入标签组',
         '新建标签组',
       ])
@@ -600,7 +607,7 @@ export const SUBMENU_INDENT_SUITE: LabSuite = {
         expanded.children.length > 0 && expanded.children.every((child) => child.indentWrapped),
         JSON.stringify(expanded.children.map((child) => child.indentWrapped)),
       )
-      if (parent !== null && expanded.children.length === 4) {
+      if (parent !== null && expanded.children.length === 7) {
         const relations = expanded.children.map((child) => child.labelLeft - parent.labelLeft)
         check.fact(`会话菜单：子项文字左缘 − 父项文字左缘 = ${JSON.stringify(relations.map((value) => Number(value.toFixed(2))))}`)
         check.eq(
@@ -647,6 +654,8 @@ export const SUBMENU_INDENT_SUITE: LabSuite = {
           expanded.children.every((child) => child.iconLeft !== null && child.iconRight !== null && Math.abs(child.iconRight - child.iconLeft) <= 0.5 + Number.parseFloat(SCALE_TIERS.compact.iconSize)),
           JSON.stringify(expanded.children.map((child) => (child.iconRight === null || child.iconLeft === null ? '无' : (child.iconRight - child.iconLeft).toFixed(1)))),
         )
+      } else {
+        check.fact(`会话菜单「移到分组…」的子项数是 ${String(expanded.children.length)}（不是 #213 之后的 2 自建 + 3 预设 + 2 固定）——上面那一段缩进判据没跑`)
       }
       // 右端指示器的两态：#172 起收起态是官方右向 chevron、展开态是官方下向 chevron，
       // **只换图标、几何不走位**（用户报的是「太小、紧贴文字」，位置与尺寸都不该被顺手带跑）。

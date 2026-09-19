@@ -192,6 +192,11 @@ export const ZH: Record<string, string> = {
   'tag.moved': '\u5df2\u79fb\u5165\u6807\u7b7e\u7ec4\u201c{name}\u201d',
   'tag.created': '\u5df2\u65b0\u5efa\u6807\u7b7e\u7ec4\u201c{name}\u201d',
   'actions.tag.aria': '\u6807\u7b7e\u7ec4\u201c{name}\u201d\u7684\u64cd\u4f5c',
+  // #213：三个预设组的名字。**键名就是预设组的 l10n 键**（`pure/sessionTags.ts` 的
+  // `PRESET_TAG_L10N`：preset id → 这个英文词），所以三处（id、键名、英文取值）必须一致。
+  Todo: '\u5f85\u529e',
+  Doing: '\u8fdb\u884c\u4e2d',
+  Done: '\u5df2\u5b8c\u6210',
   'protect.recycle.pinned': '\u7f6e\u9876\u4f1a\u8bdd\u4e0d\u80fd\u79fb\u5165\u56de\u6536\u7ad9\u6216\u5f52\u6863\uff0c\u5148\u53d6\u6d88\u7f6e\u9876',
   'protect.archive.pinned': '\u7f6e\u9876\u4f1a\u8bdd\u4e0d\u80fd\u5f52\u6863\uff0c\u5148\u53d6\u6d88\u7f6e\u9876',
   'protect.archive.pending': '\u5f85\u5904\u7406\u7684\u4f1a\u8bdd\u4e0d\u80fd\u5f52\u6863',
@@ -410,6 +415,10 @@ export const EN: Record<string, string> = {
   'tag.moved': 'Moved to the tag group \u201c{name}\u201d',
   'tag.created': 'Created the tag group \u201c{name}\u201d',
   'actions.tag.aria': 'Tag group actions for {name}',
+  // #213：三个预设组的名字（键名 = id（见上一条），英文取值 = PRESET_TAG_L10N 的那一份）。
+  Todo: 'Todo',
+  Doing: 'Doing',
+  Done: 'Done',
   'protect.recycle.pinned': 'Pinned sessions cannot be moved to the recycle bin or archived; unpin them first',
   'protect.archive.pinned': 'Pinned sessions cannot be archived; unpin them first',
   'protect.archive.pending': 'Sessions with pending items cannot be archived',

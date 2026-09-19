@@ -39,14 +39,24 @@ export interface SessionTagDef {
   color: TagColor
 }
 
+/** preset id 判定（组定义与归属两张表都以 id 认预设组，见 sessionTagGroups.ts）. */
+export function isPresetTagId(id: string): boolean {
+  return (PRESET_TAG_IDS as readonly string[]).includes(id)
+}
+
 export function isPresetTag(tag: SessionTagDef): boolean {
-  return (PRESET_TAG_IDS as readonly string[]).includes(tag.id)
+  return isPresetTagId(tag.id)
+}
+
+/** 预设组的显示名（key = PRESET_TAG_L10N[id]）：名字不落数据，恒从词典出. */
+export function presetTagName(id: string, t: (key: string) => string): string {
+  return t(PRESET_TAG_L10N[id] ?? id)
 }
 
 /** 组显示名：预设组走 l10n（key = PRESET_TAG_L10N[id]），自定义组用用户原文. */
 export function tagDisplayName(tag: SessionTagDef, t: L10nFn): string {
   if (tag.name !== null) return tag.name
-  return t(PRESET_TAG_L10N[tag.id] ?? tag.id)
+  return presetTagName(tag.id, t)
 }
 
 /**
