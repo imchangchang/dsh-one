@@ -73,6 +73,7 @@ import { RECONNECT_HINT_SUITE } from './reconnectHintSuites.ts'
 import { CHAT_BOOT_RACE_SUITE } from './chatBootRaceSuites.ts'
 import { ASSEMBLY_FAILURE_SUITE } from './assemblyFailureSuites.ts'
 import { TAG_PRESETS_SUITE } from './tagPresetSuites.ts'
+import { TAG_COLOR_UNUSED_SUITE, TAG_GROUP_RECYCLE_SUITE } from './tagRecycleColorSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
@@ -3602,7 +3603,7 @@ export const TAG_GROUPS_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '会话标签组（#107）：迁入 / 拖入拖出 / 组间拖拽换位 / 组内置顶 / 折叠计数 / 组菜单（TAG-GROUPS 套件）',
   expect:
-    '#107 定的标签组语义在真实装配页上成立（真网关**只读** + 假宿主）：① **迁入**——把旧侧栏那份 `tags.json`（v2 形状，含内置组 `preset-todo` 与一个从没成员的空气组）注进假宿主状态存储后，自建组与它的归属原样迁入，**预设组也照常收下**（#213 把 #98/#107 那条「旧内置组不再算组」反过来：原先归在 `preset-todo` 里的会话仍在那个组里，另外两个预设组由视图侧恒补出来；#214 起它们没有成员时**不渲染成块**，只在这一档的行菜单清单里恒列），空气组被清掉，写回的 `tags` 里**不再有 `collapsed` 字段**（折叠是纯视图态，走客户端存储）；② **拖入/拖出**——把一条会话拖到组块上就归进该组、拖到组外（工作区层）就移出分组，两次都只改我们自己的 `tags` 状态（**落点是组块**，空组没有块也就没有落点，这是 #214 的取舍）；③ **组间拖拽换位**——拖 pill 到另一个 pill 的上半 = 插到它前面，新顺序落回状态（提交的是含三个预设组的整份显示顺序；页面上只有有成员的组有 pill）；④ **组内置顶**——菜单里置顶一条组内会话后，它排到**该组内**最前（组与组之间的相对位置不受影响）；⑤ **折叠 + 折叠计数**——点 pill 右侧三角收起组内行，组头右侧出现组内「待交互/运行中/未读」计数（每会话只进一个桶），折叠态落 `dsh.workspaceTree.view` 而不是 `tags.json`；⑥ **pill 菜单八项**（标题行 + 组内新建会话 / 整组归档 / 整组移入回收站 / 移出标签组 / 改名 / 颜色 / 删除组）全在——这是**自建组**的菜单，预设组的菜单少「改名」与「删除组」两项，由 F-64 判；其中**两项危险动作走确认弹窗**（整组归档开 #103 那个归档确认弹窗并写明跳过数、删除组开删除确认弹窗），弹窗取消则什么都不发生；⑦ **整组移入回收站**是本地可逆那一层（立即执行 + 飘提示，不动 dsh 侧）；⑧ **空组处理**——**自建**组内成员走了、清了之后，组定义与归属一起被清掉（组只与成员一起出现，不留看不见也删不掉的空壳）；预设组不参与这条清理、恒在场，但 #214 起空着不占位。全程零 pageerror。',
+    '#107 定的标签组语义在真实装配页上成立（真网关**只读** + 假宿主）：① **迁入**——把旧侧栏那份 `tags.json`（v2 形状，含内置组 `preset-todo` 与一个从没成员的空气组）注进假宿主状态存储后，自建组与它的归属原样迁入，**预设组也照常收下**（#213 把 #98/#107 那条「旧内置组不再算组」反过来：原先归在 `preset-todo` 里的会话仍在那个组里，另外两个预设组由视图侧恒补出来；#214 起它们没有成员时**不渲染成块**，只在这一档的行菜单清单里恒列），空气组被清掉，写回的 `tags` 里**不再有 `collapsed` 字段**（折叠是纯视图态，走客户端存储）；② **拖入/拖出**——把一条会话拖到组块上就归进该组、拖到组外（工作区层）就移出分组，两次都只改我们自己的 `tags` 状态（**落点是组块**，空组没有块也就没有落点，这是 #214 的取舍）；③ **组间拖拽换位**——拖 pill 到另一个 pill 的上半 = 插到它前面，新顺序落回状态（提交的是含三个预设组的整份显示顺序；页面上只有有成员的组有 pill）；④ **组内置顶**——菜单里置顶一条组内会话后，它排到**该组内**最前（组与组之间的相对位置不受影响）；⑤ **折叠 + 折叠计数**——点 pill 右侧三角收起组内行，组头右侧出现组内「待交互/运行中/未读」计数（每会话只进一个桶），折叠态落 `dsh.workspaceTree.view` 而不是 `tags.json`；⑥ **pill 菜单八项**（标题行 + 组内新建会话 / 整组归档 / 整组移入回收站 / 移出标签组 / 改名 / 颜色 / 删除组）全在——这是**自建组**的菜单，预设组的菜单少「改名」与「删除组」两项，由 F-64 判；其中**两项危险动作走确认弹窗**（整组归档开 #103 那个归档确认弹窗并写明跳过数、删除组开删除确认弹窗），弹窗取消则什么都不发生；⑦ **整组移入回收站**是本地可逆那一层（立即执行 + 飘提示，不动 dsh 侧；#216 起**回收站里的会话不算组员**——组内成员全进了回收站时，那个组连归属当场被清掉）；⑧ **空组处理**——**自建**组内成员走了、清了、或被移进回收站之后，组定义与归属一起被清掉（组只与成员一起出现，不留看不见也删不掉的空壳）；预设组不参与这条清理、恒在场，但 #214 起空着不占位。全程零 pageerror。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const opened = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 380, height: 900 })
@@ -3915,11 +3916,11 @@ export const TAG_GROUPS_SUITE: LabSuite = {
       const afterRecycle = await bucketOf(fixture.key)
       check.fact(`整组移入回收站后的桶=${JSON.stringify(afterRecycle)}`)
       check.ok(
-        '回收站里的会话仍算组员：组与归属都留着（还原回来还在这个组里，不被顺手解散）',
-        afterRecycle.tags?.some((tag) => tag.id === createdId) === true && afterRecycle.sessionTags?.[spare] === createdId,
+        '唯一成员被移进回收站 → 这个组当场被清掉（#216：回收站里的会话不算组员，不再等到归档那一步）',
+        afterRecycle.tags?.some((tag) => tag.id === createdId) !== true && afterRecycle.sessionTags?.[spare] === undefined,
         JSON.stringify(afterRecycle),
       )
-      screenshots.push(await shot(ctx, page, 'tag-groups-recycle-keeps-group'))
+      screenshots.push(await shot(ctx, page, 'tag-groups-recycle-prunes-group'))
 
       // ---- ⑪ 移出标签组：整组成员一起离开 ----
       await openTagMenu(page, 't-lab')
@@ -3941,8 +3942,9 @@ export const TAG_GROUPS_SUITE: LabSuite = {
         JSON.stringify(afterUngroup),
       )
       check.ok(
-        '清理只针对空掉的那个组（另一组原样保留）',
-        afterUngroup.tags?.some((tag) => tag.id === createdId) === true,
+        '两个自建组都在各自那一步被清掉（一个在回收站那一步、一个在这移出那一步），只剩三个预设组（#216）',
+        afterUngroup.tags?.some((tag) => tag.id === createdId) !== true &&
+          (afterUngroup.tags ?? []).every((tag) => tag.id.startsWith('preset-')),
         JSON.stringify(afterUngroup),
       )
       check.ok('那个组的块也不再渲染', !(await tagBlockFacts(page)).some((block) => block.tag === 't-lab'))
@@ -6619,4 +6621,11 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // #213 标签组的三个预设组恢复（F-64：F-01…F-63 与 R-06 已占，按「从未占用的继续」
   // 顺延；套件本体在 tagPresetSuites.ts，同为独立文件，少一处合入热点）。
   TAG_PRESETS_SUITE,
+  // #215 新建标签组的默认色优先取没用过的颜色（F-65：F-01…F-64 与 R-06 已占，按
+  // 「从未占用的继续」顺延；套件本体在 tagRecycleColorSuites.ts，同为独立文件，
+  // 少一处合入热点）。
+  TAG_COLOR_UNUSED_SUITE,
+  // #216 会话移入回收站后不再算标签组的成员（F-66：F-01…F-65 与 R-06 已占，按
+  // 「从未占用的继续」顺延；套件本体与 F-65 同一份独立文件）。
+  TAG_GROUP_RECYCLE_SUITE,
 ]
