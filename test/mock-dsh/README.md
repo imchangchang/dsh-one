@@ -21,7 +21,7 @@
 运行：
 
 ```sh
-node --test test/mock-dsh/*.test.ts     # 在仓库根跑（node 24 直接执行 .ts）
+node --test test/mock-dsh/*.test.ts     # 在仓库根跑（Node ≥ 22.6 能直接执行 .ts，见 docs/development.md）
 node test/mock-dsh/server.ts            # 起一个真实 mock，端口 3080
 node test/mock-dsh/server.ts --port 3099
 ```
@@ -126,29 +126,33 @@ rpcId（`pendingRpcIds` 去重登记），返回 `{"accepted":true}`；未知/�
    交互，`events.mux` / `events.host` 两个 WS 订阅事件流——所有 UI 状态都由场景编排
    决定。
 
-后续（本任务范围外）要给 Dockerfile 加 `--build-arg SCENARIO=xxx` 的画面：让容器
-内直接 `node /app/test/mock-dsh/server.ts --port 3080`，`--build-arg` 指定场景文件，
-`server.ts` 里按需 `--scenario <path>` 动态 `import()` 那个 .ts 并 `createMockServer()`。
+## 还没做的
+
+要让场景文件可换，得给 Dockerfile 加 `--build-arg SCENARIO=xxx` 的画面：容器内直接
+`node /app/test/mock-dsh/server.ts --port 3080`，`--build-arg` 指定场景文件，`server.ts`
+里按需 `--scenario <path>` 动态 `import()` 那个 `.ts` 并 `createMockServer()`。
 
 ## 验证边界
 
-**单元测试已覆盖**（`node --test test/mock-dsh/*.test.ts`，13 条）：
+**单元测试已覆盖**（`node --test test/mock-dsh/*.test.ts`，14 条 = `ws.test.ts` 5 条 +
+`rpc.test.ts` 6 条 + `scenario.test.ts` 3 条）：
 
 - WS 握手：`101` + `Sec-WebSocket-Accept` 正确；
 - WS 文本帧收发（含 >125 字节的 16 位长度前缀）、`ping`→`pong`；
 - WS 非 `/api/events.*` 路径被拒绝（不升级）；
 - `host.describe` 的 rpcId 回声（用扩展的 `validateDescribeResponse` 判定）；
 - `session.list` 信封往返（`rpcId` echo + `result.value.items`）；
+- pending 状态（approval/question）未应答时每次连接都重放、`rpcId` 跨连接稳定；
 - `/api/respond`：已下发 approval 的 rpcId 返回 `accepted:true`，未知返回 `false`；
 - 编排：`session.prompt` 后 mux 收到 `session/event`，首帧 `seq=1` 且后续单调递增；
 - `events.host` 的 `workspace.create` 帧经 `parseHostFrame` 解析非 null（证明帧格式
   与扩展解析器兼容）；
 - 场景数据用真实 `ConversationFolder` 折叠成预期消息（完整对话 / 半截 turn / 空会话）。
 
-**未覆盖 / 不再本任务范围**：
+**未覆盖的部分**：
 
 - 「扩展真实接管」需要真 VS Code 窗口（Extension Host 跑 `ServerManager` + 多个
-  `ChatSessionController`），本 mock 单元测试不涉及；这是下一步对上一步的真实对拍。
+  `ChatSessionController`），本 mock 单元测试不涉及。
 - mux 的「重连 gap 检查 / re-baseline」「`session/jobs` 后台任务卡」「`question` 多问
   回答」「子代理血缘树」等只在场景里做了数据铺垫，未逐条断言——它们依赖扩展宿主
   的折叠状态机，单测层面只能验证帧格式兼容。

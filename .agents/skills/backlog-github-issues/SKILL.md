@@ -7,7 +7,7 @@ description: 用 GitHub Issues 维护 backlog：一条目一 issue，状态 = la
 
 ## 解决的问题
 
-backlog 需要回答"有什么活、谁在做、做到哪了"，并且**多个开发者 / 多 agent / 多 session 并行时不能撞**。文件夹 backlog（`docs/backlog/` 目录即索引）的硬伤是状态在 git 里：每个 worktree 看到的是自己 checkout 时的快照，别人刚认领的条目本地看不见，同一条目可能被重复认领；改状态要提交 main 再 push，并发 push 会撞。
+backlog 需要回答"有什么活、谁在做、做到哪了"，并且**多个开发者 / 多 agent / 多 session 并行时不能撞**。文件夹 backlog（`docs/backlog/` 目录即索引）的硬伤是状态在 git 里：每个 worktree 看到的是自己 checkout 时的快照，别人刚认领的条目本地看不见，同一条目可能被重复认领；改状态要提交 main 再 push，并发 push 会撞。dsh-one 在 2026-09-07 之前用的就是文件夹 backlog，迁移记录见 `docs/backlog/migration-github-issues.md`。
 
 GitHub Issues 原生解决：状态在服务器上实时可读，认领是服务端操作；每条 issue 有全仓库唯一 `#N` 编号，commit 引用 `#N` 自动链接；标题和正文没有长度压力，中文详细标题让列表页直接可读。
 

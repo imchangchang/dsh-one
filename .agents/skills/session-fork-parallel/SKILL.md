@@ -13,13 +13,15 @@ dsh 网关暴露 HTTP RPC（`POST /api/<method>`），与 dsh-one 插件 `src/se
 
 ## 两个 dsh 版本的 wire 差异（先判版本再写请求）
 
-| | dsh 0.1.1（legacy） | dsh 0.1.2+（modern，如 0.1.2-rc.1） |
+| | dsh 0.1.1（legacy） | dsh 0.1.2+（modern，实测过 0.1.2-rc.1 / 0.1.6-alpha.1） |
 |---|---|---|
 | 认证 | 无，直连 | browser-session auth：**必须换票**，见「前置条件」 |
 | `method` | dot 名：`session.create` | namespace/path：`session/create` |
 | `payload` | 直接 `{...}` | 包一层：`{"args":{"request":{...}}}`（`session/list` 等无参方法用 `{"args":{"_request":{}}}`；`session.prompt` 还要 mint `requestId`，见方法表） |
-| 探测方法 | `host.describe` | **`host.describe` 已不存在**（返回 not found）；用 `session/list` 探测 |
+| 探测方法 | `host.describe`（rpcId 回声即无认证 dsh） | `host.describe` 用不了：0.1.2+ 的认证层先拦下未带 cookie 的 `/api/*`（401 + 正文 `unauthorized`，实测 0.1.2-rc.1）；换票后用 `session/list` 探测。扩展侧的端口探测代码见 `src/server/portProbe.ts` |
 | 版本判定 | 无 | `~/.dsh/dsh-owned.json` 的 `version` 字段（0.1.2+）；拿不到就两个形态都试 |
+
+**legacy 一列只在核对旧实例时用**：装配对话区支持的 dsh 版本范围是 `[0.1.2-rc.1, 0.2.0)`（见 `README.md` 的 dsh version tracking），0.1.1 的 wire 代码还留在仓库里（`src/server/dshRpc.ts` 的 legacy 分支），但已不在支持范围内。正常开发走 modern 一列。
 
 dsh-one 的完整映射表与 TS 封装在 `src/server/dshRpc.ts` 的 `MODERN_WIRE`，以它为准。
 
@@ -36,7 +38,7 @@ cat ~/.dsh/dsh-owned.json
 
 ### 2. 0.1.2+ 换认证 cookie（0.1.1 跳过）
 
-token 只能换一次票，**不能用 token 直接调 API**：
+token **不能直接调 API**，要先换票：`GET /?token=<token>` 换回一张 cookie（同一 token 在它所属进程存活期间可以反复换，扩展侧就是这么做的）。
 
 ```bash
 TOKEN="<dsh-owned.json 里的 token>"
@@ -62,7 +64,7 @@ curl -s -m 5 -X POST http://127.0.0.1:3080/api/session/list \
 {"type":"client-request","rpcId":"<任意唯一串>","method":"<方法>","payload":<形态>}
 ```
 
-响应：`{"type":"server-response","rpcId":"<同串>","result":{"ok":true,"value":...}}`，失败时 `"result":{"ok":false,"error":{"code","message"}}`。
+响应里要看的只有两样：`rpcId` 与请求一致（不一致/缺失即视为无效），以及 `result.ok`——true 时结果在 `result.value`，false 时是 `"result":{"ok":false,"error":{"code","message"}}`。扩展侧的判定见 `src/server/dshRpc.ts` 的 `callRpc`，`test/mock-dsh/server.ts` 按同一口径作答。
 
 ## 常用方法（modern 形态；legacy 去掉 args 包装、method 用 dot 名）
 
@@ -75,8 +77,8 @@ curl -s -m 5 -X POST http://127.0.0.1:3080/api/session/list \
 | `session/fork` | `{"request":{"sessionId","atSeq?"}}` | 带历史 fork 出子 session（继承到 `atSeq`，省略=尾部）。**需要源 session 至少有一个完成的 turn（`turn/end`），否则服务端拒绝**；一般并行开发用 create + 任务 prompt 更干净 |
 | `session/cancel` | `{"request":{"sessionId"}}` | 停当前 turn |
 | `workspace/create` | `{"request":{"path":"/abs/path"}}` | **幂等注册 workspace**，返回 workspace（含 `workspaceId`、`sessionIds`）。既是拿 workspaceId 的手段，也是验证 session 归属的手段（见流程） |
-| `workspace/archiveSession` | `{"request":{"sessionId"}}` | 归档，从 GUI 列表隐藏（可逆；测试/一次性 session 用完归档） |
-| `session/history` | 未在 modern wire 实测 | legacy 用 `session.history`（`{sessionId}`，看 `turn/end` 判断回合完成）；modern 下读事件流参考 `src/server/dshRpc.ts`（`historyWindowRequest` / `$events/result` 通道），不确定就靠 `session/list` 的 running/updatedAt 判断 |
+| `workspace/archiveSession` | `{"request":{"sessionId"}}` | 归档，从 GUI 列表隐藏。界面文案写的是「归档（不可恢复）」「只有归档是终点动作」，所以只对测试/一次性的 session 用 |
+| `session/history` | **modern 没有这个端点** | 只有 legacy 有：payload `{sessionId, beforeSeq?, maxMessages?}`（缺 `beforeSeq` 读尾页），返回 `{events, hasMore, projections}`，看里面的 `turn/end` 判断回合完成。modern 下历史与事件都走 `$events` / `session/control` 两条 WebSocket 流（扩展侧实现在 `src/server/modernStreams.ts`）；只想判「turn 还在跑」就用 `session/list` 的 running/updatedAt |
 
 ## 流程
 
@@ -99,9 +101,9 @@ curl -s -m 5 -X POST http://127.0.0.1:3080/api/session/list \
 | `references/scripts/mk-sessions-modern.py` | dsh 0.1.2+ | 自动读 `~/.dsh/dsh-owned.json` 换票；可 `--base/--token/--owned` 覆盖；attach 验证不通过自动 cancel+archive 重建一次 |
 | `references/scripts/mk-sessions-legacy.py` | dsh 0.1.1 | 无认证；`workspace.list` 按 path 匹配 workspace，未注册则 `workspace.create` |
 
-两者输入一致：`--tasks` 指向 JSON 文件 `[{"title": "...", "prompt": "任务说明..."}, ...]`，`--repo <仓库绝对路径>`（默认 cwd）。加 `--dry-run` 只解析与验证不建 session。跑完把输出清单交给用户即可。
+两者输入一致：`--tasks` 指向 JSON 文件 `[{"title": "...", "prompt": "任务说明..."}, ...]`，`--repo <仓库绝对路径>`（默认 cwd）。加 `--dry-run` 只解析与验证不建 session。跑完把输出清单交给用户即可。同目录的 `test_mk_sessions_bridge.py` 是 `--tag` 那条桥客户端的单测（在 `references/scripts/` 里跑 `python3 -m unittest test_mk_sessions_bridge -v`）。
 
-**`--tag <组名>`（仅 modern 脚本）：一次派生 = 侧栏一个标签组**（类比 Kimi bridge 一个任务一个组）。建完 session 后经**扩展 loopback 桥**归组：脚本读 `~/.dsh/dsh-one/bridge.json`（扩展激活时写的 `{port, token}`，127.0.0.1 随机端口 + 每进程随机 token）→ `POST /tag`，body `{"action":"assign","group":<组名>,"sessionIds":[...]}`（**显式 action，无默认行为**）。tags.json 的找/建组、颜色轮换、原子写全部由扩展进程完成（`sessionsStore` 的归组/读归属/清归属 → `dshStateStore.updateTags`），脚本不再直写文件——**规避了 agent 进程写工作区外 `~/.dsh/dsh-one/` 被文件沙箱拦截的问题**，`--tag` 不再弹审批。dsh-one 插件 watch 该目录，写完侧栏自动聚出这个组，不用重启窗口。不加 `--tag` 则完全不动 tags.json。
+**`--tag <组名>`（仅 modern 脚本）：一次派生 = 侧栏一个标签组**（Kimi WebBridge 那种一个任务一个组）。建完 session 后经**扩展 loopback 桥**归组：脚本读 `~/.dsh/dsh-one/bridge.json`（扩展激活时写的 `{port, token}`，127.0.0.1 随机端口 + 每进程随机 token）→ `POST /tag`，body `{"action":"assign","group":<组名>,"sessionIds":[...]}`（**显式 action，无默认行为**）。tags.json 的找/建组、颜色轮换、原子写全部由扩展进程完成（`sessionsStore` 的归组/读归属/清归属 → `dshStateStore.updateTags`），脚本不再直写文件——**规避了 agent 进程写工作区外 `~/.dsh/dsh-one/` 被文件沙箱拦截的问题**，`--tag` 不再弹审批。dsh-one 插件 watch 该目录，写完侧栏自动聚出这个组，不用重启窗口。不加 `--tag` 则完全不动 tags.json。
 
 桥对 session 级标签归属提供完整增删改查（`POST /tag`，显式 `action`，无默认行为；域收敛到标签组/会话归属，只绑 127.0.0.1 + Bearer token，不接任意路径/内容）：
 
@@ -123,9 +125,9 @@ python3 .agents/skills/session-fork-parallel/references/scripts/mk-sessions-mode
 
 - **`session/create` 用 `cwd` 建的 session 归入「未分组」，不出现在 workspace 组的会话列表**——用户会以为没建成功（实际在跑，只是列表看不到）。务必带 `workspaceId` 建（`cwd` 语义是「不注册 workspace 的裸会话」，只有建「未分组对话」时才用，且那也要预分配临时 cwd）。
 - **attach 偶发失败**：`session/create` 返回 ok、session 在跑，但 `workspace.sessionIds` 里没有它——表现是 GUI 里「一瞬间出现又消失」（前端推送过、快照重建时按注册表过滤掉）。判定：create 后立刻幂等查 `sessionIds`；失败则清掉重建，重试即成功。
-- **authorization 状态**：`dsh-owned.json` 的 token 是当前进程的；若网关重启过（pid/port 变），重读该文件。cookie 也有过期（Set-Cookie 里 Max-Age=2592000）。
-- 新 session 继承网关默认配置（当前实例：kimi preset、`workspace-write` 沙箱、`ask` 审批策略）。审批/提问帧会在 GUI 弹给用户，由人应答——这正是本方案的目的。
+- **authorization 状态**：`dsh-owned.json` 的 token 与实例进程绑死——网关重启过（pid/port 变了）就重读该文件、用新 token 重新换票，旧 cookie 随之作废。
+- 新 session 继承网关默认配置（预设、沙箱、审批策略都由该实例自己的设置决定）。审批/提问帧会在 GUI 弹给用户，由人应答——这正是本方案的目的。
 - session 挂哪个 workspace 就干哪个 workspace 的活（cwd = workspace 路径）。
 - 并行改同一仓库的代码仍要按 AGENTS.md 走 worktree（`worktree-dev-flow`），RPC 只管会话，不隔离代码，多个 session 直接改同一目录会互相踩。
 - 测试/一次性 session 用完归档（先 `session/cancel` 再 `workspace/archiveSession`），别堆列表。
-- 网关探测/调用的完整 TS 封装见 `src/server/dshRpc.ts`（`createSession` / `forkSession` / `renameSession` / `promptSession` / `sessionHistory`），curl 示例和它行为一致；脚本化批量创建时**小心 importlib/来源文件顶层副作用**（本次出现过来源脚本顶层又建了一批 session）。
+- 网关探测/调用的完整 TS 封装见 `src/server/dshRpc.ts`（`createSession` / `forkSession` / `renameSession` / `promptSession`），curl 示例和它行为一致；历史窗口的 payload 构造在 `src/pure/historyWindow.ts`（legacy 的 `session.history`）。脚本化批量创建时**小心来源脚本的顶层副作用**：把来源文件当模块 import 会连它顶层的建 session 代码一起执行。

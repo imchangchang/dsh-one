@@ -1,9 +1,10 @@
 # mock LLM（OpenAI 兼容端点）
 
-一个零依赖的「假模型」HTTP 端点，让真 dsh 走全部真实逻辑——后端 `llm-pi-ai`
-provider 原生支持 `baseURL`（schema 有 `baseURL`/`api` 字段，已核实 0.1.1-rc.2
-源码），把某条 provider 的 `baseURL` 指到本端点即可，**零 patch**。只有模型响应
-按场景编排返回（通用回显、tool_calls、401 注入……），用于确定性测试与宣发截图。
+一个零依赖的「假模型」HTTP 端点，让真 dsh 走全部真实逻辑：后端 `llm-pi-ai` provider
+的 `profile` schema 里有 `baseURL` / `api` 字段，把某条 provider 的 `baseURL` 指到本
+端点即可，**零 patch**。只有模型响应按场景编排返回（通用回显、tool_calls、401 注入……），
+用于确定性测试与宣发截图。字段的必填/可选口径核对记录（含官方源码行号）写在
+`test/sandbox/entrypoint.sh` 里那份 mock 配置的注释中。
 
 它不碰 dsh 的请求/工具/上下文逻辑：dsh 自己把 `messages`（含历史/工具结果）拼好
 POST 过来，本端点只负责回一段编排好的文本或工具调用。
@@ -20,7 +21,7 @@ POST 过来，本端点只负责回一段编排好的文本或工具调用。
 运行：
 
 ```sh
-node --test test/mock-llm/*.test.ts     # 在仓库根跑（node 24 直接执行 .ts）
+node --test test/mock-llm/*.test.ts     # 在仓库根跑（Node ≥ 22.6 能直接执行 .ts，见 docs/development.md）
 node test/mock-llm/server.ts            # 起一个真实 mock，端口 9009
 node test/mock-llm/server.ts --port 9009
 node test/mock-llm/server.ts --scenario my-scenario.ts
@@ -30,9 +31,19 @@ node test/mock-llm/server.ts --scenario my-scenario.ts
 
 ### `POST /v1/chat/completions`
 
-请求 JSON `{ model, messages, stream, ... }`。mock 取 `messages` 里**最后一条
-`role==='user'` 的消息文本**作为匹配输入，从 `scenario.rules` 里**自上而下找第一条
-命中的规则**（`match` 详解见下）。
+请求 JSON `{ model, messages, stream, ... }`。mock 从 `messages` **尾部往前扫**，取第一条
+**非注入、非空**的 `role==='user'` 消息文本作为匹配输入，再从 `scenario.rules` 里**自上而下
+找第一条命中的规则**（`match` 详解见下）。
+
+「注入」指 dsh 自己塞进对话的上下文，三类都在跳过之列：带 `<system-reminder>` 标签的
+agent-instructions、以 `Current runtime context.` 开头的 runtime context 快照、以
+`Time sampled while preparing` 开头的 time-context 注入（0.1.2 起）。不跳过的话，注入文本
+常常是最后一条 user 消息，所有按文本匹配的规则都会被它劫持——实测 0.1.2 首轮注入后工具规则
+全部失配、回显的也是上下文文本。
+
+**工具结果之后的续拍不走规则匹配**：从尾部扫到 `role==='tool'` 就说明本轮工具已经执行过，
+此时一律走兜底 `'*'` 规则回显。否则同一个工具规则会被再次命中，dsh 会反复重试同一个调用，
+直到它自己的重复保护报错。
 
 | respond | stream:true | stream:false |
 | --- | --- | --- |
@@ -85,7 +96,7 @@ export default {
 **规则字段**：
 
 - `match`：`'*'` 匹配任意文本；`{ contains }` 命中子串；`{ regex }` 命中正则
-  （匹配对象是「最后一条 user 消息」的文本）。
+  （匹配对象是「最后一条非注入 user 消息」的文本，见上）。
 - `respond.content`：`string`（整段）｜`string[]`（流式分块）｜`(ctx) => string|string[]`
   （按请求动态生成，`ctx` 带 `lastUserMessage`、`model`、`request`）。
 - `respond.toolCalls`：`[{ id, name, arguments }]`，`arguments` 是 JSON 串。
@@ -123,32 +134,41 @@ agent-default-model:
 `/v1/chat/completions`、`/v1/models`；漏了 `/v1` 会打到 `/chat/completions` 得 404。
 
 以上字段（`llm-pi-ai.providers.<route>.{api,baseURL,models}`、
-`agent-default-model.{provider,model}`）按安装的 dsh **0.1.1-rc.2** 源码核实。`models`
-里只需 `id`（`contextWindow`/`maxTokens`/`input` 走 route 的默认值），`id` 须与
-`agent-default-model.model` 对应。
+`agent-default-model.{provider,model}`）的必填/可选口径按 dsh 的 `llm-pi-ai` schema 核对过，
+核对记录（含官方源码行号与当时装的版本）写在 `test/sandbox/entrypoint.sh` 里那份 mock 配置的
+注释中。`models` 里只需 `id`（`contextWindow`/`maxTokens`/`input` 走 route 的默认值），
+`id` 须与 `agent-default-model.model` 对应。
 
 ## 验证边界
 
-**单元测试已覆盖**（`node --test test/mock-llm/*.test.ts`，15 条）：
+**单元测试已覆盖**（`node --test test/mock-llm/*.test.ts`，21 条 = `server.test.ts` 15 条 +
+`scenario.test.ts` 6 条）：
 
 - `stream:true` 回显：两段 delta 拼成「收到：你好」，首块带 `role`，末尾
   `finish_reason:'stop'` + `data: [DONE]`；
 - `stream:true` tool_calls：`arguments` 确实分片（>1 段）且拼接还原完整 JSON 串，
   首块带 `id`/`name`，末尾 `finish_reason:'tool_calls'`；
 - `stream:false` 回显与 tool_calls（`message.content:null` + `usage`）；
+- `deltaDelayMs`：内容块之间按声明的间隔推送（慢速流式回归用）；
 - 规则注入 401（HTTP 401 + OpenAI 风格 `error` 结构）；
 - Authorization 头不校验；
 - `GET /v1/models`（`object:'list'` / 每项 `object:'model'`）；
 - 规则匹配优先级（具体规则先于兜底 `'*'` 命中）；
+- 工具结果后的续拍（两条）：最后一条是 tool 消息、或 tool 结果后又插了 time-context
+  注入时，都跳过具体规则走兜底回显；
+- 首轮注入过滤：`<system-reminder>` 标签、无标签 runtime context、0.1.2 的 time-context
+  三类注入都不作为匹配对象（注入在最后也不劫持规则）；
 - 自定义场景的 `regex` 规则；无匹配场景 404（`code:'missing_rule'`）；未知路径 404；
-- 场景结构断言（三类规则与顺序、tool_calls 内容、401 内容、回显函数求值）。
+- 场景结构断言（`defaultScenario()` 的模型与规则顺序即优先级、tool_calls 内容、401 内容、
+  内嵌图片 fixture 的引用、commit 慢速规则的流式分片、回显函数求值）。
 
-**未覆盖 / 不在本任务范围**：
+**未覆盖的部分**：
 
-- 「真 dsh 把它当 LLM 端点」需要真 dsh 进程 + 真实会话（llm-pi-ai 拼 `messages`、
-  处理流式、工具循环回填），本 mock 单元测试不涉及；这是下一步对上一步的真实对拍。
-- `tools` 多轮工具循环、多 `choices`、`n`>1、图像/多模态输入未编排——mock 只按
-  `messages` 最后一条 user 文本匹配，不做多轮状态机。
+- 「真 dsh 把它当 LLM 端点」需要真 dsh 进程与真实会话（llm-pi-ai 拼 `messages`、处理流式、
+  工具循环回填），不在本 mock 的单元测试里；那一步由沙盒的 `--mock-llm` 模式覆盖
+  （见 `test/sandbox/README.md`）。
+- `tools` 多轮工具循环、多 `choices`、`n`>1、图像/多模态输入未编排——mock 只按「最后一条
+  非注入 user 文本」匹配，不做多轮状态机。
 
 ## 已知边界
 
@@ -163,4 +183,5 @@ agent-default-model:
   `finish_reason` 不影响；pi-ai 若开了 `stream_options.include_usage` 会读这个 `usage`。
 - 场景 `models` 为空时 `/v1/models` 返回 `data:[]`；请求没带 `model` 时响应回退到
   场景第一个模型 id。
-- mock 不校验 Authorization、不实现多轮工具对话、不返回真实 token 用量。
+- mock 不校验 Authorization、不做多轮工具对话的状态机（工具结果后只回兜底回显）、
+  不返回真实 token 用量。

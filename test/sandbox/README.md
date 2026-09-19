@@ -1,8 +1,11 @@
 # Docker 沙盒测试/截图环境
 
-本目录在 docker 容器里起一个 code-server 浏览器工作台，预装 dsh 与 DSH One 插件的 vsix，用于：
-宣发截图（中英文）和最终状态验证需要在**真 VS Code** 里跑插件——沙盒提供一致、可重现的运行时环境，
-配合 `ai-visual-validation` / Kimi WebBridge 等浏览器自动化做截图与语义核对。
+本目录在 docker 容器里起一个 code-server 浏览器工作台，预装 dsh 与 DSH One 插件的 vsix。用途是两个：
+**宣发截图**（中英文 × 深浅色四种组合）与**人工核对**（在一个一致、可重现的运行时里看插件的实际观感）。
+
+它是**浏览器工作台**，不是本机原生 VS Code 窗口：交互与截图都走浏览器，宿主层的东西（真剪贴板、
+原生菜单、主题刷新时机）在这里照不出来，那部分由人跑 `scripts/dev-ui-test.sh` 起隔离 VS Code 窗口
+验（最终准绳，见「已知边界」与「验收口径」）。
 
 - 镜像名：`dsh-sandbox:latest`
 - 容器名：`dsh-sandbox`（固定，重建前会被强制删除）
@@ -12,7 +15,8 @@
 ## 前置
 
 - 任意的 docker 运行时（推荐 OrbStack）：`docker info` 能跑通即可。
-- 打出插件 vsix：仓库根执行 `npm run package`，产物 `dsh-one-1.0.0.vsix`（vsix 不进仓库，`.gitignore` 已排除 `*.vsix`）。
+- 打出插件 vsix：仓库根执行 `npm run package`，产物是 `dsh-one-<version>.vsix`（`version` 取
+  `package.json`，2026-09 的发布线是 `2.0.0`）。vsix 不进仓库，`.gitignore` 已排除 `*.vsix`。
 - 真 dsh 场景先初始化宿主配置：`npm i -g @deepseek-ai/dsh` 后跑一次让 `~/.dsh` 生成本地配置（start 会只读挂载它进容器）。mock dsh 场景不需要。
 
 ## 用法
@@ -22,7 +26,8 @@
 ### 构建镜像
 
 ```bash
-test/sandbox/run-sandbox.sh build --vsix "$(pwd)/dsh-one-1.0.0.vsix" --locale en --theme dark
+VSIX="$(pwd)/dsh-one-2.0.0.vsix"   # 名字跟 npm run package 的产物一致，版本号随 package.json
+test/sandbox/run-sandbox.sh build --vsix "$VSIX" --locale en --theme dark
 ```
 
 - `--vsix <绝对路径>`：预装插件扩展。省略（或不带）则镜像不含插件，仍可用，适合后续 mock dsh 场景（基本用不到真扩展）。
@@ -51,7 +56,7 @@ test/sandbox/run-sandbox.sh start --locale zh-cn --theme light --port 8080
 ### Mock-LLM 模式（`--mock-llm`）
 
 容器里跑**真 dsh**（设置校验、路由、审批、流式编排都走真实代码），只把 LLM 请求打进容器内假端点
-`/app/mock-llm/server.ts`——另一个子代理写的零依赖 `node:http` 服务，只会按 scenario 编排/回放模型响应，不真的推理。
+`/app/mock-llm/server.ts`——仓库 `test/mock-llm/` 那份零依赖 `node:http` 服务，只会按 scenario 编排/回放模型响应，不真的推理。
 用于：在**不联网、无模型凭证**的情况下，用真 dsh 把整套交互链跑通（会话创建、事件流、审批/提问等边界态由该端点的 scenario 编排）。
 
 命令（build 与 start 必须**配套**都带 `--mock-llm`——镜像里得先有 mock-llm 源码，运行时才会起它）：
@@ -78,9 +83,13 @@ test/sandbox/run-sandbox.sh start --mock-llm
 | 模型响应 | 真实模型生成 | mock-llm server 按 scenario 编排/回放 |
 | 配置来源 | 宿主 `~/.dsh` 只读挂载，沿用原样 | 容器内 `settings.yaml` 被整体替换为 mock 配置 |
 | 凭证 | 真实 API key | `MOCK_LLM_KEY=mock-key-1`（仅容器内有效） |
-| 用途 | 宣发截图、最终状态验证 | 无凭证/离线跑真 dsh 全逻辑、喂边界态 |
+| 用途 | 宣发截图、人工核对观感（宿主层准绳是 `scripts/dev-ui-test.sh`） | 无凭证/离线跑真 dsh 全逻辑、喂边界态 |
 
-dsh 版本 pin 约定不变：仍 `@deepseek-ai/dsh@0.1.1-rc.2`（升 `@next` 会带 token 认证，扩展不支持，`/api/*` 回 401）。
+镜像里 pin 的是 `@deepseek-ai/dsh@0.1.1-rc.2`（见 `test/sandbox/Dockerfile`）。注意这一版**在扩展的支持
+区间之外**：装配页的版本门要求 dsh 落在 `[0.1.2-rc.1, 0.2.0)`，更老的版本缺 browser-session 认证与
+loader 协议（出处见 `src/server/serverAuth.ts` 的文件头与 `README.md` 的「Tested versions」表），
+所以沙盒里装配出来的对话区会带一条版本提示。要不要把这一版升上去待定——升级要同步改
+`test/sandbox/Dockerfile` 与 `run-sandbox.sh`。
 
 **schema 核对**：mock 模式的 `settings.yaml` 字段对照 `@deepseek-ai/dsh-llm-pi-ai/lib/index.js` 的
 `profile`/`modelProfile` 定义核对过：
@@ -110,12 +119,14 @@ test/sandbox/run-sandbox.sh start --locale zh-cn --theme light  # 中文 × 浅�
 worktree 并行开发时每个 session 用自己的实例，互不干扰（镜像 tag/容器名/端口/截图目录按 slug 与显式端口错开；无 `--instance` 的默认实例保持原行为）：
 
 ```bash
+VSIX="$(pwd)/dsh-one-2.0.0.vsix"   # 版本号随 package.json
+
 # session A（slug a，宿主端口 8081，mock 端点自动取 8082）
-test/sandbox/run-sandbox.sh build --instance a --mock-llm --vsix "$(pwd)/dsh-one-1.0.0.vsix"
+test/sandbox/run-sandbox.sh build --instance a --mock-llm --vsix "$VSIX"
 test/sandbox/run-sandbox.sh start --instance a --mock-llm --port 8081
 
 # session B（slug b，宿主端口 8083，mock 端点自动取 8084）
-test/sandbox/run-sandbox.sh build --instance b --mock-llm --vsix "$(pwd)/dsh-one-1.0.0.vsix"
+test/sandbox/run-sandbox.sh build --instance b --mock-llm --vsix "$VSIX"
 test/sandbox/run-sandbox.sh start --instance b --mock-llm --port 8083
 
 test/sandbox/run-sandbox.sh status --instance a        # 查看实例 a 的镜像/容器/端口
@@ -149,13 +160,13 @@ test/sandbox/run-sandbox.sh --help   # 全部参数
 ## 已知边界
 
 - **code-server 是浏览器工作台，没有原生窗口外壳**：插件 UI 以 webview 形式嵌在浏览器页面里，交互/截图都通过浏览器进行，与本机 VS Code 存在渲染差异（字体、主题刷新时机等）。这是设计内取舍——沙盒只保证环境一致与可重现，不追求像素级等同本机 VS Code。
-- 容器内跑真 dsh 需要模型凭证与联网；审批、流式、错误态等真 dsh 喂不出来的边界态，靠 mock dsh 场景喂（另见相关会话），不依赖本沙盒。**但用 `--mock-llm` 模式可以在不联网、无凭证的前提下把真 dsh 的整套逻辑跑起来**——LLM 走容器内假端点，边界态由该端点的 scenario 编排（见上文「Mock-LLM 模式」）。
+- 容器内跑真 dsh 需要模型凭证与联网；审批、流式、错误态等真 dsh 喂不出来的边界态，靠 mock dsh 场景（`test/mock-dsh/`）喂，与沙盒无关。**但用 `--mock-llm` 模式可以在不联网、无凭证的前提下把真 dsh 的整套逻辑跑起来**——LLM 走容器内假端点，边界态由该端点的 scenario 编排（见上文「Mock-LLM 模式」）。
 
 ## 验收口径（#68 起）
 
-- **对话区/装配验收 = 浏览器验证**：对话区、侧栏树、设置页都是官方组件装配页。验收用仓库常驻的 Playwright harness（`test/assembly-lab/`，一条命令 `npm run verify:lab`）直开装配页跑断言 + 截图，快且确定性高；**底座契约完备性**（四棵树零 `slot entry crashed`、零缺失服务/钩子）是其中 CONTRACT 套件的常驻断言。这是第一道验收，跑法与套件清单见 `test/assembly-lab/README.md`。
+- **对话区/装配验收 = 浏览器验证**：对话区、侧栏树、设置页都是官方组件装配页。验收用仓库常驻的 Playwright harness（`test/assembly-lab/`，一条命令 `npm run verify:lab`）直开装配页跑断言 + 截图，快且确定性高；**底座契约完备性**（四棵树零 `slot entry crashed`、零缺失服务/钩子）是其中 **F-01 CONTRACT** 套件的常驻断言。这是第一道验收，跑法与套件清单见 `test/assembly-lab/README.md`。
 - **宿主行为验收 = VS Code 验证**：本沙盒（code-server + 真 dsh + 插件 vsix）配 Kimi WebBridge 截图与语义核对，或由人跑 `scripts/dev-ui-test.sh` 起隔离 VS Code 窗口实测（最终准绳）。
-- 旧的 Playwright 自动驱动（`verify-driver.mjs`）只驱动旧聊天 webview 的 composer（`textarea#input` + `.send-button`），旧聊天区下线后没有可驱动对象，已随 #68 移除；CI 基线 `verify.ledger.json` 收缩为侧栏/宿主回归项。
+- 旧的 Playwright 自动驱动（`verify-driver.mjs`）只驱动旧聊天 webview 的 composer（`textarea#input` + `.send-button`），旧聊天区下线后没有可驱动对象，已随 #68 移除；仓库里的验收基线 `verify.ledger.json` 随之收缩为两项侧栏/宿主回归项（`R-02` 侧边栏无宿主残留、`R-03` 扩展接管 dsh）。
 
 ## 远程驱动配方（WebBridge 实测记录，2026-09-04）
 

@@ -1,6 +1,13 @@
 # 旧侧栏 × 现装配侧栏「并排渲染对照」harness（#129）
 
-本目录把**退役但仍在仓库里**的旧侧栏独立渲染出来，与**现装配侧栏**在**同一份数据、同一
+**先看这一句读定位**：旧侧栏（自研 vanilla 侧栏，代码在 `src/ui/sessionsView.ts` 与
+`src/ui/sessionsWebview.ts`）**已退役**——它不在 `extension.ts` 注册（#70 摘钩），仓库里
+只作为 #65 迁移的参照物保留，勿删。所以本目录是一套**只作对照的 harness**：它把旧侧栏
+独立渲染出来与现装配侧栏并排量差，用来溯源规格（「这一行的取值照的是旧侧栏哪条规则」），
+**不是现状说明**——旧侧栏独有的形态不代表现装配侧栏该长什么样。本页写于 2026-09 的
+#197 那一轮（当时 `main` 上的装配侧栏），此后两侧任一变化都可能让它过时。
+
+本目录把退役的旧侧栏独立渲染出来，与**现装配侧栏**在**同一份数据、同一
 宽度**下并排截图、逐项量几何。产出（结论与几何表）在
 `docs/legacy-vs-current-sidebar-render.md`；与 #128 那份**源码级**对照的分工是：那边读代码，
 这边看渲染。
@@ -56,7 +63,7 @@ npm run verify:legacy-sidebar
 | 页面来源 | `src/ui/sessionsView.ts` 的 `SessionsViewProvider.resolveWebviewView()`（真宿主代码），打桩 `vscode` 模块 | `test/assembly-lab/` 的真装配页（`/sidebar` 那棵树，`@dsh-one/dsh-workspace-tree` 以 shadow 顶掉官方浏览区） |
 | 打桩的东西 | ① `vscode` 模块（`vscodeStub.mjs`：`Uri.joinPath` 让译文读真文件、`env.language`、`commands` / `window` / `l10n` 一律空实现）；② `vscode.Webview`（`asWebviewUri` 把 `dist/sessionsWebview.js` 映到本 harness 的服务器、`onDidReceiveMessage` 收下页面消息后**丢掉**）；③ `SessionsStore`（`snapshot()` 返回注入的快照） | 实验室那套：假宿主（`fakeHost.ts`）+ 真网关 + 真 mirror |
 | 数据怎么进去 | `postMessage({type:'sessions', snapshot})`（旧侧栏本来就是宿主推快照的形态） | 假宿主的 `stateRead` 键值（`pinned` / `unread` / `tags` / `recycle-bin`，形状与 `~/.dsh/dsh-one/<键>.json` 逐字同形）+ 官方客户端的 `localStorage` 视图态（`dsh.workspaceTree.view`） |
-| 译文 | 仓库真的 `l10n/bundle.l10n.zh-cn.json` 经 `loadWebviewL10n` 注入 | 官方 client 的中文词典 |
+| 译文 | 仓库真的 `l10n/bundle.l10n.zh-cn.json` 经 `loadWebviewL10n` 注入 | 页面语言由隔离实例的设置文档钉成 `zh`；自有树的文案取自我们那份插件词典（`packages/dsh-workspace-tree/src/workspaceTree/locale.ts` 的 zh 一份），页面上官方组件的文案由官方 client 的 zh 词典给 |
 
 **基础主题**：旧侧栏只认 `--vscode-*` 变量，harness 在页面加载后贴一段 `theme.ts` 里的
 VS Code 默认深色主题取值（出处见那个文件）；webview 的默认底色也照 VS Code 的行为补上。
