@@ -5,7 +5,7 @@
  * 共享流单例里缓存「baseline 各域 + 后续增量帧」合并后的完整视图，晚订阅者
  * 注册时用它合成 baseline 帧重放。
  *
- * 合并语义与消费端（chatSession.ts / jobsStore.ts）一致：
+ * 合并语义与消费端（侧栏 SessionsStore）一致：
  * - baseline 帧：只替换帧里**存在**的域（缺失域保留原值——消费端对缺失域
  *   本来就跳过，语义对齐）；
  * - queue / jobs 帧：按会话整体替换（消费端 whole-snapshot replacement）；

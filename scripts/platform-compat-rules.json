@@ -1,0 +1,121 @@
+{
+  "note": [
+    "平台兼容性合入门禁（#6）的扫描规则数据。实现见 scripts/platformCompatScan.mjs，用法见 docs/development.md。",
+    "pattern 是 JS 正则（JSON 转义后由 new RegExp 编译），逐行匹配「注释已剥离的新增代码行」。",
+    "platformRules 每条命中都要求任务在声明文件里给出同 file+rule 的一条 platformCoverage 条目；",
+    "matrixTriggers 命中则要求 branchMatrix.rows（分支矩阵）。",
+    "每条 platformRule 的 examples 是必须命中的真实写法、counterExamples 是必须不命中的易误伤写法，",
+    "由 test/platformCompatGate.test.ts 逐条钉住——改 pattern 必须同时改这两个数组（它们就是规则的说明书）。"
+  ],
+  "scan": {
+    "extensions": [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".sh", ".bash", ".zsh", ".ps1", ".psm1", ".bat", ".cmd"],
+    "excludePathRegex": "(^|/)(docs|dist|node_modules|test|tests|__tests__|fixtures?|mocks?)(/|$)|(^|/)CHANGELOG|\\.(test|spec)\\.[cm]?[jt]sx?$|\\.d\\.ts$"
+  },
+  "platformRules": [
+    {
+      "id": "platform-branch",
+      "path": "按 process.platform 分叉",
+      "pattern": "process\\.platform",
+      "examples": [
+        "if (process.platform === 'win32') {",
+        "terminal.sendText(process.platform === 'win32' ? `& ${line}` : line)",
+        "const isPosix = process.platform !== 'win32'"
+      ],
+      "counterExamples": ["const platformInfo = readPlatformInfo()", "const plat = hostOsFromPlatform(os)"]
+    },
+    {
+      "id": "platform-command",
+      "path": "平台专属命令（进程/端口定位、shell/解释器）",
+      "pattern": "\\blsof\\b|\\bnetstat\\b|\\bwmic\\b|\\bfuser\\b|/proc/|\\bps\\s+-p\\b|\\btaskkill\\b|\\bpowershell\\b|\\bpwsh\\b|cmd\\.exe|\\bcmd\\s*/\\s*[cC]\\b|\\bComSpec\\b|\\bchcp\\b|\\bosascript\\b|\\bopen\\s+-a\\b",
+      "examples": [
+        "const res = spawnSync('lsof', ['-ti', `TCP:${port}`, '-s', 'TCP:LISTEN'], {",
+        "spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' })",
+        "const fds = await fsp.readdir(`/proc/${pid}/fd`).catch(() => [])",
+        "const line = `powershell -NoProfile -Command ...`"
+      ],
+      "counterExamples": [
+        "const pid = process.pid",
+        "const res = spawnSync('git', ['status'], { encoding: 'utf8' })",
+        "const ps = new Set()"
+      ]
+    },
+    {
+      "id": "signal",
+      "path": "进程信号 / 进程组（Windows 无信号语义）",
+      "pattern": "process\\.kill|\\bSIGTERM\\b|\\bSIGKILL\\b|\\bSIGINT\\b|\\bSIGHUP\\b|-pgid|\\bkill\\s+-[0-9A-Z]|['\"]-TERM['\"]",
+      "examples": [
+        "process.kill(pid, 0)",
+        "if (child.exitCode === null) child.kill('SIGTERM')",
+        "spawnSync('kill', ['-TERM', String(pid)])"
+      ],
+      "counterExamples": ["const killed = true", "function killDsh(): void {}"]
+    },
+    {
+      "id": "path-sep",
+      "path": "路径分隔符 / 平台 shim 后缀",
+      "pattern": "path\\.sep|path\\.win32|path\\.posix|\\bPATHEXT\\b|\\.cmd\\b|\\.exe\\b|\\.ps1\\b|\\.bat\\b|replace\\(/\\\\+/[gimsuy]d*,|split\\((['\"])\\\\+\\1|includes\\((['\"])\\\\+\\1|startsWith\\((['\"])\\\\+\\1|endsWith\\((['\"])\\\\+\\1",
+      "examples": [
+        "const candidate = path.join(dir, 'dsh.cmd')",
+        "const norm = tok.replace(/\\\\/g, '/')",
+        "if (bin.includes('\\\\')) starts.push(path.dirname(resolveRealpath(bin)))",
+        "candidates.push(path.join(npmDir, 'dsh.exe'))"
+      ],
+      "counterExamples": [
+        "const table = String(detail).replaceAll('|', '\\\\|')",
+        "const re = new RegExp(`\\\\b${name.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}\\\\b`, 'g')",
+        "if (ch === '\\\\') { i += 1; continue }",
+        "const link = path.join(dir, 'index.js')"
+      ]
+    },
+    {
+      "id": "child-stdio",
+      "path": "子进程 stdio / 输出重定向（spawn 现场）",
+      "pattern": "stdio\\s*:|windowsHide|windowsVerbatimArguments|detached\\s*:\\s*true|shell\\s*:\\s*true",
+      "examples": [
+        "windowsHide: true,",
+        "stdio: ['ignore', logFd, logFd],",
+        "const child = spawn(command, commandArgs, { detached: true })",
+        "spawnSync(bin, args, { shell: true })"
+      ],
+      "counterExamples": ["const detached = false", "const stdioMode = 'inherit'", "child.stdout.on('data', onChunk)"]
+    },
+    {
+      "id": "line-endings",
+      "path": "输出行尾 / 换行处理（Windows 的 \\r\\n）",
+      "pattern": "\\\\r|\\bos\\.EOL\\b",
+      "examples": [
+        "const lines = text.split(/\\r?\\n/)",
+        "if (line.endsWith('\\r')) line = line.slice(0, -1)",
+        "text.replace(/\\r/g, '')"
+      ],
+      "counterExamples": ["const greeting = 'hello'", "const r = parseReadyLine(text)"]
+    }
+  ],
+  "matrixTriggers": {
+    "platform": "平台本身就是状态变量（记录/端口/时序在不同平台上是不同状态），命中平台路径即要求矩阵",
+    "stateProbe": {
+      "what": "存在性/可读性探测与条件分叉同文件出现：『有记录 vs 无记录』这类状态分叉的口径",
+      "probe": "\\bexistsSync\\b|\\bstatSync\\b|\\blstatSync\\b|\\baccessSync\\b|\\breadlinkSync\\b|\\brealpathSync\\b|\\breaddirSync\\b|\\.stat\\(|\\.access\\(",
+      "branch": "\\bif\\s*\\(|\\belse\\b|\\bswitch\\s*\\(|\\btry\\s*\\{|\\bcatch\\b|\\?\\?"
+    },
+    "probeResultBranch": {
+      "what": "把「探测有没有结果」当分叉依据：赋值自一次调用，紧随其后按 undefined/null/真假分叉——rc.4 事故（无记录分支）就是这个形状",
+      "assign": "(?:const|let|var)\\s+([A-Za-z_$][\\w$]*)\\s*=\\s*(?:await\\s+)?([A-Za-z_$][\\w$.]*)\\s*\\(",
+      "statey": "(record|owned|state|log|port|pid|proc|file|store|token|session|instance|window|external|readiness|ready)",
+      "branch": "(?:[^\\w$]|^)%VAR%\\s*(?:!==|===|!=|==)\\s*(?:undefined|null|'')|\\bif\\s*\\(\\s*!?%VAR%\\s*\\)",
+      "windowLines": 6
+    },
+    "switchState": {
+      "what": "同一状态变量的多路分派（switch + 2 个以上 case）",
+      "switch": "\\bswitch\\s*\\(",
+      "case": "^\\s*case\\s",
+      "minCases": 2
+    }
+  },
+  "verifiedBy": {
+    "ci-runner": "在 CI runner 上跑过（evidence 写 workflow / job 名 + runner 平台）",
+    "real-machine": "真机手动跑过（evidence 写哪台机器 + 操作步骤 + 结论）",
+    "unit-test": "平台解析/行为单测覆盖（evidence 写测试文件与用例名）",
+    "not-a-platform-path": "命中但确非平台路径（须给 reason，门禁会打 ⚠ 交人工复核）"
+  }
+}

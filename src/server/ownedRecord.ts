@@ -2,7 +2,7 @@ import * as crypto from 'node:crypto'
 import * as fsp from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import type { Logger } from '../log.ts'
+import type { LogSink } from '../log.ts'
 
 /**
  * 共享身份记录：dsh 实例的 (pid, port, token) 存到所有 VS Code 窗口都能读的位置
@@ -41,6 +41,12 @@ export interface OwnedRecord {
    * （owned:false）不被任何窗口自动 kill——A 档管理走显式确认。
    */
   owned?: boolean
+  /**
+   * 局域网能力：spawn 时带了 `--trusted-host <该地址>` 才有值（见 pure/lanAccess.ts
+   * 的上游约束说明）。re-own / 第二窗口据此知道这个实例局域网可达、并能把
+   * 转发器再拉起来（转发器绑定失败时静默降级，不影响 dsh 本身）。
+   */
+  lanIp?: string
 }
 
 /** 外部粘贴 token 连接的记录（B 档）判据。 */
@@ -62,7 +68,7 @@ export function defaultOwnedPath(dshHome = path.join(os.homedir(), '.dsh')): str
 }
 
 /** 宽松解析：文件缺失/坏 JSON/字段缺失一律返回 null（当没有记录处理）。 */
-export async function readOwnedRecord(filePath: string, logger: Logger): Promise<OwnedRecord | null> {
+export async function readOwnedRecord(filePath: string): Promise<OwnedRecord | null> {
   try {
     const parsed = JSON.parse(await fsp.readFile(filePath, 'utf8')) as Partial<OwnedRecord>
     if (typeof parsed.pid !== 'number' || typeof parsed.port !== 'number') return null
@@ -74,6 +80,7 @@ export async function readOwnedRecord(filePath: string, logger: Logger): Promise
       ...(typeof parsed.owner === 'string' ? { owner: parsed.owner } : {}),
       ...(parsed.source === 'spawn' || parsed.source === 'external' ? { source: parsed.source } : {}),
       ...(typeof parsed.owned === 'boolean' ? { owned: parsed.owned } : {}),
+      ...(typeof parsed.lanIp === 'string' ? { lanIp: parsed.lanIp } : {}),
     }
   } catch {
     return null
@@ -88,7 +95,7 @@ export async function readOwnedRecord(filePath: string, logger: Logger): Promise
 export async function writeOwnedRecord(
   filePath: string,
   record: OwnedRecord,
-  logger: Logger,
+  logger: LogSink,
 ): Promise<boolean> {
   const tmp = `${filePath}.tmp.${process.pid}.${crypto.randomBytes(4).toString('hex')}`
   try {
@@ -125,7 +132,7 @@ export interface OwnedLock {
  */
 export async function acquireOwnedLock(
   filePath: string,
-  logger: Logger,
+  logger: LogSink,
   timeoutMs = 110_000,
 ): Promise<OwnedLock> {
   const lockDir = `${filePath}.lock`
@@ -186,9 +193,9 @@ export async function migrateOwnedRecord(
   legacyPath: string,
   sharedPath: string,
   ownerId: string,
-  logger: Logger,
+  logger: LogSink,
 ): Promise<void> {
-  const legacy = await readOwnedRecord(legacyPath, logger)
+  const legacy = await readOwnedRecord(legacyPath)
   const sharedExists = await fsp.access(sharedPath).then(() => true).catch(() => false)
   if (legacy !== null && !sharedExists) {
     await writeOwnedRecord(sharedPath, { ...legacy, owner: ownerId }, logger)

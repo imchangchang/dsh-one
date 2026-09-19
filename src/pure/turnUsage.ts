@@ -151,10 +151,6 @@ interface AttemptCoords {
   step: number
 }
 
-function sameAttempt(state: AttemptCoords, turn: number, step: number): boolean {
-  return state.turn === turn && state.step === step
-}
-
 /**
  * 增量版 deriveTurnTokenUsage：从 turn/start 开始逐事件 fold，turn/end 后
  * result() 给出精确聚合或 undefined（不可证明）。fold 不保留原始事件，只

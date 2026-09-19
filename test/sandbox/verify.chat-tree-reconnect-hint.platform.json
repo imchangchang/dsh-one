@@ -1,0 +1,35 @@
+{
+  "branch": "agent/chat-tree-reconnect-hint",
+  "slug": "chat-tree-reconnect-hint",
+  "platformCoverage": [],
+  "branchMatrix": {
+    "trigger": "probe-result-branch",
+    "note": [
+      "命中的形状：src/ui/assembly/shell/chatLayoutPlugin.ts 的 ConnectionHint 里 `const state = connectionState.getSnapshot()` 之后紧跟着按这个值分叉。",
+      "那个值不是「本机平台探测」，是官方 connection 服务发布的三态连接状态（ConnectionStateSource，见该文件的注释）；下面四行就是它的全部取值，逐行都有实测。",
+      "全部读数来自浏览器验证套件 F-61（test/assembly-lab/reconnectHintSuites.ts，`npm run verify:lab -- --suite F-61`）：自起的全新 DSH_HOME 隔离实例 + 同端口同 DSH_HOME 重启、Chromium 里 `context.setOffline`、以及拦掉事件流的 mock WebSocket。"
+    ],
+    "rows": [
+      {
+        "condition": "状态源还没有结果（`getSnapshot()` 返回 `undefined`）或从未报过 `connected`（`everConnected` 仍为假）",
+        "expected": "不渲染提示行（组件返回 null）——首屏不该显示「刚才断过」，那是误报",
+        "verification": "F-61 的 ③″ 段：另开一个上下文，把通往网关的 `/api/**` WebSocket 用 `browserContext.routeWebSocket` 拦下、不调 `connectToServer()`（页面那头连得上、服务端一个字节都收不到，官方 connection 的 generation 永远不 ready）；页面本身照常渲染（就绪点 `[data-slot=\"conversation.composer.bar\"]` 出现，读数就绪=true），提示行 = 0"
+      },
+      {
+        "condition": "`state === 'connected'`（已经连上）",
+        "expected": "不渲染提示行（组件返回 null）",
+        "verification": "F-61 的 ① 段：断线前提示行 = 0；③ 段：第二台实例起来后那一行自己消失、回到 0；③′ 段：`setOffline(false)` 之后同样回到 0"
+      },
+      {
+        "condition": "`state === 'connecting'`（曾经连上过、现在正在重连）",
+        "expected": "渲染一行「连接中断，正在重试」（词典 dshOneShell.connectionLost 的 zh / en 任一份），带 role=status 与 data-dshone-connection-hint 标记、盒高 > 0",
+        "verification": "F-61 的 ② 段：按 PID 收掉网关（保留同端口与同一份 DSH_HOME，即「同端口同 DSH_HOME 重启实例」）后 440ms 内读数 = 提示行 1、文案 \"Connection lost, retrying\"（套件按词典 zh/en 两份逐字比，不写死语言）"
+      },
+      {
+        "condition": "`state === 'disconnected'`（曾经连上过、浏览器报离线、自动重试已挂起）",
+        "expected": "渲染一行「连接已断开」（词典 dshOneShell.connectionOffline 的 zh / en 任一份）",
+        "verification": "F-61 的 ③′ 段：`BrowserContext.setOffline(true)`（官方恢复循环听的就是浏览器的 offline 事件）后读数 = 提示行 1、文案 \"Disconnected\"；`setOffline(false)` 后那一行自己消失（回到 0）"
+      }
+    ]
+  }
+}

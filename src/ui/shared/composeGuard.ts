@@ -31,11 +31,6 @@ export function initComposeGuard(onCompositionEnd: () => void): void {
   })
 }
 
-/** 活动中的 IME 组合是否落在 root 子树内（root 为 null 恒 false）。 */
-export function composingInside(root: Element | null): boolean {
-  return root !== null && composingEl !== null && root.contains(composingEl)
-}
-
 /** 是否有活动中的 IME 组合（不区分区域；sessions 的整列表冻结用它）。 */
 export function composingActive(): boolean {
   return composingEl !== null

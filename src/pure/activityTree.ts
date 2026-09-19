@@ -3,9 +3,9 @@
  * dsh-client-ui-jobs 的 JobListAction）：排序、状态呈现、耗时格式化。
  * No `vscode` import — unit-testable with node --test.
  *
- * Data source: mux `session/jobs` frames kept by src/ui/jobsStore.ts
- * （jobsBySession，含已 settled 的 job）。任务看板移除后，头部 chip 下拉
- * 是 jobs 数据的唯一消费方。
+ * Data source: mux `session/jobs` frames kept by the store baseline
+ * （jobsBySession，含已 settled 的 job）。头部 chip 下拉是 jobs 数据的
+ * 消费方之一（装配对话区的官方 jobs 组件直接消费同一条 mux 流）。
  */
 
 /** One background job (bash command, one-shot subagent, …) from session/jobs. */

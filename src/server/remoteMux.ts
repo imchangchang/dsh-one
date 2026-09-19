@@ -146,14 +146,6 @@ export function getMux(origin: string, logger: Logger): RemoteMux {
   return mux
 }
 
-export function releaseMux(origin: string): void {
-  const mux = muxByOrigin.get(origin)
-  if (mux !== undefined) {
-    muxByOrigin.delete(origin)
-    mux.close()
-  }
-}
-
 /**
  * Subscribe one logical stream with a disposable; the stream re-opens after
  * connection loss by calling `retry` from its onError handler.

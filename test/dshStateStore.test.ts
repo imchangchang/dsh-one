@@ -1,9 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises'
-import * as os from 'node:os'
+import { readdir, writeFile } from 'node:fs/promises'
 import * as path from 'node:path'
 import { DshStateStore } from '../src/ui/dshStateStore.ts'
+import { scratchDir } from './scratchDirs.ts'
 import {
   capDraftsFile,
   emptyDraftsFile,
@@ -14,7 +14,7 @@ import {
 } from '../src/pure/dshStateFile.ts'
 
 async function tmpDir(): Promise<string> {
-  return mkdtemp(path.join(os.tmpdir(), 'dsh-state-test-'))
+  return scratchDir('dsh-state-test-')
 }
 
 test('load on missing/empty dir: every module null (触发迁移), never throws', async () => {

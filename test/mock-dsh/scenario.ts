@@ -5,9 +5,9 @@
  * 确定性编排：mock 只在被扩展调用时按场景返回数据，剩下全凭扩展自己折叠。
  * 所以这里类型的每一个字段都对应扩展某个解析器的读法——注释里标出来源。
  *
- * 生效路径（扩展侧，见 src/server/chatSession.ts + src/server/dshRpc.ts）：
- * - session.history：返回场景的 history + projections，ChatSessionController
- *   用 ConversationFolder 折叠成消息（src/pure/conversation.ts applyEvent）。
+ * 生效路径（扩展侧，见 src/server/dshRpc.ts + src/pure/conversation.ts）：
+ * - session.history：返回场景的 history + projections，消费端用
+ *   ConversationFolder 折叠成消息（src/pure/conversation.ts applyEvent）。
  * - session.list / workspace.list：场景的 sessions / workspaces 摘要基线。
  * - agentPreset.list：场景的 presets 花名册（空会话选择 chip + 头部标签）。
  * - session.prompt：场景的 onPrompt 时间线（或 mock 默认流）经 mux 推给扩展。
@@ -16,8 +16,8 @@
  *   （approval/question 待批准态从这里进 pending）。
  *
  * 场景帧是「低层」的：字段直接对应 wire 帧，mock 只补 sessionId 和递增 seq，
- * 保证与扩展解析器（chatSession.ts onFrame / conversation.ts applyEvent /
- * chatContract.ts 各类）逐字段兼容。想编排更高层状态就再叠 helper。
+ * 保证与扩展解析器（conversation.ts applyEvent / chatContract.ts 各类）逐字段
+ * 兼容。想编排更高层状态就再叠 helper。
  */
 import type {
   SessionEventLike,
@@ -87,21 +87,6 @@ export function sessionEvent(event: SessionEventLike, view?: ToolEventViewLike, 
   const payload: Record<string, unknown> = { event }
   if (view) payload.view = view
   return { method: 'session/event', payload, ...(delayMs !== undefined ? { delayMs } : {}) }
-}
-
-/** 一条 session/projection 帧（扩展 chatSession.ts session/projection case）。 */
-export function projection(seq: number, key: string, value: unknown, delayMs?: number): MuxFrameSpec {
-  return { method: 'session/projection', payload: { seq, key, value }, ...(delayMs !== undefined ? { delayMs } : {}) }
-}
-
-/** 一条 session/queue 整表快照帧（扩展 session/queue case）。 */
-export function queue(items: unknown[], delayMs?: number): MuxFrameSpec {
-  return { method: 'session/queue', payload: { items }, ...(delayMs !== undefined ? { delayMs } : {}) }
-}
-
-/** 一条 session/jobs 整表快照帧（扩展 session/jobs case）。 */
-export function jobs(list: unknown[], delayMs?: number): MuxFrameSpec {
-  return { method: 'session/jobs', payload: { jobs: list }, ...(delayMs !== undefined ? { delayMs } : {}) }
 }
 
 // ---------------------------------------------------------------------------

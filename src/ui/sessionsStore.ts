@@ -57,7 +57,6 @@ import {
   resolveTagFile,
   serializeTagFileV2,
   type DraftsFile,
-  type TagFileV2,
   type WorkspaceTagState,
 } from '../pure/dshStateFile.ts'
 
@@ -90,7 +89,16 @@ const RECONNECT_MAX_MS = 30_000
  *  基线重拉，避免同一动作打多组全量 RPC。 */
 const REFRESH_DEBOUNCE_MS = 500
 
-/* ---- UI 展示偏好：留在 Memento，不进 dsh 目录（条目拍板） ---- */
+/* ---- UI 展示偏好：留在 Memento，不进 dsh 目录（条目拍板）。
+ *
+ * #82 复核结论：这两条记的是**已退役的 vanilla 侧栏**的折叠状态（`sessions.collapsed`
+ * / `sessions.recycleCollapsed`），随该侧栏一起退役——装配树自己的视图态走官方客户端
+ * 惯例的 localStorage（`dsh.workspaceTree.view`，见 pure/workspaceTreePrefs.ts），
+ * 不读这里。之所以现在还没删：`sessionsStore` 仍服务于状态栏/标签桥等存量消费方，
+ * 摘掉整条链路不在本次范围内；但它们**不是**插件状态的合法去处，新代码不许再加。
+ *
+ * 这几条属于「历史遗留 + shell 侧存量」，而**不是** #82 说的「插件状态」。
+ */
 /** workspaceState key for collapsed workspaces（UI-only；dsh 无此概念）. */
 const COLLAPSED_STATE_KEY = 'sessions.collapsed'
 /** globalState key for recycle view collapsed workspaces（与主列表折叠互不影响；
@@ -1700,7 +1708,7 @@ export class SessionsStore implements vscode.Disposable {
    * 全局 mux 帧入口：approval/question 的 requested/resolved 喂
    * pendingInteractions，session/projection 的 title 帧实时更新基线标题
    * （子代理自动命名不再等下一次基线重拉——host 事件流没有标题帧，标题
-   * 只走这条投影推送）。与 chatSession 的单会话过滤不同，这里按帧自带
+   * 只走这条投影推送）。与旧聊天 controller 的单会话过滤不同，这里按帧自带
    * sessionId 分桶跟踪所有会话——官方侧栏黄点对未实例化的会话也要亮，
    * 靠的就是这条全局流。
    */

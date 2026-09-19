@@ -5,52 +5,67 @@ import * as path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { Logger } from './log.ts'
 import { ServerManager } from './server/manager.ts'
-import { browserUrl } from './server/serverAuth.ts'
-import { loadModelWindowCache, setModelWindowCachePersist } from './server/chatSession.ts'
+import { browserUrl, getAuth } from './server/serverAuth.ts'
 import { archiveSession, createSession, ensureWorkspace, forkSession, renameSession } from './server/dshRpc.ts'
-import { isChatPanelTabArg } from './pure/contextResource.ts'
 import { formatSessionMention } from './pure/sessionMention.ts'
-import { DSH_TAB_VIEW_TYPE, openInTab, restoreDshWebTab } from './ui/webview.ts'
-import { ChatViewProvider } from './ui/chatView.ts'
-import { CHAT_PANEL_VIEW_TYPE } from './ui/chatTab.ts'
+import {
+  hasAssembledChatPanel,
+  preheatAssembly,
+  registerAssembledChat,
+  registerAssembledSettings,
+  registerAssembledSidebar,
+  revealAssembledChat,
+  revealAssembledSettings,
+  wasAssembledChatClosedByUser,
+} from './ui/assemblyView.ts'
 import { SessionsStore } from './ui/sessionsStore.ts'
-import { SessionsViewProvider } from './ui/sessionsView.ts'
 import { StatusBar } from './ui/statusbar.ts'
+import { openInstallGuide } from './ui/installGuide.ts'
+import { DshUpdate } from './server/dshUpdate.ts'
+import { locateDsh, type LocatedDsh } from './server/locateDsh.ts'
+import { decideUpdate } from './pure/dshUpdate.ts'
+import { statusActions, statusSummary } from './pure/statusActions.ts'
+import { lanOrigin, tokenizedUrl } from './pure/lanAccess.ts'
 import { TagBridge } from './server/tagBridge.ts'
 
-/** Official dsh product page with the "Get started" install instructions. */
-const DSH_INSTALL_URL = 'https://www.deepseek.com/harness/'
-
-/** globalState key for the learned provider/model → contextWindow map (见 chatSession.ts）。 */
-const MODEL_WINDOW_CACHE_KEY = 'chat.modelWindowCache'
+/**
+ * workspaceState key：装配对话区是否已完成过一次自动打开（见 autoOpenAssembledChat）。
+ *
+ * **shell 关注点，非插件状态**（#82 铁律的第三类）：这条记的是「本窗口已经把面板
+ * 自动打开过一次」这件事，属于面板生命周期，没有跨端语义（官方 web 没有面板、
+ * 也没有「自动打开」这回事）。插件自己的用户状态一律不在这里——见
+ * `src/pure/treeGroups.ts` 与 `packages/dsh-plugin-kit/src/hostCapabilities.ts`。
+ */
+const ASSEMBLY_AUTO_OPENED_KEY = 'dshOne.assemblyAutoOpened'
 
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
 /**
- * 会话动作命令的参数解析（侧栏菜单与编辑器 tab 右键共用）。侧栏直接传
- * sessionId 字符串；编辑器 tab 右键（editor/title/context）传的是被右键 tab
- * 的资源 URI，其中只有编辑器内部 id，API 层无法反查会话（见
- * contextResource.isChatPanelTabArg）——只能回退到当前活动 chat tab（右键的
- * 通常就是活动 tab；这是已知限制）。
+ * 会话动作命令的参数解析（侧栏菜单传 sessionId 字符串）。旧聊天 tab 的
+ * 编辑器右键入口已随旧聊天区下线，这里不再解析 tab 资源参数。
  */
-function resolveSessionArg(arg: unknown, chatView: ChatViewProvider): string | undefined {
-  if (typeof arg === 'string' && arg) return arg
-  if (isChatPanelTabArg(arg)) return chatView.currentSessionId ?? undefined
-  return undefined
+function resolveSessionArg(arg: unknown): string | undefined {
+  return typeof arg === 'string' && arg ? arg : undefined
 }
 
-export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  const logger = new Logger()
-  logger.info(`dsh-one activating (platform=${process.platform}/${process.arch})`)
+/**
+ * activate 建的 logger（`deactivate` 要用它写「宿主收摊」那条告别日志，#169）。
+ */
+let hostLogger: Logger | undefined
 
-  // 模型→窗口学习映射跨进程持久化：不持久化则扩展重启后映射为空，切回此前
-  // 用过的模型也进「窗口未知」占位。加载必须在任何会话 controller 附着之前。
-  loadModelWindowCache(context.globalState.get(MODEL_WINDOW_CACHE_KEY))
-  setModelWindowCachePersist((record) => {
-    void context.globalState.update(MODEL_WINDOW_CACHE_KEY, record)
-  })
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  // 日志同时落一份文件（#169）：面板恢复这类宿主行为事后只能靠日志自证，而 VS
+  // Code 输出面板的落点不在我们手里（自己的日志目录、会被清理）。位置固定在扩展
+  // globalStorage 下，路径写进首行与 docs/development.md。
+  const logger = new Logger({ logFileDir: vscode.Uri.joinPath(context.globalStorageUri, 'logs').fsPath })
+  const mode = context.extensionMode === vscode.ExtensionMode.Development ? 'dev' : 'stable'
+  logger.info(
+    `dsh-one activating (platform=${process.platform}/${process.arch}, pid=${process.pid}, vscode=${vscode.version}, mode=${mode})`,
+  )
+  if (logger.filePath !== undefined) logger.info(`log file: ${logger.filePath}`)
+  hostLogger = logger
 
   const manager = new ServerManager(context, logger)
 
@@ -60,7 +75,34 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     void manager.ensureStarted()
   }
 
-  const statusBar = new StatusBar(manager)
+  const dshUpdate = new DshUpdate(logger)
+  const statusBar = new StatusBar(manager, dshUpdate)
+
+  // #86 更新检查：这里做一次静默检查（查到才影响 tooltip 里那行提示；失败只进日志，
+  // 不打扰用户）。只在拿到真实 dsh 版本之后查一次——版本未知时比不出结果，
+  // 「检查更新」命令随时可以再手动触发。
+  let updateChecked = false
+  const tryUpdateCheck = (): void => {
+    if (updateChecked) return
+    const status = manager.getStatus()
+    if (status.state !== 'running' || !status.version || status.version === 'unknown') return
+    updateChecked = true
+    void dshUpdate.check()
+  }
+  context.subscriptions.push(manager.onDidChangeState(tryUpdateCheck))
+  tryUpdateCheck()
+
+  // #71 预热：激活后网关一旦 running，后台暖共享代理 + 三树过滤整包缓存
+  // （静默，失败不挡激活）。首个侧栏揭面/首个 tab 不再付 mirror 启动与
+  // 网关往返的冷启动成本。
+  let preheated = false
+  const tryPreheat = (): void => {
+    if (preheated || manager.getStatus().state !== 'running') return
+    preheated = true
+    void preheatAssembly(context, manager, logger)
+  }
+  context.subscriptions.push(manager.onDidChangeState(tryPreheat))
+  tryPreheat()
   // 五组客户端状态（回收站/分组/标签组/置顶/未读）落在 ~/.dsh/dsh-one/ 文件
   // （跨窗口/重启共享，create 里完成旧 Memento 一次性迁移并接管文件监视）；
   // 排序/折叠等 UI 偏好仍走 Memento。
@@ -83,66 +125,93 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     logger,
   })
   await tagBridge.start().catch((err) => logger.warn(`tag-bridge start failed (--tag unavailable): ${errorText(err)}`))
-  const chatView = new ChatViewProvider(manager, logger, context.extensionUri, sessions, context.workspaceState, () =>
-    void sessions.refresh(),
-  )
 
-  // 侧栏 sessions 面板（webview view）：只渲染会话列表，高亮读 chatView 的
-  // activeSessionId（附着的、或懒加载待附着目标），附着变化时重推快照。
-  const sessionsView = new SessionsViewProvider(
-    manager,
-    logger,
-    context.extensionUri,
-    sessions,
-    () => chatView.activeSessionId,
-    () => chatView.attachedSessionId,
-    chatView.onActiveSessionChanged,
-  )
+  // 「最近打开的会话」：旧聊天 tab 下线后，侧栏高亮/行内改名的附着语义由它
+  // 承接——从扩展侧打开会话（侧栏点击/新建/fork）即记为最近打开。装配页内部
+  // 切会话不经过扩展，高亮以最后一次从扩展侧打开的会话为准。
+  let lastOpenedSessionId: string | null = null
+  const activeSessionChanged = new vscode.EventEmitter<string | null>()
+  const setLastOpenedSession = (id: string | null): void => {
+    if (lastOpenedSessionId === id) return
+    lastOpenedSessionId = id
+    activeSessionChanged.fire(id)
+  }
 
-  // Chat/session reconciliation after every store rebuild: close the tab of
-  // any opened session that vanished host-side (archived/deleted elsewhere).
-  // 服务重启后的活动会话恢复在 chatView 内部做（store 基线刷新确认后自动
-  // 重新打开最近活动的会话 tab，只恢复活动的）。
-  const reconcileChat = sessions.onDidChange(() => {
-    const url = sessions.runningUrl
-    if (!url) return
-    for (const sessionId of chatView.openSessionIds()) {
-      if (!sessions.hasSession(sessionId)) chatView.closeSession(sessionId)
+  // 打开/聚焦装配对话区：已开则聚焦（不重复装配），未开走命令全量打开
+  // （ensureStarted + 清单装配 + 起 mirror）。侧栏点开会话、新建会话、
+  // fork 与默认打开都复用这个入口。
+  const openAssembledChat = async (): Promise<void> => {
+    if (!revealAssembledChat()) await vscode.commands.executeCommand('dshOne.assembledChat')
+  }
+
+  // 默认打开装配对话区（#68）：侧栏 view 展示时，若装配面板没开就自动开一次。
+  // 「只自动开一次」落在 workspaceState；用户手动关过面板也不再强开（尊重选择）；
+  // 服务还没就绪时不落标记，等侧栏下次展示且服务在跑时再开（首次点击可能撞上
+  // 服务启动中，不给用户报错弹窗）。
+  const autoOpenAssembledChat = async (): Promise<void> => {
+    if (context.workspaceState.get<boolean>(ASSEMBLY_AUTO_OPENED_KEY)) return
+    if (revealAssembledChat() || wasAssembledChatClosedByUser()) {
+      await context.workspaceState.update(ASSEMBLY_AUTO_OPENED_KEY, true)
+      return
     }
-  })
+    if (manager.getStatus().state !== 'running') return
+    await vscode.commands.executeCommand('dshOne.assembledChat')
+    if (hasAssembledChatPanel()) await context.workspaceState.update(ASSEMBLY_AUTO_OPENED_KEY, true)
+  }
+
+  // 打开/聚焦设置面板（#70 设置独立成页）：侧栏齿轮点击与命令面板共用。
+  const openAssembledSettings = async (): Promise<void> => {
+    if (!revealAssembledSettings()) await vscode.commands.executeCommand('dshOne.assembledSettings')
+  }
+
+  // #86 检查更新用的「当前版本」：优先现在能不能定位到 dsh（那才是真实安装位置上的版本），
+  // 定位不到就退回状态里已经探到的版本（服务在跑时总是有）。
+  const installedDshVersion = async (): Promise<string | undefined> => {
+    try {
+      const located = await locateDsh(logger)
+      return located.version === 'unknown' ? undefined : located.version
+    } catch {
+      const version = manager.getStatus().version
+      return version && version !== 'unknown' ? version : undefined
+    }
+  }
+
+  // #86 升级要 dsh 的可执行文件路径（用来推导同目录的 npm）；定位不到就没法拼命令，
+  // 直接把 locate 的报错（含安装指引）给用户。
+  const locateForUpgrade = async (): Promise<LocatedDsh | undefined> => {
+    try {
+      return await locateDsh(logger)
+    } catch (err) {
+      void vscode.window.showErrorMessage(errorText(err))
+      return undefined
+    }
+  }
+
+  // 侧栏 sessions 面板（#70）：dshOne.chat view 的内容换成官方侧栏装配
+  // （第二棵 cordis 树，assemblyView.ts），自研 vanilla 侧栏（sessionsView/
+  // sessionsWebview）摘钩保留——#65 迁移参照物，暂不使用。可见性钩子沿用
+  // #68 语义：侧栏 view 展示时自动开一次装配对话区；齿轮点击开设置面板。
+  context.subscriptions.push(registerAssembledSidebar(context, manager, logger, {
+    onDidBecomeVisible: () => void autoOpenAssembledChat(),
+    onOpenSettings: () => void openAssembledSettings(),
+  }))
 
   context.subscriptions.push(
     logger,
     manager,
     statusBar,
+    dshUpdate,
     sessions,
     tagBridge,
-    chatView,
-    sessionsView,
-    reconcileChat,
+    activeSessionChanged,
     // 窗口失焦期间侧栏可能被覆盖，回到聚焦时列表可能过期——刷新一次（失焦不刷）。
+    // 焦点变化本身也记一条（#169）：用户报的「切走窗口再回来面板没了」要从日志里
+    // 对得上当时的焦点事件，才分得清是「宿主重启带走了面板」还是「焦点回来触发了
+    // 什么把面板替换掉了」。
     vscode.window.onDidChangeWindowState((state) => {
+      logger.info(`window focus: ${state.focused ? 'focused' : 'blurred'}`)
       if (state.focused) void sessions.refreshSoon()
     }),
-    vscode.window.registerWebviewViewProvider('dshOne.chat', sessionsView, {
-      webviewOptions: { retainContextWhenHidden: true },
-    }),
-    // 窗口 reload 恢复打开的 tab：chat 面板按面板 state 里的 tabId 查
-    // workspaceState 映射重建会话 tab；dsh web 面板重新 bind（内容随状态刷新）。
-    vscode.window.registerWebviewPanelSerializer(CHAT_PANEL_VIEW_TYPE, {
-      deserializeWebviewPanel: (panel, state) => chatView.restoreChatPanel(panel, state),
-    }),
-    vscode.window.registerWebviewPanelSerializer(DSH_TAB_VIEW_TYPE, {
-      deserializeWebviewPanel: (panel) => restoreDshWebTab(panel, manager),
-    }),
-    vscode.commands.registerCommand('dshOne.open', () => {
-      void manager.ensureStarted()
-      chatView.openPanel()
-    }),
-    // Status bar "Retry Starting / Start Service": start (or retry) the
-    // service only, without opening the system browser. Opening the browser
-    // stays reserved for "Open in Browser" and the status bar click
-    // (dshOne.openExternal).
     vscode.commands.registerCommand('dshOne.start', async () => {
       await manager.ensureStarted()
     }),
@@ -163,9 +232,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       logger.info(`opening dsh web: ${externalUrl.toString()}`)
       await vscode.env.openExternal(external)
     }),
-    vscode.commands.registerCommand('dshOne.openInTab', () => {
-      openInTab(manager)
-    }),
+    // cordis 装配对话区（#64 goal 1，#68 起为唯一对话区）：官方组件装配页 +
+    // 自研外壳，命令面板进；点活动栏 DSH One 图标也会自动打开（见
+    // autoOpenAssembledChat）。
+    registerAssembledChat(context, manager, logger),
+    // 装配设置面板（#70 设置独立成页）：官方 settings.* 槽位整页渲染。
+    registerAssembledSettings(context, manager, logger),
     vscode.commands.registerCommand('dshOne.restart', async () => {
       await manager.restart()
     }),
@@ -247,17 +319,88 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('dshOne.showLogs', () => {
       logger.show()
     }),
+    // #86 检查更新：固定比 npm 的 latest dist-tag（口径与理由见 src/pure/dshUpdate.ts）。
+    // 有新版本时顺带给「升级」按钮；查不到就报检查失败——不冒充「已是最新」。
+    vscode.commands.registerCommand('dshOne.checkUpdate', async () => {
+      const installed = await installedDshVersion()
+      await dshUpdate.check()
+      const verdict = decideUpdate(installed, dshUpdate.latest())
+      if (verdict.state === 'update') {
+        const upgrade = vscode.l10n.t('Upgrade')
+        const pick = await vscode.window.showInformationMessage(
+          vscode.l10n.t('A newer dsh is available: v{0} (current v{1}).', verdict.latest!, verdict.installed!),
+          upgrade,
+        )
+        if (pick === upgrade) await vscode.commands.executeCommand('dshOne.upgrade')
+        return
+      }
+      if (verdict.state === 'current') {
+        void vscode.window.showInformationMessage(
+          vscode.l10n.t('dsh is up to date (v{0}).', verdict.latest!),
+        )
+        return
+      }
+      if (verdict.state === 'ahead') {
+        // alpha/next 用户会落到这里：npm latest 比手上旧，没什么可升的。
+        void vscode.window.showInformationMessage(
+          vscode.l10n.t(
+            'Installed dsh v{0} is newer than the npm latest v{1}; nothing to upgrade.',
+            verdict.installed!,
+            verdict.latest!,
+          ),
+        )
+        return
+      }
+      void vscode.window.showWarningMessage(
+        vscode.l10n.t('Update check failed: {0}', dshUpdate.lastError() ?? vscode.l10n.t('unknown reason')),
+      )
+    }),
+    // #86 升级：在集成终端里跑全局安装命令（命令可见、可中断）。装的版本比 latest 新时
+    // 先弹确认说明「继续等于降级」，避免 alpha 用户被无声地拉回正式通道。
+    vscode.commands.registerCommand('dshOne.upgrade', async () => {
+      const dsh = await locateForUpgrade()
+      if (!dsh) return
+      if (!dshUpdate.latest()) await dshUpdate.check()
+      const latest = dshUpdate.latest()
+      const verdict = decideUpdate(dsh.version, latest)
+      if (verdict.state === 'current') {
+        void vscode.window.showInformationMessage(
+          vscode.l10n.t('dsh is up to date (v{0}).', latest!),
+        )
+        return
+      }
+      if (verdict.state === 'ahead') {
+        const proceed = vscode.l10n.t('Continue')
+        const answer = await vscode.window.showWarningMessage(
+          vscode.l10n.t(
+            'Installed dsh v{0} is newer than the npm latest v{1}; continuing installs the older version.',
+            verdict.installed!,
+            latest!,
+          ),
+          { modal: true },
+          proceed,
+        )
+        if (answer !== proceed) return
+      }
+      dshUpdate.runUpgradeInTerminal(dsh, latest)
+      void vscode.window.showInformationMessage(
+        vscode.l10n.t('Installing dsh in the terminal; restart the dsh service when it finishes.'),
+      )
+    }),
+    // #70 摘钩标注：以下会话/工作区命令原为自研侧栏 webview 消息驱动（行内
+    // 菜单/右键菜单转发）。侧栏位换成官方侧栏装配后失去调用方，注册保留作
+    // #65 迁移参照物（特有功能叠加时由桥/postMessage 重新接线），暂不使用。
+    // dshOne.session.new / workspace.add / workspace.create 无参从命令面板
+    // 调用仍有效，不在此列。
     vscode.commands.registerCommand('dshOne.sessions.refresh', async () => {
       await sessions.refresh()
     }),
-    // Click a session in the sidebar panel: open in the current chat tab by
-    // default (reused by the sessions webview via the command).
+    // Click a session in the sidebar panel: open the assembled chat with it
+    // remembered as the last opened session (highlight in the sidebar).
     vscode.commands.registerCommand('dshOne.session.open', (sessionId?: string) => {
-      if (typeof sessionId === 'string') chatView.openSession(sessionId)
-    }),
-    // 侧栏菜单「在新 tab 中打开」：显式新开一个会话 tab。
-    vscode.commands.registerCommand('dshOne.session.openInNewTab', (sessionId?: string) => {
-      if (typeof sessionId === 'string') chatView.openSessionInNewTab(sessionId)
+      if (typeof sessionId !== 'string') return
+      setLastOpenedSession(sessionId)
+      void openAssembledChat()
     }),
     vscode.commands.registerCommand('dshOne.session.new', async (workspaceId?: string, tagId?: string) => {
       const url = sessions.runningUrl
@@ -281,7 +424,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         sessions.setSessionTag(sessionId, tagId, targetWorkspaceId)
       }
       await sessions.refresh()
-      chatView.openSession(sessionId)
+      setLastOpenedSession(sessionId)
+      void openAssembledChat()
     }),
     // 新建「未分组」对话：不挂任何 workspace 的会话。预分配会话 id，临时
     // 目录（os.tmpdir()，跨平台等价于 /tmp）以 日期+会话id 命名作为会话
@@ -300,11 +444,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return
       }
       await sessions.refresh()
-      chatView.openSession(createdId)
+      setLastOpenedSession(createdId)
+      void openAssembledChat()
     }),
     vscode.commands.registerCommand('dshOne.session.rename', async (arg?: unknown, currentTitle?: string) => {
       const url = sessions.runningUrl
-      const sessionId = resolveSessionArg(arg, chatView)
+      const sessionId = resolveSessionArg(arg)
       if (!url || !sessionId) return
       const title = await vscode.window.showInputBox({
         title: vscode.l10n.t('Rename Session'),
@@ -322,7 +467,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand('dshOne.session.archive', async (arg?: unknown, currentTitle?: string) => {
       const url = sessions.runningUrl
-      const sessionId = resolveSessionArg(arg, chatView)
+      const sessionId = resolveSessionArg(arg)
       if (!url || !sessionId) return
       // 置顶防线（pinned-not-archivable）：UI 已置灰，这层兜底防命令被绕过。
       if (sessions.snapshot().pinned.includes(sessionId)) {
@@ -346,8 +491,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await sessions.refresh()
       // 归档即终点：从回收站本地集合移除（会话在回收站里的情形）。
       sessions.clearRecycleBinIds([sessionId])
-      // Archiving an opened chat session closes its tab (per-session).
-      chatView.closeSession(sessionId)
     }),
     // 批量归档（多选模式）：确认框已在 sessions webview 内展示，这里不再弹
     // 确认，直接循环归档；返回失败 id 列表供面板保留勾选重试。
@@ -376,7 +519,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await sessions.refresh()
         // 归档即终点：成功项从回收站本地集合移除（清空回收站/单个归档的情形）。
         sessions.clearRecycleBinIds(succeeded)
-        for (const sessionId of succeeded) chatView.closeSession(sessionId)
       }
       if (failed.length > 0) {
         const sample = failed.slice(0, 3).map((id) => id.slice(0, 8)).join(', ')
@@ -388,7 +530,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand('dshOne.session.fork', async (arg?: unknown) => {
       const url = sessions.runningUrl
-      const sessionId = resolveSessionArg(arg, chatView)
+      const sessionId = resolveSessionArg(arg)
       if (!url || !sessionId) return
       let newSessionId: string
       try {
@@ -398,29 +540,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return
       }
       await sessions.refresh()
-      // fork 后的子会话在新 tab 打开（用户决策：fork 后新开 tab，原 tab 保留）。
-      chatView.openSessionInNewTab(newSessionId)
+      // fork 后的子会话成为最近打开并聚焦装配对话区（旧聊天 tab 下线后无
+      // 「新 tab」概念，装配面板是唯一对话区）。
+      setLastOpenedSession(newSessionId)
+      void openAssembledChat()
     }),
-    // 复制会话引用 mention（侧栏菜单与 chat 头部 ⋯ 菜单、编辑器 tab 右键共用）。
+    // 复制会话引用 mention（侧栏菜单）。装配对话区接管聊天后，mention 粘贴
+    // 落点由官方输入框承接。
     vscode.commands.registerCommand('dshOne.session.copyReference', async (arg?: unknown, currentTitle?: string) => {
-      const sessionId = resolveSessionArg(arg, chatView)
+      const sessionId = resolveSessionArg(arg)
       if (!sessionId) return
       const label =
-        typeof currentTitle === 'string' && currentTitle
-          ? currentTitle
-          : chatView.activeSessionTitle ?? vscode.l10n.t('Session {0}', sessionId.slice(0, 8))
+        typeof currentTitle === 'string' && currentTitle ? currentTitle : vscode.l10n.t('Session {0}', sessionId.slice(0, 8))
       await vscode.env.clipboard.writeText(formatSessionMention(label, sessionId))
-      void vscode.window.showInformationMessage(vscode.l10n.t('Session reference copied. Paste it into the input box to mention this session'))
+      void vscode.window.showInformationMessage(
+        vscode.l10n.t('Session reference copied. Paste it into the input box to mention this session'),
+      )
     }),
-    // Editor/explorer 右键「发送到当前会话」：把当前文件作为附件暂存到当前
-    // 活跃会话的 composer（等同点「添加附件」）。
-    vscode.commands.registerCommand('dshOne.session.attachFile', (arg?: unknown) => {
-      void chatView.attachFileToSession(arg)
-    }),
-    vscode.commands.registerCommand('dshOne.workspace.openFolder', async (path?: string) => {
+    // #109：第二个参数 `forceNewWindow` 供侧栏工作区右键的「在新窗口打开文件夹」用
+    // （缺省 false = 旧侧栏「在 VS Code 打开」的当前窗口语义，老调用点行为不变）。
+    vscode.commands.registerCommand('dshOne.workspace.openFolder', async (path?: string, forceNewWindow?: boolean) => {
       if (typeof path !== 'string' || !path) return
       await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(path), {
-        forceNewWindow: false,
+        forceNewWindow: forceNewWindow === true,
       })
     }),
     vscode.commands.registerCommand('dshOne.workspace.openTerminal', (path?: string) => {
@@ -428,18 +570,91 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const name = path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path
       vscode.window.createTerminal({ name, cwd: path }).show()
     }),
-    vscode.commands.registerCommand('dshOne.openInstallPage', async () => {
-      await vscode.env.openExternal(vscode.Uri.parse(DSH_INSTALL_URL))
+    // 安装引导：打开我们自己的引导 tab（#100，单例：已开则聚焦）——引导内容
+    // （平台下拉 + 一键命令 + 复制）窄侧栏放不下，独立成一个编辑器 tab；官方
+    // 安装文档作为 tab 里的一条入口保留。
+    vscode.commands.registerCommand('dshOne.openInstallPage', () => openInstallGuide(logger, context.extensionUri)),
+    // #90 状态栏点击 = 打开动作面板：动作清单与悬停气泡同一份表
+    // （src/pure/statusActions.ts），这里只负责把它渲染成原生 QuickPick 并转发命令。
+    vscode.commands.registerCommand('dshOne.statusPanel', async () => {
+      const status = manager.getStatus()
+      const verdict = decideUpdate(status.version, dshUpdate.latest())
+      const t = (message: string, ...args: Array<string | number | boolean>): string =>
+        vscode.l10n.t(message, ...args)
+      const actions = statusActions(status, t, verdict)
+      const picked = await vscode.window.showQuickPick(
+        actions.map((action) => ({ label: `$(${action.icon}) ${action.label}`, action })),
+        { title: 'DSH One', placeHolder: statusSummary(status, t, verdict) },
+      )
+      if (picked) await vscode.commands.executeCommand(picked.action.command)
     }),
-    // 未安装 dsh 时状态栏/「Install dsh」链接的落点：聚焦侧栏面板，那里是带
-    // 非官方一键脚本的安装引导空态（dshNotFound）；官方网址在面板空态里还有
-    // 「View install guide」入口。
+    // 复制带 token 的访问链接（backlog statusbar-lan-access）：本机链接 =
+    // browserUrl（token 从认证态取）；局域网链接 = 转发器在监听的 <ip>:<port>
+    // + 同一个 token。token 是敏感值：只进剪贴板，不进日志（serverAuth 的约定）。
+    vscode.commands.registerCommand('dshOne.copyLink', async () => {
+      const status = manager.getStatus()
+      if (status.state !== 'running' || !status.url) {
+        void vscode.window.showWarningMessage(vscode.l10n.t('No running dsh to copy a link for.'))
+        return
+      }
+      const link = browserUrl(status.url)
+      await vscode.env.clipboard.writeText(link)
+      // 0.1.1（无 token 的 legacy 实例）复制出来的是干净 URL，不能报「含 token」。
+      void vscode.window.showInformationMessage(
+        link.includes('token=')
+          ? vscode.l10n.t('Local access link copied (with token).')
+          : vscode.l10n.t('Local access link copied.'),
+      )
+    }),
+    vscode.commands.registerCommand('dshOne.copyLanLink', async () => {
+      const status = manager.getStatus()
+      const ip = manager.lanAddress
+      const token = status.url ? getAuth(status.url)?.token : undefined
+      if (status.state !== 'running' || !ip || !token) {
+        void vscode.window.showWarningMessage(vscode.l10n.t('LAN access is not enabled for this instance.'))
+        return
+      }
+      await vscode.env.clipboard.writeText(tokenizedUrl(lanOrigin(ip, status.port ?? 0), token))
+      void vscode.window.showInformationMessage(vscode.l10n.t('LAN access link copied (with token).'))
+    }),
+    // 局域网开关：改设置 + 重启（能力来自 spawn 时的 --trusted-host，必须重启才生效）。
+    // 开 = 把服务暴露给局域网，安全影响必须先讲清（拿到链接的人都能用）。
+    vscode.commands.registerCommand('dshOne.restartLan', async () => {
+      if (manager.getStatus().state !== 'running') {
+        void vscode.window.showWarningMessage(vscode.l10n.t('No running dsh to restart.'))
+        return
+      }
+      const proceed = vscode.l10n.t('Restart for LAN access')
+      const answer = await vscode.window.showWarningMessage(
+        vscode.l10n.t(
+          'Expose dsh to the local network? Anyone on the network with the link (which carries the token) can use it. dsh restarts to enable LAN access.',
+        ),
+        { modal: true },
+        proceed,
+      )
+      if (answer !== proceed) return
+      await vscode.workspace.getConfiguration('dshOne').update('lanAccess', true, vscode.ConfigurationTarget.Global)
+      await manager.restart()
+    }),
+    vscode.commands.registerCommand('dshOne.restartLocal', async () => {
+      // 与 restartLan 同样先判运行态：否则「重启」会把没跑的服务直接拉起来，
+      // 而用户点的是「切回仅本机」。
+      if (manager.getStatus().state !== 'running') {
+        void vscode.window.showWarningMessage(vscode.l10n.t('No running dsh to restart.'))
+        return
+      }
+      await vscode.workspace.getConfiguration('dshOne').update('lanAccess', false, vscode.ConfigurationTarget.Global)
+      await manager.restart()
+    }),
+    // 未安装 dsh 时状态栏「Install dsh」链接的落点：聚焦侧栏面板，那里是
+    // 「未安装」状态页（`reason === 'dshNotFound'`），页面上的「查看安装指南」
+    // 再开上面的引导 tab。侧栏本身就是窄条，不在这里直接塞引导内容。
     vscode.commands.registerCommand('dshOne.openSessions', async () => {
       await vscode.commands.executeCommand('dshOne.chat.focus')
     }),
     // Title-area "+": register a picked folder as a new dsh workspace.
     // Returns the registered workspace (or undefined when cancelled/failed) so
-    // the chat hero picker's「添加已有文件夹…」can switch to it afterwards;
+    // the sessions panel's「添加已有文件夹…」can switch to it afterwards;
     // the sidebar entry ignores the return value.
     vscode.commands.registerCommand('dshOne.workspace.add', async () => {
       const url = sessions.runningUrl
@@ -464,7 +679,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     // Create a brand-new workspace: make a folder under the dsh global
     // directory (~/.dsh/workspaces/<name>) and register it in one step.
-    // Same return contract as dshOne.workspace.add (used by the hero picker).
+    // Same return contract as dshOne.workspace.add (used by the sessions panel).
     vscode.commands.registerCommand('dshOne.workspace.create', async () => {
       const url = sessions.runningUrl
       if (!url) return undefined
@@ -515,4 +730,9 @@ export function deactivate(): void {
   // dsh 与 VSCode 生命周期解绑：reload/关窗不再终止 dsh（pidfile 记录身份，
   // 下个窗口 re-own；只有 dshOne.stop/restart 会杀）。本地资源由
   // context.subscriptions 自动 dispose，这里无事可做。
+  //
+  // 只留一条告别日志（#169）：窗口重载 / 扩展宿主退出时 VS Code 不逐个 dispose
+  // 面板（用户看到的就是「面板没了」），日志里有这条 + 其后是一份新 pid 的日志
+  // 文件 = 面板是被宿主带走的；没有这条 = 得另找原因。写在同步 IO 上，来得及。
+  hostLogger?.info('dsh-one deactivating (extension host shutting down)')
 }

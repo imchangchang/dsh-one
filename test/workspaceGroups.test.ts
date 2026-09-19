@@ -73,6 +73,23 @@ test('reorderGroups：未知 id 丢弃、缺项/为空无效、与现序一致�
   assert.equal(reorderGroups(groups, ['a', 'b', 'c']), null)
 })
 
+// #155：拖组行换序落到界面上时，两端与「只有一个组」这几种边界都要稳（拖到第一个之前、
+// 拖到最后一个之后、只建了一个组时怎么拖都是原序）。
+test('reorderGroups：两端与单组边界（首尾互换、单组恒无变化）', () => {
+  const groups = [G('a', 'A'), G('b', 'B'), G('c', 'C'), G('d', 'D')]
+  // 末尾挪到最前 / 最前挪到末尾——两端点都真的换位。
+  assert.deepEqual(reorderGroups(groups, ['d', 'a', 'b', 'c']), [G('d', 'D'), G('a', 'A'), G('b', 'B'), G('c', 'C')])
+  assert.deepEqual(reorderGroups(groups, ['b', 'c', 'd', 'a']), [G('b', 'B'), G('c', 'C'), G('d', 'D'), G('a', 'A')])
+  // 倒序也成立（拖拽提交的是完整顺序，不是「谁插到谁前面」）。
+  assert.deepEqual(reorderGroups(groups, ['d', 'c', 'b', 'a']), [G('d', 'D'), G('c', 'C'), G('b', 'B'), G('a', 'A')])
+  // 只有一个组：只有它自己这一种顺序，任何请求都不该产生变化（更不该崩）。
+  const single = [G('only', 'Only')]
+  assert.equal(reorderGroups(single, ['only']), null)
+  assert.equal(reorderGroups(single, []), null)
+  assert.equal(reorderGroups(single, ['only', 'only']), null)
+  assert.equal(reorderGroups([], ['only']), null)
+})
+
 test('groupNameError：空名/重名（可排除自身）', () => {
   const groups = [G('a', '演示'), G('b', '开发')]
   assert.equal(groupNameError('  ', groups), 'empty')

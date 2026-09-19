@@ -1,0 +1,745 @@
+/**
+ * 侧栏自有工作区树的数据推导（#65 批 2）——纯函数，只吃官方 sessions /
+ * workspaces 服务的**快照值**，不做任何 IO。
+ *
+ * 语义逐条对齐官方 ui-workspace 的推导（0.1.6-alpha.1 的
+ * `lib/types/client/tree.js` 与 `rows/Rows.js` 实测源码），因为外观要「看不出
+ * 差别」的前提是分组、可见性、排序、状态点这些事实与官方同源：
+ *
+ * - `deriveGroups`：按工作区注册顺序出分组，成员取 `workspace.sessionIds`
+ *   （官方的手动顺序）；未被任何工作区记账的会话落进「未分组」桶（按最近
+ *   更新排序，官方在无浏览器本地顺序时同此）。`containsCurrent`（「当前工作区」
+ *   = VS Code 当前打开的文件夹，见 {@link TreeViewLike.currentFolders}）由**文件夹
+ *   路径**判定，与当前会话无关（#112）。
+ * - 可见性 `sessionVisible`：子代理来源的会话不进树；已归档不进树；空白会话
+ *   只在它就是当前选中那一行时进树（「新会话」占位）——**当前会话只在这条上起作用**。
+ * - `deriveFlat`：全部可见会话的一份平铺（按最近更新倒序）——官方同名推导，我们这边
+ *   #131 起不再有「单列表」视图形态，它只用来做选择态的 id → 节点映射。
+ * - `sessionStatuses`：状态点的一条主状态 + 若干无障碍标签，优先级 =
+ *   等待用户（批准/计划待审/等待回答）> 运行中 > 子代理运行中 > 完成提醒 >
+ *   空闲——与官方 `sessionStatuses` 完全一致。
+ * - `indexSubagentDescendants`：官方同名的子代理后代计数（只用于状态文案与
+ *   悬停卡，不影响可见行）。
+ */
+// ---------------------------------------------------------------------------
+// 输入形态（结构化最小面：官方私包的精确类型不在本仓库，按用到的字段收窄）
+// ---------------------------------------------------------------------------
+
+export interface SessionSummaryLike {
+  readonly id: string
+  readonly displayTitle?: string
+  readonly title?: string
+  readonly parentId?: string
+  /** 会话工作目录（复用空白会话时按它比工作区路径）。 */
+  readonly cwd?: string
+  /** 会话来源；`subagent` 的会话不进侧栏树。 */
+  readonly origin?: string
+  readonly running: boolean
+  /** 「跑完但还没被打开」的绿色提醒点。 */
+  readonly completed?: boolean
+  /** 空白会话（新建但没发过消息）。 */
+  readonly blank: boolean
+  readonly updatedAt: number
+  /**
+   * 这一页里各个使用者还持有这条会话的计数（官方 0.1.6-alpha.2 的行字段，
+   * `mainView` = 主对话区那一个）。见 {@link withCurrentSession}。
+   */
+  readonly retainedBy?: Readonly<Partial<Record<string, number>>>
+  /** 官方宿主投影值；`schedule` 有内容时行上带定时任务标记。 */
+  readonly projectionValues?: { readonly schedule?: readonly unknown[] }
+}
+
+export interface SessionListLike {
+  readonly ids: readonly string[]
+  readonly byId: Readonly<Record<string, SessionSummaryLike>>
+  readonly current?: string
+}
+
+/**
+ * 「当前会话」的单一事实源（#191）：官方两代字段的**唯一分叉点**。
+ *
+ * 0.1.6-alpha.1 及以前，官方在会话列表快照里直接下发 `current`
+ * （`dsh-api-session-controller` 的 `SessionListSnapshot.current`，注释写明「Selected
+ * Session id」，会话不在列表上时会被掩成 undefined）。0.1.6-alpha.2 起这个字段**没了**
+ * （同文件 types 里已删除），官方各处改成自己从行数据上推：
+ * `Object.values(list.byId).find((session) => (session.retainedBy.mainView ?? 0) > 0)?.id`
+ * ——出处 `dsh-client-ui-workspace/lib/client.js`（5 处）与 `dsh-client-ui-layout/lib/client.js`
+ * （文档标题那一处）；行上的 `retainedBy` 是「这一页里哪个使用者还持有这条会话」的计数，
+ * `mainView` 就是主对话区那一个。我们按 `ids` 的次序取第一条命中的（官方用
+ * `Object.values(byId)`，两者是同一轮循环按同一个顺序建的，第一条命中相同）。
+ *
+ * **为什么必须分叉**：`current` 恒 undefined 的后果是静默的——侧栏树按「当前会话所在
+ * 分组默认展开」定默认展开态（`autoExpandGroup`），拿不到 current 就永远不展开：页面
+ * 看着有工作区，点开全是空的（#191 实测 alpha.2 上 `.dshOneTree_sessionRow` = 0，而同
+ * 一个槽位上官方浏览区照常出 5 行）。字段在的时候原样返回同一份 list（引用不变，
+ * `useMemo` 的依赖语义不动）。
+ */
+export function withCurrentSession(list: SessionListLike): SessionListLike {
+  if (list.current !== undefined) return list
+  const current = list.ids.find((id) => (list.byId[id]?.retainedBy?.mainView ?? 0) > 0)
+  return current === undefined ? list : { ...list, current }
+}
+
+/**
+ * 把「跑完还没被打开」这枚绿点从**官方状态表**补进列表行（#191）：0.1.6-alpha.2 起会话
+ * 列表行上没有 `completed` 了，官方把它挪进 `sessionStatus` 钩子的 `completionUnread`
+ * 那一格（取用与投影见 `sessionPendingSource.ts`，同一个 `PendingSource` 上给出了这份
+ * id 集合）。老代给 `null` = 那一代的行里自带 `completed`，一个字节都不动。
+ *
+ * 只在**真的不同**的行上重建对象：新代的行本来就没有这一格，`next === false` 时保持
+ * 原样（`undefined` 与 `false` 在判据 `completed === true` 下同义），少一次整表重建。
+ */
+export function withCompletedIds(list: SessionListLike, completedIds: ReadonlySet<string> | null): SessionListLike {
+  if (completedIds === null) return list
+  const byId: Record<string, SessionSummaryLike> = {}
+  let changed = false
+  for (const [id, row] of Object.entries(list.byId)) {
+    const next = completedIds.has(id)
+    if ((row.completed === true) === next) {
+      byId[id] = row
+      continue
+    }
+    changed = true
+    byId[id] = { ...row, completed: next }
+  }
+  return changed ? { ...list, byId } : list
+}
+
+export interface WorkspaceViewLike {
+  readonly workspaceId: string
+  readonly path: string
+  readonly title: string
+  readonly sessionIds: readonly string[]
+  readonly createdAt: string
+}
+
+/** 会话级 UI 消费者正在等用户（官方 ui-session 的 kind 联合收窄）。 */
+export interface PendingInteractionLike {
+  readonly kind?: string
+}
+
+export type PendingInteractions = ReadonlyMap<string, PendingInteractionLike>
+
+/** 状态点的三档（官方 StateDot 的 state 取值）。 */
+export type SessionStatusState = 'ongoing' | 'warning' | 'done'
+
+/** 一条状态：主状态点 + 无障碍/悬停文案的 i18n key（与官方 workspace 词典同键名）。 */
+export interface SessionStatus {
+  readonly state: SessionStatusState
+  readonly labelKey: string
+  readonly labelCount?: number
+}
+
+/** 会话行节点。 */
+export interface SessionNode {
+  readonly id: string
+  /** 显示标题；空白会话为空串，渲染时替换成「新会话」。 */
+  readonly title: string
+  readonly blank: boolean
+  readonly running: boolean
+  readonly runningSubagentCount: number
+  readonly completed: boolean
+  readonly hasActiveSchedule: boolean
+  readonly updatedAt: number
+  readonly pendingInteraction?: string
+}
+
+/** 工作区分组节点。 */
+export interface GroupNode {
+  /** 分组键：工作区 id，或未分组桶的空串。 */
+  readonly key: string
+  /** 未分组桶没有工作区 id。 */
+  readonly workspaceId?: string
+  readonly cwd?: string
+  /** 工作区创建时刻（epoch ms）；未分组桶没有。 */
+  readonly createdAt?: number
+  readonly label: string
+  readonly sessionCount: number
+  /** 这一组就是「当前工作区」吗（判据 = 工作区 `path` 命中当前打开的文件夹表）。 */
+  readonly containsCurrent: boolean
+  readonly sessions: readonly SessionNode[]
+}
+
+/** 树视图状态（展开集合由渲染层持有）。 */
+export interface TreeViewLike {
+  readonly expandedGroups: readonly string[]
+  /**
+   * 「当前工作区」判定用的文件夹表 = **VS Code 当前打开的文件夹**（宿主能力口
+   * `currentWorkspaceFolders` 取回的 fsPath 列表）。工作区的 `path` 命中其中任一项
+   * 即该组 `containsCurrent`（渲染出蓝色徽标、由 `currentWorkspaceFirst` 置顶）。
+   *
+   * 缺省/空表 = **没有当前工作区**：一个徽标都不显示、一组都不前移。两种情形都落这里：
+   * ① 宿主没开任何文件夹（VS Code 空窗口）；② 这一端根本没有「VS Code 打开的文件夹」
+   * 这个概念——官方 web 是浏览器里的一页，能力口对它的回答就是空表（#112）。
+   *
+   * **与 `list.current`（当前会话）是两件事**：那个只决定行的可见性（空白会话占位），
+   * 不再参与徽标与置顶（#112 修的正是把两者混为一谈）。
+   */
+  readonly currentFolders?: readonly string[]
+  /**
+   * 分组过滤（#81 功能 1）：只看这些工作区。缺省 = 全部。
+   * 过滤生效时**未分组桶不出现在结果里**——散会话不属于任何工作区，也就无法归属
+   * 任何分组，跟着一起收起才符合直觉（理由写在 treeGroups.workspaceMatchesGroup）。
+   */
+  readonly workspaceFilter?: (workspaceId: string) => boolean
+  /**
+   * 本地回收站集合（#103 的两层语义第一层）：这些会话**不进主树**，但仍活在 dsh
+   * 侧（可随时还原）。缺省 = 空集（没有本地挪走任何东西）。
+   */
+  readonly recycled?: ReadonlySet<string>
+}
+
+/** 分组键：未分组桶。 */
+export const UNGROUPED_KEY = ''
+
+// ---------------------------------------------------------------------------
+// 推导
+// ---------------------------------------------------------------------------
+
+/** 官方 `indexSubagentDescendants`：把连续的子代理血缘后代记到每个祖先下。 */
+export function indexSubagentDescendants(
+  byId: Readonly<Record<string, SessionSummaryLike>>,
+): ReadonlyMap<string, { count: number; runningCount: number }> {
+  const indexed = new Map<string, { count: number; runningCount: number }>()
+  for (const descendant of Object.values(byId)) {
+    if (descendant.origin !== 'subagent') continue
+    const seen = new Set<string>()
+    let current: SessionSummaryLike | undefined = descendant
+    while (current?.origin === 'subagent' && current.parentId !== undefined && !seen.has(current.id)) {
+      seen.add(current.id)
+      const aggregate = indexed.get(current.parentId)
+      if (aggregate === undefined) {
+        indexed.set(current.parentId, { count: 1, runningCount: descendant.running ? 1 : 0 })
+      } else {
+        aggregate.count += 1
+        if (descendant.running) aggregate.runningCount += 1
+      }
+      current = byId[current.parentId]
+    }
+  }
+  return indexed
+}
+
+/** 官方 `owningGroupKey`：会话被哪个工作区记账；没有则未分组桶。 */
+export function owningGroupKey(workspaces: readonly WorkspaceViewLike[], sessionId: string): string {
+  return workspaces.find((workspace) => workspace.sessionIds.includes(sessionId))?.workspaceId ?? UNGROUPED_KEY
+}
+
+/** 路径规范键：分隔符一律折成正斜杠、去掉尾部分隔符；Windows 形态的路径再折小写。 */
+function workspacePathKey(value: string): string {
+  const slashed = value.replace(/\\/g, '/').replace(/\/+$/, '')
+  return /^[A-Za-z]:\/|^\/\//.test(slashed) ? slashed.toLowerCase() : slashed
+}
+
+/**
+ * 两条路径是不是同一个文件夹（#112 的「当前工作区」判定用它）。
+ *
+ * 口径与旧侧栏逐条对齐（`pure/sessionTree.ts` 的 `pathEqual`，以及
+ * `ui/sessionsStore.ts` 在 Windows 上换给它的 `windowsPathEqual`）：分隔符与尾斜杠
+ * 不算差异；**Windows 形态的路径**（盘符 `C:` 或 UNC `//server/share`）另外不算大小写
+ * 差异——VS Code 的 `fsPath` 在 Windows 上返回小写盘符 + 反斜杠，而 dsh 侧注册的工作区
+ * 路径未必是同一个写法，严格全等会漏掉徽标；其余平台维持严格比较（旧侧栏就是这条口径，
+ * macOS/Linux 大小写敏感）。
+ *
+ * 平台靠**路径形状**判断而不是 `process.platform`：这条判定跑在 webview（浏览器）里，
+ * 那里没有 `process`；而「这是不是 Windows 形态的路径」从字符串本身就看得出。
+ */
+export function sameWorkspacePath(a: string, b: string): boolean {
+  return workspacePathKey(a) === workspacePathKey(b)
+}
+
+/**
+ * 官方 `sessionVisible`：子代理/归档不进树；空白会话只在它就是当前选中时进树。
+ *
+ * #103 起多一条**本地**可见性：被移进回收站的会话也不进树（`recycled` 缺省空集，
+ * 官方那条判据原样成立）。注意这一条与 `archived` 的区别正是两层语义：归档在 dsh
+ * 侧（终点、不可逆），回收站在本地（可逆、还原即在树里重新出现）。
+ */
+export function sessionVisible(
+  session: SessionSummaryLike,
+  current: string | undefined,
+  archived: ReadonlySet<string>,
+  recycled?: ReadonlySet<string>,
+): boolean {
+  return (
+    session.origin !== 'subagent' &&
+    !archived.has(session.id) &&
+    !(recycled?.has(session.id) ?? false) &&
+    (!session.blank || session.id === current)
+  )
+}
+
+/** 官方 `sessionTitle`：空白会话标题为空串（渲染层替换成「新会话」）。 */
+function sessionTitle(session: SessionSummaryLike): string {
+  if (session.blank) return ''
+  return session.displayTitle ?? session.title ?? session.id
+}
+
+/** 官方 `visiblePendingKind`：只认三种会改变行呈现的等待态。 */
+function visiblePendingKind(kind: string | undefined): string | undefined {
+  return kind === 'approval' || kind === 'plan-review' || kind === 'question' ? kind : undefined
+}
+
+/** 官方 `hasActiveSchedule`：宿主投影里还有活动定时任务。 */
+function hasActiveSchedule(session: SessionSummaryLike): boolean {
+  return (session.projectionValues?.schedule?.length ?? 0) > 0
+}
+
+/**
+ * 官方 `sessionNode`：一条会话行节点（状态点的四个输入全在这里——`running` /
+ * `runningSubagentCount` / `completed` / `pendingInteraction`）。
+ *
+ * 导出给**搜索结果行**用（#146）：官方 `deriveSearchResults` 也是拿这一个函数建节点的
+ * （`dsh-client-ui-workspace` 的搜索那一支与分组那一支共用 `sessionNode`），所以搜索
+ * 结果上的状态点与树里的同源。树层自己拼节点会漏掉 `pendingInteraction` 与
+ * `runningSubagentCount` 两格——那正是 #146 审计查出来的「官方有点、我们没有」。
+ */
+export function sessionNode(
+  session: SessionSummaryLike,
+  descendants: ReadonlyMap<string, { count: number; runningCount: number }>,
+  pending: PendingInteractions,
+): SessionNode {
+  const pendingInteraction = visiblePendingKind(pending.get(session.id)?.kind)
+  return {
+    id: session.id,
+    title: sessionTitle(session),
+    blank: session.blank,
+    running: session.running,
+    runningSubagentCount: descendants.get(session.id)?.runningCount ?? 0,
+    completed: session.completed === true,
+    hasActiveSchedule: hasActiveSchedule(session),
+    updatedAt: session.updatedAt,
+    ...(pendingInteraction === undefined ? {} : { pendingInteraction }),
+  }
+}
+
+/** 官方 `orderByRecency`：最近更新倒序，同一时刻按 id 稳定排序。 */
+function orderByRecency(ids: readonly string[], byId: Readonly<Record<string, SessionSummaryLike>>): string[] {
+  return ids
+    .flatMap((id) => {
+      const summary = byId[id]
+      return summary === undefined ? [] : [{ id, updatedAt: summary.updatedAt }]
+    })
+    .sort((a, b) => (a.updatedAt !== b.updatedAt ? b.updatedAt - a.updatedAt : a.id < b.id ? -1 : 1))
+    .map((member) => member.id)
+}
+
+/**
+ * 官方 `deriveGroups`：工作区分组（含未分组桶）。展开的分组才带成员行，
+ * 未展开的只带计数——与官方一致（卡片/悬停信息不因折叠而消失）。
+ */
+export function deriveGroups(
+  list: SessionListLike,
+  workspaces: readonly WorkspaceViewLike[],
+  archivedSessionIds: readonly string[],
+  pending: PendingInteractions,
+  view: TreeViewLike,
+): GroupNode[] {
+  const archived = new Set(archivedSessionIds)
+  const recycled = view.recycled ?? EMPTY_IDS
+  const expanded = new Set(view.expandedGroups)
+  const descendants = indexSubagentDescendants(list.byId)
+  // 「当前工作区」= **VS Code 当前打开的那个文件夹**所对应的工作区（#112）：按工作区
+  // `path` 与文件夹表逐项比路径。旧实现拿 `list.current`（当前会话）反查它所属的工作区
+  // ——那会变成「点了哪个会话，哪个工作区就披徽标、跳最前」，用户实测报的就是它。
+  // 多根时「命中任一即为当前」：旧实现在的那一份数据只有一个路径（VS Code 单根时代的
+  // 单值），这里放宽到集合；多根下两个都开着，两个都是当前，没有理由只认其中一个。
+  const currentFolders = (view.currentFolders ?? []).filter((folder) => folder !== '')
+  const isCurrentFolder = (path: string): boolean =>
+    path !== '' && currentFolders.some((folder) => sameWorkspacePath(path, folder))
+  const groups: GroupNode[] = []
+  const accounted = new Set<string>()
+  for (const workspace of workspaces) {
+    const members: SessionSummaryLike[] = []
+    for (const id of workspace.sessionIds) {
+      const summary = list.byId[id]
+      if (summary === undefined) continue
+      accounted.add(id)
+      if (!sessionVisible(summary, list.current, archived, recycled)) continue
+      members.push(summary)
+    }
+    if (view.workspaceFilter !== undefined && !view.workspaceFilter(workspace.workspaceId)) continue
+    const createdAt = Date.parse(workspace.createdAt)
+    groups.push({
+      key: workspace.workspaceId,
+      workspaceId: workspace.workspaceId,
+      cwd: workspace.path,
+      createdAt: Number.isNaN(createdAt) ? undefined : createdAt,
+      label: workspace.title,
+      sessionCount: members.length,
+      containsCurrent: isCurrentFolder(workspace.path),
+      sessions: expanded.has(workspace.workspaceId) ? members.map((m) => sessionNode(m, descendants, pending)) : [],
+    })
+  }
+  const stray = list.ids
+    .map((id) => list.byId[id])
+    .filter(
+      (s): s is SessionSummaryLike =>
+        s !== undefined && !accounted.has(s.id) && sessionVisible(s, list.current, archived, recycled),
+    )
+  if (stray.length > 0 && view.workspaceFilter === undefined) {
+    const strayIds = new Set(stray.map((s) => s.id))
+    const ordered = orderByRecency(
+      stray.map((s) => s.id),
+      list.byId,
+    ).filter((id) => strayIds.has(id))
+    groups.push({
+      key: UNGROUPED_KEY,
+      label: '',
+      sessionCount: ordered.length,
+      // 未分组桶恒不是当前工作区：它没有工作区身份，也就没有可比的 `path`
+      //（#112 之前这里跟着当前会话走，于是「当前会话是散会话」时整桶披上徽标）。
+      containsCurrent: false,
+      sessions: expanded.has(UNGROUPED_KEY)
+        ? ordered.flatMap((id) => {
+            const summary = list.byId[id]
+            return summary === undefined ? [] : [sessionNode(summary, descendants, pending)]
+          })
+        : [],
+    })
+  }
+  return groups
+}
+
+/**
+ * #109 E7：把**当前工作区那一组**排到最前（其余保持 `deriveGroups` 给出的官方顺序）。
+ * 这是 #98 定稿里「排序全按官方、唯一例外是置顶项在它所在的那一层排最前」的同一条规则
+ * 落在工作区层上的形态。
+ *
+ * 「当前工作区」= VS Code 当前打开的那个文件夹所对应的工作区（`GroupNode.containsCurrent`
+ * 的产出，判据见 {@link TreeViewLike.currentFolders}）。**它不随当前会话变**：打开/切换
+ * 会话不改变工作区顺序（#112 的回归口径）。
+ *
+ * **未分组桶即使装着当前会话也不前移**：它没有工作区身份（`workspaceId` 缺席），
+ * 恒留在最后——旧侧栏就是这条口径（`sessionTree.test.ts` 的「ungrouped group stays
+ * last even against the current folder」钉着它），两个前端在这一点上不能有两种看法。
+ */
+export function currentWorkspaceFirst<T extends { readonly containsCurrent: boolean; readonly workspaceId?: string }>(
+  groups: readonly T[],
+): T[] {
+  const isCurrent = (group: T): boolean => group.containsCurrent && group.workspaceId !== undefined
+  const current = groups.filter(isCurrent)
+  if (current.length === 0) return [...groups]
+  return [...current, ...groups.filter((group) => !isCurrent(group))]
+}
+
+/**
+ * 官方 `deriveFlat`：全部可见会话按最近更新倒序（官方拿它渲染「单列表」视图；我们
+ * #131 起只拿它当「全部可见会话」这一份名单用，见 `workspaceTree/tree.ts`）。
+ * `recycled` 见 {@link sessionVisible}（#103 的本地回收站集合，缺省空集）。
+ */
+export function deriveFlat(
+  list: SessionListLike,
+  archivedSessionIds: readonly string[],
+  pending: PendingInteractions,
+  recycled?: ReadonlySet<string>,
+): SessionNode[] {
+  const archived = new Set(archivedSessionIds)
+  const descendants = indexSubagentDescendants(list.byId)
+  const visible = list.ids
+    .map((id) => list.byId[id])
+    .filter(
+      (s): s is SessionSummaryLike =>
+        s !== undefined && sessionVisible(s, list.current, archived, recycled ?? EMPTY_IDS),
+    )
+  return orderByRecency(
+    visible.map((s) => s.id),
+    list.byId,
+  ).flatMap((id) => {
+    const summary = list.byId[id]
+    return summary === undefined ? [] : [sessionNode(summary, descendants, pending)]
+  })
+}
+
+/**
+ * 官方 `sessionStatuses`：主状态 + 全部无障碍标签（顺序即优先级）。
+ *
+ * `unread` 是**我们的**一项扩展（#102 手动未读）：官方没有手动未读，只有「跑完
+ * 还没被打开」的完成提醒（`completed`）。规则与旧侧栏一行一致——手动未读在**空闲
+ * 档**借官方 `done` 那颗绿点（旧侧栏就是复用「已完成」的绿点），标签换成「未读」；
+ * 会话在跑或在等用户时，状态点让位给那两类（它们更该先说）。调用方要把未读并进
+ * 第二参给 `showsStatusDot`（否则空闲档那颗点不渲染）。
+ */
+export function sessionStatuses(node: {
+  running: boolean
+  runningSubagentCount: number
+  completed: boolean
+  pendingInteraction?: string
+  /** 会话在手动未读 id 集合里（缺省 = 没有，行为与官方一致）。 */
+  unread?: boolean
+}): SessionStatus[] {
+  const subagents: SessionStatus | undefined =
+    node.runningSubagentCount === 0
+      ? undefined
+      : {
+          state: 'ongoing',
+          labelCount: node.runningSubagentCount,
+          labelKey: node.runningSubagentCount === 1 ? 'status.subagentsRunning.one' : 'status.subagentsRunning.other',
+        }
+  let pending: SessionStatus | undefined
+  switch (node.pendingInteraction) {
+    case 'approval':
+      pending = { state: 'warning', labelKey: 'status.waitingApproval' }
+      break
+    case 'plan-review':
+      pending = { state: 'warning', labelKey: 'status.planReview' }
+      break
+    case 'question':
+      pending = { state: 'warning', labelKey: 'status.waitingAnswer' }
+      break
+    default:
+      break
+  }
+  if (pending !== undefined) return subagents === undefined ? [pending] : [pending, subagents]
+  if (node.running) {
+    const primary: SessionStatus = { state: 'ongoing', labelKey: 'status.running' }
+    return subagents === undefined ? [primary] : [primary, subagents]
+  }
+  if (subagents !== undefined) return [subagents]
+  if (node.completed) return [{ state: 'done', labelKey: 'status.completed' }]
+  // 手动未读（我们的扩展，见函数头）：空闲档借官方 `done` 绿点，标签是「未读」。
+  if (node.unread === true) return [{ state: 'done', labelKey: 'status.unread' }]
+  return [{ state: 'done', labelKey: 'status.idle' }]
+}
+
+/**
+ * 会话行是否需要渲染状态位（官方 `showStatus`）。
+ *
+ * 第二参官方给的是 `completed`（「跑完还没被打开」的绿点常显）；#102 起调用方要把
+ * **手动未读**一并并进来（`completed || unread`）——两者共用官方 `done` 那颗绿点，
+ * 空闲档没有这个并项就不会渲染。
+ */
+export function showsStatusDot(statuses: readonly SessionStatus[], completed: boolean): boolean {
+  return statuses[0]?.state !== 'done' || completed
+}
+
+/**
+ * 「跑完还没被打开」那颗绿点的判据里再算进**宿主的面板里正开着哪些会话**（#147）。
+ *
+ * 官方这条提醒的武装条件是「这一页的 selected 不是它」（`dsh-api-session-controller`
+ * 的 `syncCompletedNotifications`；`select()` 撤提醒）。官方 web 只有一页，selected
+ * 就是屏幕上那一条，所以判据成立。我们的 shell 有两个 webview（侧栏页 + 对话面板页
+ * 各一份官方 client），宿主把面板切到某条会话**不会**回写给侧栏页——于是那条会话跑完
+ * 时侧栏页照官方规则把它武装成完成提醒，**给一条用户正开着的会话亮绿点**（#147 报的
+ * 现场）。宿主侧知道真相（`pure/sessionPanelRouting.ts` 的 `panelOpenSessionIds`），
+ * 这条通道把它送给页面（见同文件的 `PANEL_SESSIONS_MESSAGE`），这里把它并进判据：
+ * 集合里的会话，`completed` 一律按 false 渲染。
+ *
+ * **为什么不是「让侧栏页的 selected 跟着宿主走」**（那是最贴近官方的形态，做不到）：
+ * ① 官方没有任何「撤掉某一条完成提醒」的口——唯一的删除点是 `select(id)`，而
+ * `select` 是单值的，同时开着的多个面板（单例 + 多开标签页）表达不了；② 侧栏页的选择
+ * 会被两处消费：选择桥（`sessionBridgePlugin` → `dshOne.sessionSelected` → 宿主
+ * `openSessionChat`）与官方持久化键（`dsh.sessions.current`，与对话面板页同源共享），
+ * 让宿主去改侧栏页的 selected 等于让「宿主开着的面板」反过来驱动「打开哪条会话」，
+ * 是个回环。所以这里只把它算进**渲染判据**。
+ *
+ * 边界（有意留下、写在这里免得被当成漏网）：这条判据回答的是「**此刻**这条会话是不是
+ * 正开在宿主面板里」。绿点武装（running→idle 那一下）时面板开着就压住了；此后再把面板
+ * 关掉，绿点会重新出现（官方那边提醒还在，因为侧栏页的 selected 从头到尾没变过）。
+ * 要连这一条也按官方的「武装那一刻」语义收口，等于在页面侧再养一份完成提醒的状态机，
+ * 本步不做——现场（用户正开着它 / 刚开着它）已经修掉，见 issue #147 的结论。
+ *
+ * 集合为空（官方 web 侧没有这条消息，或宿主一条都没开）时**原样返回同一份 list**
+ * （引用不变）：官方 web 侧的行为与这条通道不存在时逐字相同，也没有多余的重算。
+ */
+export function withoutPanelOpenCompleted(
+  list: SessionListLike,
+  panelOpen: ReadonlySet<string>,
+): SessionListLike {
+  if (panelOpen.size === 0) return list
+  let changed = false
+  const byId: Record<string, SessionSummaryLike> = { ...list.byId }
+  for (const [id, summary] of Object.entries(list.byId)) {
+    if (summary.completed === true && panelOpen.has(id)) {
+      byId[id] = { ...summary, completed: false }
+      changed = true
+    }
+  }
+  return changed ? { ...list, byId } : list
+}
+
+// ---------------------------------------------------------------------------
+// #81 功能 2：工作区行尾的「运行中 / 等待交互 / 未读」计数（#153 补回第三项）
+//
+// 三档的划分口径（**互斥**——每个会话只进一个桶，优先级与旧侧栏的工作区组头
+// `appendWorkspaceCounts` 一致，也与折叠标签组头的 `tagGroupCounts` 是同一份规则）：
+// - **等待交互**：会话级 UI 正在等用户（approval / plan-review / question）——
+//   就是行上会亮警示点的那三种（`visiblePendingKind`）。
+// - **运行中**：会话在跑且**没有**在等用户。正在等用户批准的那条会话其实也
+//   「在跑」，但它对用户的意义是「等你」，两处都数会让用户以为有两件事要处理。
+// - **未读**：会话在**手动未读**集合里，且它既没在等用户、也没在跑——在跑或在
+//   等用户的会话，行首那枚状态点已经说了更要紧的事，未读就不再并进数字里。
+// 计数覆盖的范围与树里看得见的会话**完全同源**（同一套 `sessionVisible`：
+// 子代理不算、已归档不算、挪进本地回收站的不算、非当前选中的空白会话不算），
+// 否则行尾的数字会与展开后看到的行数对不上。
+//
+// 未读判定吃的是**我们自己的手动未读集合**（`unread` 那一份，住在客户端存储里，
+// 由用户手动标），不是官方「跑完还没被打开」的 `completed` 提醒——`sessionStatuses`
+// 里两者共用同一颗绿点，但来源是两回事。
+// ---------------------------------------------------------------------------
+
+/** 一个分组（工作区或未分组桶）的活状态计数。 */
+export interface ActivityCounts {
+  readonly running: number
+  readonly waiting: number
+  readonly unread: number
+}
+
+/**
+ * 每个分组键的活状态计数（键与 `GroupNode.key` 同域：工作区 id / UNGROUPED_KEY）。
+ * `recycled` = 本地回收站集合（#103）：挪进回收站的会话在树里看不见，也就不该被
+ * 数进行尾计数——计数与「树里看得见的行」永远同源。缺省空集。
+ * `unread` = 手动未读集合（#102 的 `unread` 键，#153 起也数进行尾那一项）。缺省空集。
+ */
+export function workspaceActivityCounts(
+  list: SessionListLike,
+  workspaces: readonly WorkspaceViewLike[],
+  archivedSessionIds: readonly string[],
+  pending: PendingInteractions,
+  recycled: ReadonlySet<string> = EMPTY_IDS,
+  unread: ReadonlySet<string> = EMPTY_IDS,
+): Map<string, ActivityCounts> {
+  const archived = new Set(archivedSessionIds)
+  const counts = new Map<string, { running: number; waiting: number; unread: number }>()
+  const bump = (key: string, running: boolean, waiting: boolean, isUnread: boolean): void => {
+    if (!running && !waiting && !isUnread) return
+    const current = counts.get(key) ?? { running: 0, waiting: 0, unread: 0 }
+    if (waiting) current.waiting += 1
+    else if (running) current.running += 1
+    else current.unread += 1
+    counts.set(key, current)
+  }
+  const accounted = new Set<string>()
+  for (const workspace of workspaces) {
+    for (const id of workspace.sessionIds) {
+      const summary = list.byId[id]
+      if (summary === undefined) continue
+      accounted.add(id)
+      if (!sessionVisible(summary, list.current, archived, recycled)) continue
+      const waiting = visiblePendingKind(pending.get(id)?.kind) !== undefined
+      bump(workspace.workspaceId, summary.running, waiting, unread.has(id))
+    }
+  }
+  for (const id of list.ids) {
+    const summary = list.byId[id]
+    if (summary === undefined || accounted.has(id)) continue
+    if (!sessionVisible(summary, list.current, archived, recycled)) continue
+    const waiting = visiblePendingKind(pending.get(id)?.kind) !== undefined
+    bump(UNGROUPED_KEY, summary.running, waiting, unread.has(id))
+  }
+  return counts
+}
+
+// ---------------------------------------------------------------------------
+// #103：回收站抽屉数据——本地那一层（#98 A1 的两层语义）
+//
+// 数据面是**我们自己的本地集合**（键 `recycle-bin`，见 pure/recycleBinState.ts）：
+// 移入/还原都只动这个集合，dsh 侧一个字节不动；归档才是终点动作（走官方
+// `archiveSession`，与这里无关）。本模块只把那份 id 列表摊成抽屉要的形状：
+// 按归属工作区分组、**块内按移入顺序倒序**（最近移入的在最上）。
+//
+// 集合里可能有本项目已经不认识的 id（会话在 dsh 侧被归档/删除）：那种渲染不出行，
+// 直接跳过、不占位（{@link visibleRecycleIds} 会先过滤一遍，抽屉与入口角标用的是
+// 同一份口径，所以角标与大开抽屉后看到行数永远一致）。
+// ---------------------------------------------------------------------------
+
+/** 回收站抽屉里的一条会话。 */
+export interface RecycleNode extends SessionNode {}
+
+/** 一组会话按归属工作区分好的块（回收站抽屉与归档确认弹窗共用这个形状）。 */
+export interface SessionBlock {
+  /** 与树里的分组键同域（工作区 id / UNGROUPED_KEY）。 */
+  readonly key: string
+  readonly workspaceId?: string
+  readonly label: string
+  readonly sessions: readonly RecycleNode[]
+}
+
+/** 回收站抽屉里的一个工作区块（与 {@link SessionBlock} 同形）。 */
+export type RecycleGroup = SessionBlock
+
+/**
+ * 把一组会话 id 按归属工作区分块：块序 = 工作区注册顺序 + 未分组桶收尾，**块内保持
+ * 传入顺序**，认不出的 id（会话没了）与子代理会话跳过不占位，空块不出现。
+ */
+export function groupSessionNodes(
+  list: SessionListLike,
+  workspaces: readonly WorkspaceViewLike[],
+  sessionIds: readonly string[],
+): SessionBlock[] {
+  const descendants = indexSubagentDescendants(list.byId)
+  const byKey = new Map<string, SessionSummaryLike[]>()
+  const seen = new Set<string>()
+  for (const id of sessionIds) {
+    if (seen.has(id)) continue
+    const summary = list.byId[id]
+    if (summary === undefined || summary.origin === 'subagent') continue
+    seen.add(id)
+    const key = owningGroupKey(workspaces, id)
+    const bucket = byKey.get(key)
+    if (bucket === undefined) byKey.set(key, [summary])
+    else bucket.push(summary)
+  }
+  const blocks: SessionBlock[] = []
+  for (const workspace of workspaces) {
+    const members = byKey.get(workspace.workspaceId)
+    if (members === undefined || members.length === 0) continue
+    blocks.push({
+      key: workspace.workspaceId,
+      workspaceId: workspace.workspaceId,
+      label: workspace.title,
+      sessions: members.map((member) => sessionNode(member, descendants, EMPTY_PENDING)),
+    })
+  }
+  const stray = byKey.get(UNGROUPED_KEY)
+  if (stray !== undefined && stray.length > 0) {
+    blocks.push({
+      key: UNGROUPED_KEY,
+      label: '',
+      sessions: stray.map((member) => sessionNode(member, descendants, EMPTY_PENDING)),
+    })
+  }
+  return blocks
+}
+
+/**
+ * 本地回收站里「还认得出来」的会话 id：dsh 侧还在（会话列表里查得到）、且**没有**
+ * 在别处被归档，保留原传入顺序（移入顺序）。子代理会话不进回收站（它们在树里
+ * 本来就不可选），与 `sessionVisible` 同一口径。
+ *
+ * 入口角标、主树过滤、抽屉内容都用这一个函数，所以「角标数字 = 抽屉里的行数」
+ * 是构造出来的，不靠三处各自数一遍。
+ */
+export function visibleRecycleIds(
+  recycleIds: readonly string[],
+  list: SessionListLike,
+  archivedSessionIds: readonly string[],
+): string[] {
+  const archived = new Set(archivedSessionIds)
+  return recycleIds.filter((id) => {
+    const summary = list.byId[id]
+    return summary !== undefined && summary.origin !== 'subagent' && !archived.has(id)
+  })
+}
+
+/**
+ * 把本地回收站集合摊成「按工作区组织」的抽屉数据。
+ * @param recycleIds - 本地回收站 id，**移入顺序**（最早移入的在最前，与
+ *   `recycle-bin.json` 里的顺序一致）；传 `visibleRecycleIds(...)` 的结果即可。
+ */
+export function deriveRecycleGroups(
+  list: SessionListLike,
+  workspaces: readonly WorkspaceViewLike[],
+  recycleIds: readonly string[],
+): SessionBlock[] {
+  // 块内顺序 = 移入顺序倒序（最近挪进来的在最上）：倒着喂给分组器即得。
+  return groupSessionNodes(list, workspaces, [...recycleIds].reverse())
+}
+
+/** 回收站里的会话总数（抽屉入口的角标用）。 */
+export function recycleCount(groups: readonly RecycleGroup[]): number {
+  return groups.reduce((total, group) => total + group.sessions.length, 0)
+}
+
+const EMPTY_PENDING: PendingInteractions = new Map()
+const EMPTY_IDS: ReadonlySet<string> = new Set()

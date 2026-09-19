@@ -1,6 +1,6 @@
 # DSH One 架构
 
-本文面向接手开发的人。定位：DSH One 是 dsh 与 VSCode 之间的**桥接插件**——dsh 由用户自行安装（`npm install -g @deepseek-ai/dsh@next`），扩展负责定位/启动/连接 dsh 并提供 VSCode 侧 UI（现阶段直接 iframe 嵌入官方 Web 界面，原生前端方向见 `docs/roadmap.md`）。
+本文面向接手开发的人。定位：DSH One 是 dsh 与 VSCode 之间的**桥接插件**——dsh 由用户自行安装（`npm install -g @deepseek-ai/dsh@next`），扩展负责定位/启动/连接 dsh 并提供 VSCode 侧 UI：自研会话侧栏（`dshOne.chat` 视图）+ 装配对话区（官方 dsh web 前端组件经 loopback 代理装配进 VS Code 面板，见 `src/ui/assembly/` 与 `docs/assembly-architecture.html`）。
 
 行号引用以当前 main 为准（`src/server/manager.ts:45` 这种格式）；代码改动后请同步更新本文。
 
@@ -9,10 +9,13 @@
 ```
 dsh-one/
 ├── package.json            # 清单：命令、配置项、侧边栏 view、extensionKind
-├── build.mjs               # esbuild 打包脚本，双入口：dist/extension.js（宿主）+ dist/chatWebview.js（聊天前端）
+├── build.mjs               # esbuild 打包脚本：dist/extension.js（宿主）+ dist/sessionsWebview.js（侧栏前端）+ dist/spawnDsh.js + 装配外框插件 + 宿主半包（packages/）
+├── packages/               # 以「官方 dsh 插件包」形态分发的自有件（每个子目录是一个可安装的 npm 包，见各包 src 的文件头说明）
+│   └── dsh-host-capabilities/ # 宿主半：跑在 dsh 宿主进程里提供能力与持久状态（状态落 ~/.dsh/dsh-one/、只读 git、内容落盘），
+│                              # 经官方 api-gateway 暴露成 Remote 端点；前端插件经宿主能力口调用（#84）
 ├── src/
-│   ├── extension.ts        # activate/deactivate 入口，注册命令与 view
-│   ├── log.ts              # 输出通道日志，写入前对 URL query 值脱敏
+│   ├── extension.ts        # activate/deactivate 入口：装配（命令注册、侧栏 view 注册、默认打开装配面板）
+│   ├── log.ts              # 日志（输出通道 + 文件 sink），写入前对 URL query 值脱敏
 │   ├── server/
 │   │   ├── locateDsh.ts    # 定位 dsh 可执行文件（dshPath 配置 → PATH → 报错引导安装）
 │   │   ├── manager.ts      # dsh web 进程生命周期：re-own/复用探测/spawn/就绪/清理（含外部实例的 B 档连接与 A 档停止/重启）
@@ -20,69 +23,69 @@ dsh-one/
 │   │   ├── externalDsh.ts  # 外部实例管理：三平台 pid 探测 / 命令行身份确认 / 单 pid 优雅停止（A 档）
 │   │   ├── spawnDsh.ts     # 短命启动器：detached spawn dsh 后立即退出，使其脱离扩展宿主进程树（防 reload 树杀）
 │   │   ├── dshRpc.ts       # host RPC 客户端（workspace.create、session 增删改查等）
-│   │   ├── muxEvents.ts    # 订阅会话事件流（WS /api/events.mux）的公共助手；chatSession 侧有退避重连（bc23e7c），jobsStore 侧无（条目 mux-reconnect，见 docs/backlog/closed-archive-2026Q3.md）
-│   │   ├── chatSession.ts  # ChatSessionController：历史窗口基线（session.history 尾窗 + loadEarlier 向前翻页）+ mux 事件折叠为 ChatState，回答用户动作；running 位读服务段位（SessionsStore 中继）
-│   │   └── hostEvents.ts   # 订阅 host 事件流（WS /api/events.host），转发 method + 原始 payload
+│   │   ├── serverAuth.ts   # 0.1.2 认证：token 换登录 cookie、cookie 头发起、版本探测
+│   │   ├── assemblyMirror.ts # loopback 代理：接口转发（带 cookie、改 Origin、剥 sec-fetch-*）+ 数据流转发 + 插件整包过滤 + 伺服外框插件
+│   │   ├── modernStreams.ts # 0.1.2 共享逻辑流（$events + session/control）单例：重连退避 refcount 按 origin
+│   │   ├── muxEvents.ts    # 订阅会话事件流（WS /api/events.mux）的公共助手
+│   │   ├── hostEvents.ts   # 订阅 host 事件流（WS /api/events.host），转发 method + 原始 payload
+│   │   └── tagBridge.ts    # loopback tag-bridge：派生脚本 --tag 代写 tags.json 的 HTTP 小服务
 │   ├── ui/
-│   │   ├── webview.ts      # 编辑器标签页 WebviewPanel，iframe 嵌入 dsh web
-│   │   ├── sessionsStore.ts # Sessions 数据层：基线拉取 + host 帧逐帧增量维护（无 TreeItem，供 chat webview 消费）
-│   │   ├── jobsStore.ts    # 后台任务数据层：mux 全局 session/jobs 帧（连接基线重放 + 增量）按 owner 会话折叠
-│   │   ├── chatView.ts     # Chat 视图（WebviewViewProvider）：持有 ChatSessionController 与 SessionsStore/JobsStore，推状态/收动作
-│   │   ├── chat/           # 聊天 webview 前端（浏览器上下文，esbuild 打包进 dist/chatWebview.js）；icons.ts 收录 dsh web 官方 fill 图标
-│   │   └── statusbar.ts    # 状态栏指示
+│   │   ├── assembly/       # 装配对话区：pageHtml（装配页生成）、wireFilter（插件整包过滤）、shell/（自有外框插件）、probe（诊断探针）、failureNotice（装配失败时页面上的提示条）
+│   │   ├── assemblyView.ts # 装配面板宿主：dshOne.assembledChat 命令、单例面板生命周期、面板恢复（serializer）、reveal/用户关闭追踪（默认打开用）
+│   │   ├── sessionsStore.ts # 侧栏数据层：基线拉取 + host 帧逐帧增量维护
+│   │   ├── sessionsView.ts # 侧栏视图（WebviewViewProvider）：快照推送、动作路由到 extension 命令、可见性钩子
+│   │   ├── sessionsWebview.ts # 侧栏 webview 前端（浏览器上下文）
+│   │   ├── statusbar.ts    # 状态栏指示
+│   │   └── shared/         # 侧栏前端与宿主共用：icons（官方 fill 图标）、webviewL10n（译文注入）、animPhase/composeGuard/reconcile
 │   └── pure/               # 纯逻辑，禁止 import vscode（可用 node --test 直接单测）
-│       ├── chatContract.ts # 宿主 ↔ 聊天 webview 的消息契约 + ChatState 模型（接口冻结）
-│       ├── conversation.ts # 会话事件折叠成 ChatMessage 列表；turn 失败（turn/end error reason）折叠成「本轮运行失败」错误行
-│       ├── historyWindow.ts # session.history 窗口分页：窗口参数拼装（对齐官方 maxMessages: 50）、游标推进与页衔接判定
-│       ├── contextMeter.ts # 上下文容量条分级与预估：perTurn = used/turns，剩余轮数定绿/黄/红，超限即 overflow
-│       ├── agentPreset.ts  # Agent preset 文案：roster → 选项（官方 system preset 中文化、broken 过滤、默认行、头部只读标签映射）
-│       ├── toolLine.ts     # 工具行式排版：工具名 → kimi-cli 风格动作短语；工具输出前 N 行截断（共 N 行提示）
-│       ├── activityTree.ts # 后台任务 chip 模型：job 排序/状态点/状态文案/耗时格式化（对齐官方 JobListAction）
-│       ├── composerAttachment.ts # composer 附件：image/* 判定与缩略图 data: URL 构造
+│       ├── chatContract.ts # 宿主 ↔ webview 的消息契约 + 会话/交互模型（接口冻结；ChatState 半边随旧聊天区下线后仅单测消费）
+│       ├── conversation.ts # 会话事件折叠成消息列表（dshRpc/测试消费）
+│       ├── historyWindow.ts # session.history 窗口分页
+│       ├── sessionTree.ts  # 侧栏会话树模型构建：分组/过滤/排序（置顶优先）/标签/相对时间/未读标记
+│       ├── hostFrames.ts   # host 事件帧解析与逐帧增量应用
 │       ├── envelope.ts     # host.describe RPC 信封构造与 rpcId 回显校验
-│       ├── hostFrames.ts   # host 事件帧解析与逐帧增量应用（对齐官方 applyMutation：session-added 补缺/blank 单调、session-status 翻 running 清 blank、subagent removed 降级、workspace upsert/重排）
-│       ├── readyLine.ts    # 解析就绪行 `dsh web: http://127.0.0.1:<port>`（port=0 时从日志文件拿实际端口）
+│       ├── readyLine.ts    # 解析就绪行 `dsh web: http://127.0.0.1:<port>`
 │       ├── semver.ts       # 最小 semver 实现（支持 prerelease），零依赖
-│       └── sessionTree.ts  # Sessions 树模型构建：分组/过滤/排序（置顶优先）/标签/相对时间/未读标记
-└── test/                   # src/pure 的单测（node:test）
+│       └── …               # 其余 pure 模块按文件名自解释（tokenScan/composerAttachment 等）
+├── test/                   # src/pure 的单测（node:test）+ mock-dsh 协议夹具 + sandbox 验收基线
+└── scripts/                # 开发流程脚本（dev-start/finish/merge、i18n 门禁）+ verify-host-half-official.mjs（临时 HOME/profile 里验宿主半）
 ```
 
 各模块职责要点：
 
-- `src/extension.ts`：只做装配。`activate()`（`src/extension.ts:19`）注册命令与 view；`deactivate()` 是空操作——dsh 不随窗口退出，本地资源由 `context.subscriptions` 自动 dispose，见下文设计决策 5。
-- `src/server/locateDsh.ts`：`locateDsh()`（`src/server/locateDsh.ts:28`）三步定位：`dshOne.dshPath` 配置非空则用它，否则用 PATH 上的 `dsh`；对候选跑 `dsh --version` 验证并提取版本号（给 `--no-open` 等版本 gate 用）；失败则抛出 `DshNotFoundError`（"未找到 dsh，请安装"的引导错误），`ServerManager` 据此在 `ServerStatus.reason` 上标记 `dshNotFound`，UI 据此展示安装引导（Chat 空态经 `ChatState.serverError`，sessions 面板空态经 `SessionsSnapshot.dshNotFound`），按钮跳转到官方安装页 <https://www.deepseek.com/harness/>（`dshOne.openInstallPage`）。
-- `src/server/manager.ts`：`ServerManager`（:71）是整个扩展的核心，持有 `ServerStatus` 并通过 `onDidChangeState` 事件通知 UI。
-- `src/ui/webview.ts`：`bind()`（:108）把任一 webview 绑定到 `ServerManager` 状态流；运行中时渲染 iframe（`dshFrame()`，:95），否则渲染启动/错误页。
-- `src/ui/sessionsStore.ts`：`SessionsStore` 是原 Sessions 树视图（`dshOne.sessions`，已并入 chat webview 面板）的数据层——在 `running` 状态下拉取 workspace.list + session.list 基线并缓存，通过 `subscribeHostEvents()`（`src/server/hostEvents.ts`）订阅 host 事件，帧载荷逐帧增量维护缓存基线（解析与应用在 `src/pure/hostFrames.ts`；refresh 在途期间到达的帧先缓冲、拉到基线后重放防乱序），全量重拉只留基线场景（服务状态变化/手动刷新/附着会话标题变化）；另有 60s 本地 tick 用缓存基线纯重建模型（不发 RPC），让会话行的相对时间文案随时间更新；模型构建全部下沉到 `src/pure/sessionTree.ts`。支持搜索过滤（标题/会话 ID 子串，大小写不敏感）与排序（最近/最早更新、按标题）；搜索/排序/置顶/折叠只基于缓存基线本地重建模型，不发 RPC；排序、置顶（pinned）、未读（unread）、workspace 折叠（collapsed）偏好都持久化在 `workspaceState`（纯 UI 偏好，非 dsh 数据缓存——dsh 无置顶/未读概念，未读为手动标记、附着会话时自动清除）。变更经 `onDidChange` 通知（ChatViewProvider 推 sessions 快照给 webview、extension.ts 做聊天附着兜底）。另外暴露 `hasSession()` / `latestCurrentSessionId()` 给聊天视图做会话兜底与默认附着，`rawList()` 把缓存的 session.list 基线（含 parentSessionId/origin/totalTokens/title）原样给任务面板复用，`runningFor()` 把单个会话的服务端 running 位中继给附着会话的 ChatSessionController（ChatState.running 的权威来源，基线未覆盖时 controller 回退 mux 事件折叠值）。
-- `src/ui/jobsStore.ts`：`JobsStore` 是头部「N 个后台任务」chip 的 job 数据层——WS `/api/events.mux` 是全局广播，连接时 host 重放所有会话的 `session/jobs` 基线（含已 settled 的 job）、之后增量推送；这条通道即官方 web 客户端的正规渠道（dsh-client-connection 的 `WebApiClient.openMux` 打开同一个 `/api/events.mux` 下行，官方 JobListAction 的 `jobsBySession` 正由 `session/jobs` 帧喂出）。store 不过滤 sessionId，整快照替换式维护 `jobsBySession`（空 jobs 数组 = 该会话任务清空、删除 key），200ms 防抖后经 `onDidChange` 通知。生命周期对齐 SessionsStore（跟随 `manager.onDidChangeState` 的 url 订阅/退订）。已知限制：mux 无重连（条目 mux-reconnect，见 `docs/backlog/closed-archive-2026Q3.md`），断流后任务列表随之停滞。
-- `src/pure/activityTree.ts`：头部后台任务 chip（对齐官方 dsh-client-ui-jobs 的 JobListAction）的纯模型——`orderJobs()` 行序（运行中按 startedAt 升序在前、已结束按 finishedAt 降序在后）、`jobsChipLabel()` chip 文案（运行中计数优先，全结束显示总数，无 job 返回 null）、`jobDotState()`/`jobStatusLabel()` 状态点与中文文案、`formatJobDuration()` 耗时（最多两个相邻单位，小时封顶）。
-- `src/ui/chatView.ts`：`ChatViewProvider`（原生聊天面，`dshOne.chat`）持有当前会话的 `ChatSessionController`（`src/server/chatSession.ts`）与 `SessionsStore`，把 controller 的 ChatState 快照与 store 的 SessionsSnapshot（附服务状态，供面板空态）直推 webview（controller 内部已节流），webview 动作路由回来：聊天动作（send/stop/approval/answer/feedback/fork）落到 controller，sessions 面板动作（sessionOpen/New/Rename/Archive/Pin/Unread、workspaceAdd/Create/OpenFolder/Collapse、sessionFork、搜索/排序/刷新、serverStart）走 onMessage 顶部的免 controller 分支，会话操作复用 `src/extension.ts` 里收普通参数的命令（含 `dshOne.session.fork`，走主机 session.fork RPC；`dshOne.workspace.create` 在 `~/.dsh/workspaces/<名称>` 建目录后经 ensureWorkspace 注册，dsh 全局目录不存在时直接报错）。面板交互对齐 dsh web 官方前端：workspace 行整行点击折叠/展开（文件夹图标 hover 切换为三角箭头），附着会话所在 workspace 的文件夹图标染 deepseek 蓝（官方同款标识，折叠组也生效，随附着切换走 syncSessionHighlight 免重建通道），当前 VSCode 打开的 workspace 行尾带「vscode」标签，会话行 hover 出「⋯」菜单（重命名/置顶/标为未读/分叉会话/归档会话），右键弹同一菜单；会话行首状态槽对齐官方 StateDot——运行中显示 8 格像素环追逐动画（deepseek 蓝，错相 1s 旋转），空闲留空；未读（本地状态，官方无此概念）为蓝色圆点 + 标题加粗，`setSession()` 附着即清未读。图标取自 dsh web bundle（`src/ui/chat/icons.ts`，fill=currentColor），置顶/排序图标为自制（官方无对应物）。`setSession()` 换会话；服务非 running 或换 URL 时清空回空态。聊天头部信息区（对齐官方）：标题（ellipsis + hover 完整标题）后有「N 个子代理」chip、「N 个后台任务运行中」chip（透明底小字 + chevron 矢量图标，对齐官方 SubagentHeader trigger / JobListAction）与只读 preset 标签（浅底胶囊 + 三环图标，对齐官方 AgentPresetLabel）——子代理行由 `composeHeader()` 从 SessionsStore 基线组合（parentSessionId 指向附着会话且 running），后台任务行由 `composeHeader()` 从 JobsStore 的 mux 基线组合（含已结束 job，行序/文案/耗时格式化在 `src/pure/activityTree.ts`，对齐官方 JobListAction），store/jobs 刷新时重推 state；任务下拉里有运行中行时挂 1s tick 只改写耗时文本节点（关闭弹层即清理）；preset 标签的渠道对齐官方 AgentPresetLabel：`composeHeader()` 从 session.list 基线取附着会话的 agentPreset id（官方 sessionSummarySchema 字段，创建时即定、新旧会话都有），经 controller 的 roster 映射成显示名（user preset 显示 roster name 而非裸 id；roster 未就绪回退 `agentPresetLabel()`），roster 的 description 作为悬停 tooltip（对齐官方 AgentPresetLabel 的悬停描述），与空会话 hero 的选择 chip 互斥。空会话（无消息、无待办/队列）按官方空态居中排版做本地化定制（`renderHero`，对齐 HeroShell + composer 卡片 uV2eYG_card）：hero 品牌为单个 DSH One 像素鲸鱼 logo（品牌蓝 #2563EB，64px，游动动画；不用官方 dsh 鲸鱼标）、无官方「探索未至之境」标题与「预览版」徽章（用户要求去掉），其下 chip 行（workspace 名选择器 + preset 选择 chip，从 composer footer 挪入）、再下是 780px max-width 大圆角 composer 卡片（22px 圆角、浮层底色、柔和阴影，placeholder 对齐官方「描述你想要构建的内容」）；发送主按钮对齐官方 InputBar primary（34×34 圆形图标按钮，运行中变停止方块）；workspace 名由 `composeHeader()` 从 workspace.list 基线合成（`workspaceLabel`，blank 会话也在所属 workspace 的 sessionIds 里）；开跑（有消息或 turn 进行中）即回常规流式布局，composer 的 IME/焦点保留策略只在布局不变（hero↔hero 或常规↔常规）时生效。composer 待发送附件列表对齐官方 AttachmentRail：图片为圆角缩略图（data: URL 直渲，hover 出移除钮，加载失败回退文件名 chip），文件为文件名 chip + 文档小图标。前端在 `src/ui/chat/webview.ts`，marked + dompurify 渲染 markdown，esbuild 打包成 `dist/chatWebview.js` 由 HTML 模板以 nonce 引用（CSP 惯例同 webview.ts）。布局：宽屏（≥720px）左 sessions 面板（260px）右聊天列，窄屏改上下（面板在上、限高 40% 自滚动），由 STYLE 里的媒体查询切换。
-- `src/pure/`：与 vscode 解耦的业务规则。所有"容易写错的判断"（rpcId 校验、semver 比较、就绪行解析、会话树构建）都下沉到这里，保证可以脱离 VSCode 单测。
+- `src/extension.ts`：只做装配。`activate()` 注册命令与 view；维护「最近打开的会话」（侧栏高亮/行内改名判定用）；挂默认打开逻辑——侧栏视图每次可见时，若装配对话区没开且本窗口没自动开过、用户也没手动关过，则自动打开一次（`workspaceState` 记 `dshOne.assemblyAutoOpened`）。`deactivate()` 是空操作——dsh 不随窗口退出，本地资源由 `context.subscriptions` 自动 dispose，见下文设计决策 5。
+- `src/server/locateDsh.ts`：`locateDsh()` 三步定位：`dshOne.dshPath` 配置非空则用它，否则用 PATH 上的 `dsh`；对候选跑 `dsh --version` 验证并提取版本号；失败则抛出 `DshNotFoundError`，`ServerManager` 据此在 `ServerStatus.reason` 上标记 `dshNotFound`，侧栏状态页据此显示「未安装」并给「查看安装指南」按钮 → 打开安装引导 tab（`dshOne.openInstallPage`；引导页里按平台给一键脚本，官方安装文档 <https://www.deepseek.com/harness/> 作为其中一条入口）。
+- `src/ui/sidebarStatusPage.ts` / `src/ui/installGuide.ts`：侧栏状态页与安装引导 tab（#100 落地、#105 改版）。两者都是**宿主侧渲染的普通 HTML**（我们自己的 HTML + CSS + 内联脚本，文案走 `vscode.l10n.t`），不参与装配树——dsh 未安装时网关起不来，装配页组装不了，这一层只能由宿主直接给页面。状态页三态的分流判定在 `src/pure/sidebarStatus.ts`（纯函数，单测覆盖）；引导 tab 是单例面板（槽位逻辑在 `src/pure/panelSlot.ts`），已开则聚焦，页面结构在 `src/pure/installGuidePage.ts`（纯函数：居中 hero + 主按钮下拉（平台项按命令分叉合成、选中态 ✓、外链项 ↗）+ 同行命令胶囊与复制 + 「终端安装 / 编辑器接入」分段）。
+- `src/server/manager.ts`：`ServerManager` 是整个扩展的核心，持有 `ServerStatus` 并通过 `onDidChangeState` 事件通知 UI。
+- `src/ui/assemblyView.ts`：`registerAssembledChat()` 注册 `dshOne.assembledChat` 命令——ensureStarted 后经 `loadGatewayAssembly()`（cookie GET 网关 `/`，提取 `__DSH_BOOT__` wire 与前端资产名）+ `startAssemblyMirror()` 起 loopback 代理，装配页 HTML 设为面板内容；单例面板，后开替换先开，关面板即 dispose mirror。同时注册 webview 面板的 serializer（`registerWebviewPanelSerializer`，view type 与状态形状在 `src/pure/chatPanelState.ts`）：窗口重载 / 扩展宿主重启之后，VS Code 把页面经 `acquireVsCodeApi().setState()` 存下的会话 id 交回来，标签页据此装回原会话；网关没起来或会话已不存在时面板里落状态页（复用 `src/ui/sidebarStatusPage.ts`，`surface: 'chatPanel'`），不留空白。导出 `revealAssembledChat()`（已开则聚焦）/`hasAssembledChatPanel()`/`wasAssembledChatClosedByUser()` 给默认打开与侧栏点开会话复用。
+- `src/ui/sessionsStore.ts`：`SessionsStore` 是侧栏数据层——在 `running` 状态下拉取 workspace.list + session.list 基线并缓存，通过 `subscribeHostEvents()` 订阅 host 事件，帧载荷逐帧增量维护缓存基线（解析与应用在 `src/pure/hostFrames.ts`），全量重拉只留基线场景；另有 60s 本地 tick 让会话行的相对时间文案随时间更新；模型构建全部下沉到 `src/pure/sessionTree.ts`。搜索/排序/置顶/未读/折叠只基于缓存基线本地重建模型；客户端状态（回收站/分组/标签组/置顶/未读）落在 `~/.dsh/dsh-one/` 文件（跨窗口共享）。变更经 `onDidChange` 通知侧栏视图与 extension。
+- `src/ui/sessionsView.ts` / `sessionsWebview.ts`：侧栏视图与前端。动作（打开/新建/重命名/归档/置顶/未读/fork/搜索/排序/刷新）经 postMessage 回宿主，路由到 `extension.ts` 注册的命令；纯 store 操作直接落 store。会话高亮由快照的 `activeSessionId` 驱动（= extension 记的「最近打开的会话」）。
+- `src/pure/`：与 vscode 解耦的业务规则。所有"容易写错的判断"（rpcId 校验、semver 比较、就绪行解析、会话树构建、@token 扫描）都下沉到这里，保证可以脱离 VSCode 单测。
 
 ## 核心流程一：dsh 定位（locateDsh）
 
-入口在 `ServerManager.start()` 内（`src/server/manager.ts:146`）。没有下载、没有版本指针、没有更新检查——升级 dsh 由用户自己 `npm update -g`。
+入口在 `ServerManager.start()` 内。没有下载、没有版本指针、没有更新检查——升级 dsh 由用户自己 `npm update -g`。
 
 1. `dshOne.dshPath` 非空 → 用配置路径；否则用 `dsh`（走 PATH 查找）。
-2. 对候选同步跑 `--version` 验证（`src/server/locateDsh.ts:38`）：失败（不存在/退出码非 0）→ 抛出 `DshNotFoundError`（引导安装文案：`npm install -g @deepseek-ai/dsh@next` 或配置 `dshOne.dshPath`）。
-3. 从输出提取 semver 版本号（:15-21），提取不到记为 `unknown`（按新版对待）。
+2. 对候选同步跑 `--version` 验证：失败（不存在/退出码非 0）→ 抛出 `DshNotFoundError`（引导安装文案）。
+3. 从输出提取 semver 版本号，提取不到记为 `unknown`（按新版对待）。
 
-## 核心流程二：服务启动（re-own → 复用探测/spawn → 轮询就绪 → webview 加载）
+## 核心流程二：服务启动（re-own → 复用探测/spawn → 轮询就绪 → UI 就位）
 
 入口 `ServerManager.ensureStarted()`，单例语义：并发调用共享同一个 in-flight Promise；实际逻辑在 `start()`。
 
-1. **re-own（reload 存活认领）**：dsh 与 VSCode 窗口生命周期已解绑（设计决策 5），上一个宿主 spawn 的 dsh 可能仍在跑。先读共享 pidfile（`~/.dsh/dsh-owned.json`，记 `{pid, port, token?, owner?, source?, owned?}`）：spawn 记录（source 缺省/'spawn'）按 pid 存活（`process.kill(pid, 0)`）且端口通过 token 换票/host.describe 身份确认 → 恢复 owned 身份（stop/restart 照常可杀）；owner 不同 → 认证式 adopted（绝不 kill）。**外部记录（`source:'external'`）**跳过 pid 存活闸——token 换票是身份闸（token 只被生成它的进程换出 303，实例重启必失效），成功 → `external:true` 运行（A 档可管理）。pidfile 里 `port=0`（系统分配端口）时从日志文件的就绪行解析实际端口再确认；spawn 就绪后也会把实际端口回填进 pidfile。记录过期（pid 死/端口不应答/token 失效）则删除 pidfile 继续正常流程。已知风险（已拍板接受）：dsh 死后 pid 被复用且端口被另一手动 dsh 占用时，stop 会误杀复用 pid 的进程组——host.describe 响应不含 pid，无法更严格验证。
-2. **探测与复用**：`port > 0` 时先 `probePort(port)` 四态探测——POST `http://127.0.0.1:<port>/api/host.describe`，信封是 `{type:'client-request', rpcId:<uuid>, method:'host.describe', payload:{}}`（`makeDescribeRequest()`，`src/pure/envelope.ts`）；只有回包 JSON 的 `rpcId` 与发出的一致才算 `'dsh'`（`validateDescribeResponse()`，同文件）；401+正文`unauthorized`（0.1.2 认证层指纹）算 `'authDsh'`；有 HTTP 应答但校验失败算 `'foreign'`；无应答算 `'down'`。`'dsh'` → 状态置为 `running` 且 `adopted: true`，**复用的实例永不 kill**；`'authDsh'` → 防护：`error` + `reason:'authDshNoToken'`，**不另起实例**（tooltip 给粘贴 token/停止/重启入口）；`'foreign'` → 从 `port+1` 起扫最多 50 个候选找空闲端口**临时顶替**（不写回用户设置，弹窗告知）；`'down'` → 原端口 spawn。`port = 0` 跳过探测。
-3. **spawn（双层）**：`locateDsh()` 定位可执行文件；构造 env 时删除 `NODE_OPTIONS` 和 `ELECTRON_RUN_AS_NODE`；参数为 `web --host 127.0.0.1 --port <实际端口>`（fallback 端口也正确传给 dsh），仅当版本 ≥ 0.1.0-rc.7（或 `unknown`）时追加 `--no-open`（`gte()` 判断）。**单层 detached+unref 不够**——实测 VS Code 在 reload 时会对扩展宿主的进程树做 SIGTERM 树杀（`pgrep -P` 递归，`out/vs/base/node/terminateProcess.sh`；信号级 wrapper 实测捕获：宿主退出后 ~43ms SIGTERM 到达），detached 的 dsh 因 ppid 链仍在而被带走。所以 spawn 经短命启动器 `dist/spawnDsh.js`（以 `ELECTRON_RUN_AS_NODE=1` 跑在宿主自带的 Electron 二进制上，不依赖 PATH 里有 node）：启动器 detached spawn dsh（stdio 重定向到 globalStorage 的 `dsh-web.log`，每次截断）后立即退出，dsh 被 launchd 收养、从宿主进程树消失；启动器 stdout 回传 dsh 真实 pid 写 pidfile。
-4. **就绪轮询**（`waitReady()`）：dsh 端口被占时直接启动失败（不会自己换端口），所以固定端口每 250ms 轮询 `probeDsh()` 直到应答，不依赖 stdout 就绪行。`port = 0`（系统分配）是例外：实际端口从日志文件的 `dsh web: http://127.0.0.1:<port>` 行解析（`parseReadyLine()`，`src/pure/readyLine.ts`）后再确认。失败路径：90s 超时（`START_TIMEOUT_MS`）、pid 提前消失（双层 spawn 后没有进程句柄，早退靠 `pidAlive()` 判断），都带日志文件尾部 40 行作为错误详情。
-5. **健康检查**：ready 后每 30s 重新探测一次（复用、re-own、自己拉起的实例都查）。失联即回到 `stopped`——owned 实例还会被 kill 掉回收端口，避免"状态栏显示运行中、实际已死"的假状态。双层 spawn 后扩展不再持有 dsh 进程句柄，dsh 意外退出统一靠健康检查发现（不弹窗）。
-6. **webview 加载**：状态变为 `running` 后，`onDidChangeState` 触发 `bind()` 重渲染，`dshFrame()`（`src/ui/webview.ts:95`）输出 `<iframe src="http://127.0.0.1:<port>">`。dsh web 只在编辑区标签页展示（`openInTab()`，:133）。CSP 只允许 `frame-src http://127.0.0.1:* http://localhost:*`（:48）。
+1. **re-own（reload 存活认领）**：dsh 与 VSCode 窗口生命周期已解绑（设计决策 5），上一个宿主 spawn 的 dsh 可能仍在跑。先读共享 pidfile（`~/.dsh/dsh-owned.json`）：spawn 记录按 pid 存活且端口通过 token 换票/host.describe 身份确认 → 恢复 owned 身份；owner 不同 → 认证式 adopted（绝不 kill）。**外部记录（`source:'external'`）**跳过 pid 存活闸——token 换票是身份闸，成功 → `external:true` 运行（A 档可管理）。记录过期则删除 pidfile 继续正常流程。已知风险（已拍板接受）：dsh 死后 pid 被复用且端口被另一手动 dsh 占用时，stop 会误杀复用 pid 的进程组。
+2. **探测与复用**：`port > 0` 时先 `probePort(port)` 四态探测——POST `http://127.0.0.1:<port>/api/host.describe`（`src/pure/envelope.ts` 构造信封，rpcId 回显校验）；`'dsh'` → `running` + `adopted: true`，**复用的实例永不 kill**；`'authDsh'` → 防护：`error` + `reason:'authDshNoToken'`，**不另起实例**；`'foreign'` → 从 `port+1` 起扫候选找空闲端口临时顶替；`'down'` → 原端口 spawn。`port = 0` 跳过探测。
+3. **spawn（双层）**：`locateDsh()` 定位；env 删除 `NODE_OPTIONS`/`ELECTRON_RUN_AS_NODE`；参数 `web --host 127.0.0.1 --port <端口>`，版本 ≥ 0.1.0-rc.7 追加 `--no-open`。经短命启动器 `dist/spawnDsh.js` detached spawn（stdio 进 `dsh-web.log`），dsh 被 launchd 收养、脱离扩展宿主进程树；启动器回传真实 pid 写 pidfile。
+4. **就绪轮询**（`waitReady()`）：固定端口每 250ms 轮询 `probeDsh()`；`port=0` 从日志文件就绪行解析实际端口（`src/pure/readyLine.ts`）。失败：90s 超时 / pid 提前消失，带日志尾部 40 行。
+5. **健康检查**：ready 后每 30s 重探一次；失联回 `stopped`，owned 实例还会被 kill 回收端口。意外退出统一靠健康检查发现（不弹窗）。
+6. **UI 就位**：状态 `running` 后，侧栏经 `onDidChangeState` 刷新基线；装配对话区在用户点开（或默认打开触发）时经 loopback 代理加载装配页，代理在面板打开时启动、面板关闭时 dispose。
 
-激活扩展时默认自动 `ensureStarted()`（配置 `dshOne.autoStart`，默认 `true`），不再需要手动点击触发首次启动。
+激活扩展时默认自动 `ensureStarted()`（配置 `dshOne.autoStart`，默认 `true`）。
 
 ## 状态与配置
 
-### ServerStatus（`src/server/manager.ts:21`）
+### ServerStatus（`src/server/manager.ts`）
 
 | 字段 | 说明 |
 | --- | --- |
@@ -95,29 +98,50 @@ dsh-one/
 
 | 配置 | 默认 | 消费位置 |
 | --- | --- | --- |
-| `dshOne.dshPath` | `""` | `locateDsh()`（`src/server/locateDsh.ts:29`） |
-| `dshOne.port` | `3080` | `ServerManager.start()`（`src/server/manager.ts:133`） |
+| `dshOne.dshPath` | `""` | `locateDsh()` |
+| `dshOne.port` | `3080` | `ServerManager.start()` |
 | `dshOne.autoStart` | `true` | `activate()`（`src/extension.ts`） |
 
 ### 磁盘与全局状态
 
-扩展在 globalStorage 写两份运行时文件：dsh 的 stdout/stderr 日志 `dsh-web.log`（每次 spawn 截断）与 pidfile `dsh-owned.json`（`{pid, port}`，reload 后 re-own 用，stop/kill 时删除）。dsh 的数据（会话日志、workspace 元数据）在 `~/.dsh`，由 dsh 自己管理，扩展不读写。
+扩展在 globalStorage 写两份运行时文件：dsh 的 stdout/stderr 日志 `dsh-web.log`（每次 spawn 截断）与 pidfile `dsh-owned.json`（reload 后 re-own 用）。dsh 的数据（会话日志、workspace 元数据）在 `~/.dsh`，由 dsh 自己管理，扩展不读写；侧栏的客户端状态（回收站/分组/标签组/置顶/未读 + tag-bridge 记录）落在 `~/.dsh/dsh-one/`，跨窗口共享。
+
+**去向（#84 起）**：`~/.dsh/dsh-one/` 下这批插件状态的**新主人是宿主半插件**（`packages/dsh-host-capabilities`），前端插件经宿主能力口读写，扩展侧那套 `dshStateStore` / `tagBridge` 是待退役的存量（迁移见 #82）——理由是同一份用户数据不能有两个家，且官方 web 侧拿不到扩展的存储。
 
 ## 设计决策及出处
 
 以下结论来自对 marketplace 上 28 个 dsh 相关插件的逐一源码调研，完整报告在父仓库 `../docs/05-vscode插件调研.md`（不在本仓库内）。
 
-1. **桥接而非整合包。** 产品定位参照 Claude Code CLI 与其 VSCode 扩展的关系：dsh 由用户自行安装/升级，扩展只负责定位、启动、连接。早期方案是扩展按需下载 Node + dsh 运行时（依赖树 455 个包 / 约 280MB / 11 个平台相关原生 .node），下载慢、跨平台麻烦，还会把扩展绑进版本管理（current/last-good 指针、回退、更新检查）的复杂度里；桥接定位把这些整体退役。
-2. **先探后起 + 复用语义。** 两个 dsh 实例共享 `~/.dsh` 并发写会永久损坏会话日志（seq gap，Skylake0216 插件已有实际故障案例）。所以启动前必须先探测，已有实例就复用且绝不 kill。实现：`src/server/manager.ts:136-144`、`:277`（`killOwned` 注释）。**2026-09-06 修订（external-dsh-manage-012）**：例外两类——① 0.1.2 认证 dsh 无 token（`portProbe` 的 401+`unauthorized` 指纹）→ **报错不另起**（防双实例的默认动作改为显式管理入口，不再换端口另起）；② 用户粘贴 token 连接的外部认证实例（共享记录 `source:'external'`/`owned:false`）→ 可管理，但停止/重启走 A 档：确认弹窗 + 杀前身份确认 + **只杀单 pid**（外部实例进程组是启动它的 shell，不能复用 `killOwned` 的进程组杀法）。0.1.1 无认证外部实例（probe 'dsh' 即 adopted）路径不变。见设计决策 9。
-3. **spawn 环境净化。** env 里删掉扩展宿主注入的 `NODE_OPTIONS` / `ELECTRON_RUN_AS_NODE`（会让普通 node 子进程异常）；Windows 下 `.cmd` shim 不能直接 spawn，走 `shell: true`。实现：`src/server/manager.ts:151-153`、`:170`。
-4. **`--no-open` 按版本 gate。** 只有 dsh ≥ 0.1.0-rc.7 认识该参数，旧版收到会直接退出（Xizhi1024 插件已出现过这个 critical bug）。实现：`src/server/manager.ts:12-13`、`:158`。
-5. **dsh 与窗口生命周期解绑（2026-10 反转原决策）。** 原设计在 `deactivate()` 里同步 SIGTERM + detached reaper 补 SIGKILL，导致 reload window 就中断进行中的 session（开发期一天十余次）。现改为「父死子存」，且必须**双层 spawn**：单层 `detached + unref + stdio 进日志文件`只解决进程组与 EPIPE，实测 VS Code reload 时会对扩展宿主进程树做 SIGTERM 树杀（`pgrep -P` 递归），ppid 链不断就逃不掉；短命启动器（`src/server/spawnDsh.ts`）拉起 dsh 后立即退出，dsh 被 launchd 收养才彻底脱离。身份写 globalStorage pidfile，下个宿主 re-own；dsh 只在用户显式 `dshOne.stop` / `dshOne.restart` 时被杀（POSIX 整组 SIGTERM→SIGKILL，Windows `taskkill /T /F`）。副作用：终端升级 dsh 后需手动 restart 生效（已拍板暂不做版本提示）；扩展不再持有 dsh 进程句柄，意外退出由 30s 健康检查发现（不弹窗）。
-6. **就绪轮询 + 身份确认。** dsh 端口被占直接启动失败（不换端口），固定端口轮询 probeDsh 即可；port=0 例外，从日志文件解析就绪行拿实际端口后再 RPC 确认。实现：`src/server/manager.ts`（`waitReady`）。
-7. **iframe 嵌入官方 UI（现阶段）。** 调研的 28 个竞品里，重写派每家都在追官方协议叫苦；iframe 嵌入零 UI 同步成本。官方未提供嵌入隐藏侧栏的能力，预留参数 `dsh_embed` 已删除（0.1.1-rc.2/0.1.2-rc.1 均未消费）；如需跟进见 `docs/roadmap.md` 上游 issue/PR 路线。长期方向是原生前端，见 `docs/roadmap.md`。实现：`src/ui/webview.ts:95`。
-8. **零运行时依赖（扩展宿主）。** 扩展宿主只用 Node 22 内置模块 + vscode API，esbuild 打单文件 bundle。**修订（阶段二）**：聊天 webview 前端（`src/ui/chat/`）允许打包依赖——marked + dompurify 由 esbuild 内联进 `dist/chatWebview.js`，无运行时外部加载；宿主 bundle（`dist/extension.js`）仍零依赖。依据：`package.json` 的 `dependencies` 仅被 webview entry 引用；`build.mjs` 双入口打包。
-9. **外部启动的认证 dsh：防护 + 显式接管（2026-09-06，external-dsh-manage-012）。** 0.1.2 起 dsh 每次启动 mint 随机 token（只随其 URL/stdout 出现），外部实例的 token 扩展拿不到——认证 dsh 会拒绝无凭证的 host.describe（401+`unauthorized`，`src/server/portProbe.ts`）。默认动作（用户已拍板）：探测到认证 dsh 无 token → **报错不另起**（不再换端口 spawn 双实例），状态栏 tooltip 给出管理入口。B 档：用户粘贴终端 URL 的 token（`GET /?token=` 换票验证）→ 连接并把 token 存入共享记录（`source:'external'`、`owned:false`、不写 owner——任一窗口可重连，但 kill 权不归任何窗口）。A 档：外部实例可停止/重启，但杀前必须确认弹窗（外部实例可能在用户终端跑）+ 命令行含 dsh 特征才杀 + **只向单 pid 发 SIGTERM**（外部实例进程组是 shell 的，进程组杀法会把用户的 shell 一起杀掉）；Windows 无优雅路径，`taskkill /T /F`。pid 探测三平台：macOS `lsof -tiTCP:<port> -sTCP:LISTEN`、Linux `/proc/net/tcp`+`/proc/<pid>/fd` inode 对照、Windows `netstat -ano`+PowerShell（`src/server/externalDsh.ts`）。
+1. **桥接而非整合包。** 产品定位参照 Claude Code CLI 与其 VScode 扩展的关系：dsh 由用户自行安装/升级，扩展只负责定位、启动、连接。早期方案是扩展按需下载 Node + dsh 运行时（依赖树 455 个包 / 约 280MB / 11 个平台相关原生 .node），下载慢、跨平台麻烦，还会把扩展绑进版本管理的复杂度里；桥接定位把这些整体退役。
+2. **先探后起 + 复用语义。** 两个 dsh 实例共享 `~/.dsh` 并发写会永久损坏会话日志（seq gap）。所以启动前必须先探测，已有实例就复用且绝不 kill。**2026-09-06 修订（external-dsh-manage-012）**：例外两类——① 0.1.2 认证 dsh 无 token → **报错不另起**；② 用户粘贴 token 连接的外部认证实例 → 可管理，停止/重启走 A 档（确认弹窗 + 杀前身份确认 + 只杀单 pid）。见设计决策 9。
+3. **spawn 环境净化。** env 里删掉扩展宿主注入的 `NODE_OPTIONS` / `ELECTRON_RUN_AS_NODE`；Windows 下 `.cmd` shim 走 `shell: true`。
+4. **`--no-open` 按版本 gate。** 只有 dsh ≥ 0.1.0-rc.7 认识该参数，旧版收到会直接退出。
+5. **dsh 与窗口生命周期解绑。** reload window 不再中断进行中的 session。必须**双层 spawn**：单层 detached 逃不掉 VS Code reload 时的 SIGTERM 树杀；短命启动器拉起 dsh 后立即退出，dsh 被 launchd 收养才彻底脱离。身份写 pidfile，下个宿主 re-own；dsh 只在用户显式 `dshOne.stop` / `dshOne.restart` 时被杀。意外退出由 30s 健康检查发现（不弹窗）。
+6. **就绪轮询 + 身份确认。** 固定端口轮询 probeDsh；port=0 从就绪行解析实际端口后再 RPC 确认。
+7. **对话区 = 官方组件装配，不自研聊天 UI（#60/#64/#68）。** 调研的 28 个竞品里，重写派每家都在追官方协议叫苦；自研聊天区（#11 系列，曾做到 537 单测）在 #68 整体下线，原因是长期维护成本：每个 dsh 版本升级都要追协议 + 追 UI 对齐。现方案（装配）：官方 dsh web 前端组件原样下发（插件整包过滤只删官方外框/侧栏两个插件，网关服务端零改动），自有外框插件接管根外框与主题，loopback 代理解决登录 cookie 与跨来源。装配架构详见 `docs/assembly-architecture.html`；验证两道关：浏览器验证（Playwright 直开装配页）+ VS Code 验证（`scripts/dev-ui-test.sh`）。
+8. **零运行时依赖（#68 起全扩展）。** 宿主与两个 webview 前端全部只用 Node 内置模块 + vscode API；旧聊天 webview 时代的 marked/dompurify 依赖随 #68 移除，`dependencies` 字段为空。
+9. **宿主能力口：插件不碰宿主，只调抽象口（#84；#83 起含「开外链」，#109 起含工作区目录的宿主动作，#121 起含「这条会话开在宿主面板里吗 / 把它亮到该会话」，#147 起含「宿主面板里开着哪些会话」的**订阅**（宿主每次变化广播一条，页面挂载时再读一次快照），#176 起含「添加/创建工作区之后在该工作区开新会话」）** 插件要的宿主能力（跑 git、落盘、持久状态、开外链、在编辑器里打开工作区文件夹 / 在目录上开集成终端、读 VS Code 当前打开的文件夹——侧栏树的「当前工作区」按它判定，#112；查某条会话是否正开在宿主的对话面板里、把面板亮到某条会话——侧栏树的会话行点击按它判「就地改名还是按打开处理」，#121；订阅「宿主面板里开着哪些会话」——侧栏树按它判「跑完还没被打开」那颗绿点该不该画：#147；添加/创建工作区之后在这个工作区里开一条新会话并把新工作区的 id 带回页面——顶栏 ＋ 菜单两项添加完的收尾就靠它：这条能力在场就接着开会话并在被分组过滤挡住时点名提示，缺席（官方 web 侧，添加完建不建会话归官方自己的 directory-flow）则只添加、不开会话：#176）统一经 `packages/dsh-plugin-kit/src/hostCapabilities.ts` 这层薄 SDK 调用，两侧各有一个实现：VS Code 侧 = 扩展宿主侧的宿主调用通道（`hostCall` 白名单，`src/ui/assembly/hostBridge.ts`）；官方 web 侧 = **宿主半插件**（`packages/dsh-host-capabilities`，跑在 dsh 宿主进程里，经官方 api-gateway 暴露 Remote 端点，前端用官方 Connection 的 `rpc.call('/api', '<ns>/<方法>', { args })` 调）或页面原生动作（下载用 `a[download]`；开外链用 `window.open`——链接该在用户眼前打开，宿主半在远端/容器里开的会是服务器那台机器的浏览器）。这样同一份插件代码两端都能用（AGENTS.md 铁律「能移植的必须移植」），插件的可移植性不再取决于我们改了多少平台分支。通路与线形态的实测记录见 #84 的 issue comment。
+10. **插件的挂载点取官方语义属性，不认自有 frame（#83）。** 官方 web 里没有我们的 shell frame（`[data-shell="dsh-one"]`），插件若按它取挂载点就会静默不工作。所以自有插件统一经 `packages/dsh-plugin-kit/src/mountPoints.ts` 取容器：对话区容器 = 官方 `ui-conversation` 的会话滚动体 `[data-conversation-scroll]`（会话流与 composer 都在这棵子树里），composer 槽位 = 官方槽位属性 `[data-slot="conversation.composer.bar"]`；容器晚挂载会等、被换掉会重挂。绝对定位的卡片按 CSS 的坐标系（最近的可定位祖先盒）摆放，同样不认自有标记。已按此迁移并改名 `dsh-*` 的三件：`@dsh-one/dsh-git-card` / `dsh-context-menu` / `dsh-composer-clear`（理由与逐层举证见各自文件头）。
+11. **外部启动的认证 dsh：防护 + 显式接管（2026-09-06，external-dsh-manage-012）。** 0.1.2 起 dsh 每次启动 mint 随机 token，外部实例的 token 扩展拿不到——认证 dsh 会拒绝无凭证的 host.describe（401+`unauthorized`）。默认动作：探测到认证 dsh 无 token → **报错不另起**，状态栏 tooltip 给出管理入口。B 档：粘贴 token 连接（`GET /?token=` 换票验证）→ 连接并存共享记录。A 档：停止/重启走确认弹窗 + 命令行特征确认 + **只向单 pid 发 SIGTERM**；Windows `taskkill /T /F`。pid 探测三平台：macOS `lsof`、Linux `/proc`、Windows `netstat -ano`+PowerShell（`src/server/externalDsh.ts`）。
+12. **可移植的自有插件就是官方格式的 npm 包（#73，2026-09-16）。** `@dsh-one/dsh-*` 那几件（清空件 / 右键菜单 / 提交卡 / 会话导出 / 工作区树）在 `packages/<名>/` 下各有自己的包：清单声明 `dsh.bundle.patch`（官方 `dsh plugin add` 靠它把包并进 profile 的层列表）+ `dsh.client`（`platform: "web"`、`inject`、`external`，官方 client-modules 靠它把 `exports["./client"]` 的 bundle 并进 `__DSH_BOOT__` 与 combo），补丁只 insert 自己一行；包名 = 装配清单里的插件 id。`build.mjs` 按包清单打一份产物，落回包内（`lib/client.js` + 宿主半 `lib/index.js`），再拷进 `dist/assembly/plugins/`——VS Code 侧 mirror 伺服的路径没变，两端吃同一份字节，**一次安装双端生效**。包内产物与 `dist/` 一样**不入库**（都是 `npm run build` 的生成物，见 `docs/development.md`）。**#94 起源也内聚在包内**：插件本体住在 `packages/<名>/src/`（不再住 `src/ui/assembly/shell/`），三个可移植插件共用的挂载点与宿主能力口收在私有包 `packages/dsh-plugin-kit/`（`private: true`、不发布，构建期打进各插件自己的 bundle）——于是「一个包 = 完整插件」，包外没有第二份源。仍住 `src/ui/assembly/shell/` 的是只能用在我们 shell 里的 `@dsh-one/vscode-*`（外框、主题跟随、会话桥、设置齿轮）。链路、字段作用与真机实测跑法见 `docs/plugin-packages.md`；官方页面的真机实测是 `npm run verify:plugins-official`（隔离 HOME + 临时 profile + 独立端口 + 假模型），与装配实验室互补。
+13. **外链由我们的捕获层接管，而不是靠 VS Code 自己那层拦截（#150）。** VS Code 在 webview 里装了一层链接拦截（`pre/index.html` 的 `handleInnerClick`：挂在页面 window 的**冒泡阶段**，找到带 href 的锚点就 postMessage 给宿主开系统浏览器），锚点自己一句 `event.stopPropagation()` 就能让这次点击到不了那层——用户看到的就是「点了没反应」（官方 web 没这层、靠锚点默认行为，所以只有 VS Code 侧坏）。装配页因此在 `document` 的**捕获阶段**听 click（代码 `src/ui/assembly/shell/externalLinkShim.ts`，三棵树的 frame 插件各装一次）：命中 http/https/mailto 的锚点（白名单复用宿主能力口的 `parseAllowedUrl`）就交给 `openExternal`，并 `preventDefault()` + `stopPropagation()`——后者是必需的，那层拦截不看 `defaultPrevented`，不拦事件同一次点击会被开两次。只在宿主注入过 `acquireVsCodeApi` 的页面里装，官方 web / 普通浏览器一格不动。常驻断言 = `npm run verify:lab` 的 F-48。
+14. **插件整包的 URL 要同时代表两份内容（#173，2026-09-17）。**整包 = 官方剥掉 block list 之后剩下的段 + 我们自己的 bundle，二者拼在同一条 `/plugins-local/??…&rev=…` URL 后面，而这条 URL 就是 webview 的缓存键（响应头 `max-age=86400, immutable`，源稳定时跨 tab 命中 HTTP 缓存、网络字节≈0）。所以 rev 必须是两份内容版本的组合：`<appBatches[0].rev>-<dist/assembly/plugins 的内容哈希>`（`filterWire` 的 comboRev + `src/server/localBundleRev.ts`，宿主每次装配现算）。此前只有网关那一半，我们重建自己的 bundle 时 URL 一字不变 → 改了界面 reload 也看不到，扩展升级后用户也可能停在旧界面。生成文件名带内容哈希的网关资产（`/assets/*`）不走这条路：名字里就有版本，内容一变名字就变。人工验收步骤见 `docs/development.md`，常驻断言 = `npm run verify:lab` 的 F-57 与 `test/comboCacheRev.test.ts`。
+15. **页面上的插件 roster 有两条来路，两条都要过滤（#191，2026-09-18）。**一条是页面启动时那份 `__DSH_BOOT__`（我们按该树的 block list 过滤过、再拼上自有插件）；另一条是官方前端自己开的事件流 `/plugins/events`——它每帧 `type: "graph"` 带的是网关生成的**全量** roster。dsh 0.1.6-alpha.1 的客户端对 graph 帧「收到就丢」，0.1.6-alpha.2 起改成交给客户端的条目协调器按它增删页面上的插件条目。于是不过滤那一条的后果是：被 block 的官方插件被装回来、我们自己的 frame 插件条目被卸掉，root 槽的注册随之撤销，整页白（`renderSlot('root') before any 'root' registration`）。做法与整包那条同源——只在我们自己的转发管道里过滤：装配页把 `/plugins/events` 改道到镜像的 `/plugins-local/events`，镜像逐帧跑该树的 `filterWire`（与页面 boot 那份**同一个函数**），投影不了就丢帧（页面保持自己那份 roster，退化成 alpha.1 的行为）。同一版 dsh 还把「哪条会话是当前会话」和「打开一条会话」两件事的归属挪了位：快照不再下发 `current`（改由行上的 `retainedBy.mainView` 推）、会话服务不再有 `open` / `select` / `clear`（改由会话视图的所有者 `uiWorkspace.openSession` 负责）。两处都在我们这边做了单一事实源 + 分叉：`src/pure/workspaceTreeView.ts` 的 `withCurrentSession`、以及统一走官方两代都在的 `uiWorkspace.openSession`。后者还有一层：官方的「恢复上次选中的会话」也搬进了 ui-workspace 自己的 watcher，多开页上首次注入会被它盖掉（恢复值来自两个 webview 共用的 localStorage），所以注入是**盯住目标直到落定**（在 1.5 秒的观察窗口里每一拍重新看一眼当前读数、没落定就再喊一次；「目标还没出现在这一页的清单里」不当成结论，`openSession` 抛的错也当场说出来——落点与取证见 #205），并且在目标落定之前**不往宿主上报**当前会话（否则 tab↔会话映射会被那个过渡值绑错）。同一版还挪了第三处：「跑完还没被打开」那枚绿点从会话列表的**行**上（`completed`）搬进 `sessionStatus` 钩子的 `completionUnread` 那一格，落点是 `sessionPendingSource.ts` 的 `completedIds` 投影 + `workspaceTreeView.ts` 的 `withCompletedIds`（老代返回 `null`、一个字节不动）。常驻断言 = `npm run verify:lab` 的 F-01 / F-08 / F-09 / F-14 / F-43 / F-46 / F-60，加接新版本时的门禁 `npm run verify:lab-version <版本>`（见 `docs/dsh-compat-checklist.md` 的「装配面」一节）。
+16. **注入目标开不了时的行为：落到官方新对话页，不停在空态（#211，用户拍板 2026-09-18）。**宿主把某个会话注入对话面板，而这条会话**开不了**（不存在 / 已删除 / 在归档或回收站里）时，面板的落点是**官方新对话页**——不是「没有当前会话」的那种空态，也**不是**回退到「上一个能开的会话」。做法（`src/ui/assembly/shell/sessionBootPlugin.ts` 的 `landOnNewConversation`）：观察窗口（1.5 秒）走完目标仍不是当前会话，就经官方那条**「新会话」入口** `uiWorkspace.startSession()` 让官方自己把这一页落到位——它就是官方侧栏那枚 ＋ 与官方 agent-preset 调的入口，语义是「目标工作区按 `workspaceId ?? 当前会话所属工作区 ?? 最近的工作区` 取，在里面复用一条空白会话、没有才新建」（官方 `connectWorkspace`），也正是官方 web 在「没有当前会话」时的启动行为（官方 `ui-workspace` 的 `watchNavigation` 走的是同一条 policy）。**实测（#211）**：官方页在没有当前会话时渲染的就是这个新对话页（hero 标题 + 工作区 chip + 可用的 composer），零写类请求（复用已有空白会话）；我们的 chat 树在那两种「开不了」的现场（不存在的 id、网关归档名单里的 id）改前停在官方空态（hero 标题 + 「选择工作区」占位 + 灰掉的 composer，`data-placeholder` 都不写），改后落到可用的新对话页。**为什么不是「我们自己挑工作区、自己建会话」**：最近工作区的算法在官方是内部函数，自己实现等于接手一份不版本化的契约；走官方入口则随官方版本自更新。**两条已知的边界**：① 运行时就地切换（宿主转发的 `dshOne.switchSession`，即面板已开着时点侧栏另一条会话）**不落新对话页**——用户点的是某一条具体的会话，那一刻说清楚「开不了它」比擅自给他换一条新会话更贴他的意图（判据是 F-62 的第四档）；② 官方那条入口在目标工作区里**没有可复用的空白会话**时会**在网关真建一条**（`sessions.create`）——官方 web 在同一情形下同样会建，这不是我们额外加的动作，但确实是一次写操作。**遮罩的揭幕**也跟着这条走：面板起来时盖着的那层「正在打开会话…」在落到新对话页那一刻揭开（`chatLayoutPlugin` 的 `opening`），信号是 session-boot 经 `window.dispatchEvent('dsh-one:boot-new-conversation')` 吹的哨 + 写在 `globalThis.__DSH_ONE_BOOT_NEW_CONVERSATION__` 上的同一份事实（要事件是因为「落到新对话页」这一下未必引起一次重渲，只读全局会让遮罩盖到底——实测踩过）。常驻断言 = `npm run verify:lab` 的 F-62（第二、三档判落点是新对话页、第三档另判「没停在恢复键那条别的会话上」）与 F-08（第三档：遮罩在打开期间在场、落定后揭开、底下是新对话页）。
+
+16. **装配页不许整页白：装配失败时页面上留一行说明与重载入口（#201，2026-09-18）。** 官方渲染器把装配错（缺适配器、缺槽位钩子源这类的 `SlotAssemblyError`）**故意**让它穿出所有 entry 边界——`SlotErrorBoundary.getDerivedStateFromError` 里 `if (error instanceof SlotAssemblyError) throw error`，注释写明「a miswired shell must fail loud」——React 18 随即把整棵 root 卸掉，页面上一个可见的盒都不剩；而官方那套失败卡片（`Failed to load plugins` + 原因）只覆盖**启动期**（WebBoot 的 `run()` 整个包在 try/catch 里，挂载之后出错没人接），官方留给插件的监督 seam `SlotRegistry.onEntryError` 也**收不到**装配错（错误在 `getDerivedStateFromError` 里就重抛了，走不到 `componentDidCatch`），出事的 `ScopeProvider` 又在我们 root 条目**之上**（在我们外框插件里加错误边界永远在它下面）。所以这一层只能由**页面运行时**出：`src/ui/assembly/failureNotice.ts` 的内联脚本同时接两条信号——`error` / `unhandledrejection`（记下原始错误文本，**不吞**：控制台与探针日志照旧）与 `#root` 里有没有可见的盒；「应用起来过、又连续两拍一个可见的盒都没有」成立就落一行说明（带原始错误文本）+ 一个「重新加载」入口，点它整页重载。判据落在**用户看到的东西**上，页面好着的时候一个字节不动（不误报）。文案语言取自官方 locale 插件的产物 `document.documentElement.lang`（连不上时按英文）。常驻断言 = `npm run verify:lab` 的 F-63（注入一次真装配失败 → 整页白那一态复现 → 提示行真的在视口里 → 原始错误照旧可观测 → 点重载入口整页救回来 → 救回来之后零提示条）。
+
+17. **会话标签组里的三个预设组：恒存在、不可删改、名字走 l10n、空着不占位（#213 + #214，2026-09-19，用户要求「加回来」）。** 侧栏每个工作区块里恒有三个预设组——待办 / 进行中 / 已完成（`pure/sessionTags.ts` 的 `PRESET_TAGS`：固定 id `preset-todo` / `preset-doing` / `preset-done`、状态语义色黄蓝绿、默认顺序就是这个数组顺序）。五条语义：① **恒存在**——渲染与「移到分组…」的清单都在**视图桶**上做（`pure/sessionTagGroups.ts` 的 `withPresetTagGroups`：把持久数据里缺的预设组按标准序补在末尾），所以任何工作区（含未分组那个虚拟桶）都能把会话移进去，不依赖这个工作区有没有存过标签桶；**不预先把空桶落盘**（真正归组时才建桶，与旧侧栏 `sessionsStore.ts` 的方案 A 同一条）。② **不可删**——组菜单里不出现「删除标签组」，动作层 `deleteTagGroup` 对预设 id 直接回 `null`（= 调用方跳过落盘，一个字节都不改），菜单与动作两层都不靠对方。③ **不可改名**——菜单里不出现「重命名标签组」，`updateTagGroup` 带 `name` 的请求对预设组回 `null`；名字恒从 l10n 出（词典键 = `PRESET_TAG_L10N` 的三条，插件的 zh / en 两份都有），**不落进持久数据**（否则换个界面语言会看到上一门语言的名字）。④ **颜色可改**——照旧侧栏 `setTagColor` 的口径（它对预设组没有门槛），改色这一下把那条预设组的定义落进持久数据（于是颜色与顺序此后都听数据的）。⑤ **空着不占位（#214）**——`splitByTagGroups` 对**空组一律跳过**（预设组与自建组同一口径），所以没有成员的预设组不渲染组块、也不渲染组头那颗 pill（pill 住在组块里），不会把会话行往下压；「恒存在」不受影响（它们仍在视图桶里），由此带来一条取舍：**空预设组没有可拖入的落点**（拖拽落点就是组块），要往里放会话只能走会话行菜单的「移到分组…」——那一份清单恒列它们，也是空组唯一的入口。**旧数据不丢**：旧侧栏那份 `tags.json` 里 `preset-*` 的定义与会话归属照常迁入（原先归在这三组里的会话重新显示在组里），空组清理只清**自建**组（预设组与其归属恒不清）。常驻断言 = `npm run verify:lab` 的 F-64（另见 F-16 的迁入那一档）。
+
+18. **标签组的两条口径：默认色优先取没用过的颜色（#215）、回收站里的会话不算活跃成员（#216）（2026-09-19，用户要求「新建标签组优先选不冲突的颜色」+「标签移入回收站就删除标签，而不是等到归档」）。** 两条都收在纯模型里，装配侧栏只加一处依赖：
+    - **#215 默认色**：`pure/sessionTagGroups.ts` 的 `nextTagColor` 改成「按 `TAG_COLORS` 顺序取第一个**本工作区还没有任何组在用**的颜色」，6 色全被占用时才回落到旧的按组数轮换（此时每一色都有组在用，选哪个都同色，无解所以明写并让断言钉住读数）。占用判断在**视图桶**上做（`withPresetTagGroups`），所以三个预设组的**当前颜色**算占用——用户把「进行中」改成紫色之后，新组的默认色不会再是紫色。改前的实现只看**组的数量**（`TAG_COLORS[bucket.tags.length % 6]`），于是前三个自建组的默认色必然与三个预设组撞色。这一条只管**默认值**：色板 6 色照旧都能手选，手选一个已经在用的颜色照旧落盘（「优先」不是「禁止」）。
+    - **#216 回收站不算活跃成员**：`tree.ts` 的空组清理（`pruneTagGroups`，判据由调用方给）把喂进去的 `isAlive` 从「在基线里 ∧ 不在归档」改成「在基线里 ∧ 不在归档 ∧ **不在回收站**」，并给那个 effect 补上回收站集合这一条依赖（`bin.ids`，动作侧每次移入 / 还原 / 归档都会换一份快照）——于是**移入回收站那一刻组就连同归属当场清掉**，不再等到归档那一步；这与旧侧栏 `sessionsStore.ts` 的 `pruneEmptyCustomTags`（在 `moveToRecycleBin` / `moveToRecycleBinMany` 里当场调）同一口径，用户的话是「标签和回收站是一样的逻辑，只是呈现不一样」。**还原的语义**：组还在（还有别的活跃成员）时，被移进回收站那条会话的**归属留着**，从回收站还原就回到原组（与回收站「恢复回原 workspace 组」同一口径、可逆）；组已经被清掉的，还原后落在「未归组」（归属在清理时一起没了）。**归档那一步的清理照旧保留**（直接归档不经过回收站的会话同样会让组失去最后一个活跃成员）。预设组与其归属不吃这条清理（#213 的语义不变）。
+    - 常驻断言 = `npm run verify:lab` 的 F-65（默认色：空桶 → 橙、连着建依次紫 / 红、六色占满的回落读数、预设组换色后的占用、手选重复色照旧落盘）与 F-66（回收站：唯一成员被回收 → 组与归属当场清掉、还有活跃成员 → 组留着、还原回原组 / 组已清则回落未归组、归档那一步的独立读数）。两处都做过负向对照：把 `nextTagColor` 改回按数量取 → F-65 **14/19**（红的正是①②③④那五条正面断言）、单测里那条新用例红；把 `isAlive` 改回「回收站也算活着」→ F-66 **17/22**（红的正是①与③那一族五条）。
 
 ## 日志与安全细节
 
-- 所有日志走 `Logger`（`src/log.ts:18`），写入前 `sanitize()` 会把 URL 的 query 值脱敏成 `***`（`src/log.ts:14`），避免 token 类参数进日志。新增日志点请走 `Logger`，不要 `console.log`。
-- webview CSP 收紧：`default-src 'none'`，frame 只允许 127.0.0.1/localhost，script 必须带 nonce（`src/ui/webview.ts:46-51`）。
+- 所有日志走 `Logger`（`src/log.ts`），写入前 `sanitize()` 会把 URL 的 query 值脱敏成 `***`，避免 token 类参数进日志。新增日志点请走 `Logger`，不要 `console.log`。日志同时落一份文件（`src/pure/logFile.ts`，位置与读法见 `docs/development.md`「日志与事后取证」）——窗口重载 / 扩展宿主重启这类发生在扩展之外的故障，事后只能靠这份文件自证。
+- **webview 的脚本政策由页面自己声明，而装配页不声明**（#188，用户拍板）：官方 dsh 网页整页没有 CSP（网关 `/` 不带 CSP meta），装配页此前自带一份（`default-src 'none'` + 内联脚本 nonce + 受限的 `img-src` / `font-src` / `media-src`），于是同一张第三方插件卡片在两边处境不同——帧里的内联事件属性（`onclick=` 这类按 CSP 规则只能靠 `'unsafe-inline'` 放行、nonce/hash 对它无效）被挡、帧与页面要用的远端图片 / 字体被 `img-src` / `font-src` 挡（#186 里那条 F-09 的红就是它）。用户选了「与官方页一致」，那份 CSP 因此下线，**#185 为它写的「给隔离沙箱 `srcdoc` 帧补 nonce」也一起退休**（`src/ui/assembly/pageHtml.ts` 原处留了一段说明）：那套机制唯一的用处是匹配我们自己那条 `script-src`（Chromium 把本页 CSP 继承给 `srcdoc` 这类 local scheme 帧，而帧的 HTML 由插件生成、拿不到本页 nonce——`@dsh-external/dsh-visualize` 的 HTML 预览卡在装配页被压成 48px 就是这么来的），没有政策可匹配之后它只会白白改写插件写下的 `srcdoc`。装配页现在与官方页同处境：代价是**失去脚本注入防护**（页面里跑的是官方 bundle + 我们的插件 + 用户 profile 里的第三方插件，与官方页相同的处境）。页面自己的内联脚本与那段 `<style>` 仍带 `nonce` 属性（没有政策可匹配、今天不放行任何东西），留着只是让「把 CSP 加回来」这条退路不必再动这些落点。
+- **宿主那层没有 CSP——这是查过的，不是猜的**（#188；出处是随 VS Code 装在本机的实现，路径按 macOS 记在 `/Applications/Visual Studio Code.app/Contents/Resources/app/out/`）：① wrapper 文档 `vs/workbench/contrib/webview/browser/pre/index.html` 自带一份 CSP（`default-src 'none'; script-src 'sha256-…' 'self'; frame-src 'self'; style-src 'unsafe-inline'`），但它只管 wrapper 自己；② 扩展的 HTML **不是 `srcdoc` 帧**，而是由 wrapper 用 `contentDocument.open()/write()/close()` 写进另一个 `src=./fake.html` 的内层 iframe（同一 `vscode-webview://<uuid>` 源，那张 `fake.html` 自己一份 CSP 都没有），而 CSP 的继承只发生在 `about:` / `srcdoc` / `blob:` / `data:` 这类 local scheme 上，所以 wrapper 的政策不继承进来；③ VS Code 唯一与「页面有没有 CSP」有关的行为是**发现没有就给扩展开发期记一条 warning**（`$onMissingCsp` → `https://aka.ms/vscode-webview-missing-csp`，那条链接指向的官方文档也把「加 CSP」写成扩展自己的责任）；④ 旁证两条：wrapper 自己会往页面里 prepend 一段**不带 nonce 的内联脚本**（`_vscodeApiScript`，就是 `acquireVsCodeApi`），而本页那几段内联脚本也只带我们自己的 nonce——只要页面文档上真被施加了一份 `script-src 'self'` / `script-src 'sha256-…'`，它们都会被整片拦掉、页面根本起不来。**推论**：VS Code 验证里「webview 宿主层的 CSP 差异」这一条已不存在（宿主层剩下的差异是剪贴板、原生菜单、多 webview 生命周期那些）。
+- 装配页在普通浏览器可开（零 acquireVsCodeApi）；loopback 代理负责把请求来源改写成网关自己并剥掉浏览器自动加的来源声明头（`sec-fetch-*`），否则网关按可疑请求拒绝（403）。
+- 上面这几条的常驻断言 = `npm run verify:lab` 的 F-59：**两侧都没有 CSP meta**、六档探针帧的内联脚本全部执行（改前只有两个隔离沙箱帧跑得起来）、帧里的内联事件属性点一下真的响应、非本机源的图片请求真的发得出去且这一步零 CSP 违规、夹具卡按内容撑开并与官方页同高、**本页一个字节都不改插件写下的帧**（逐帧与夹具写下的那一份逐字相等），另加 `--gateway` 连外部实例时对真第三方卡片逐卡比高度。

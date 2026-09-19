@@ -1,8 +1,22 @@
 node_modules/
 dist/
+# 自有插件包的构建产物：`npm run build` 从 packages/*/src 打出，包自己的 lib/ 只在本地
+# 与发布出去的包里存在。入库等于每个并行分支都重建同一份字节，合入时冲突会落在生成文件
+# 上（#102 rebase 到 #104 就是这么撞的，产物文本没法手改，只能取一侧再按源码重建）。
+# 扩展运行时读的是 dist/assembly/plugins/（同上，不入库），不读这里。
+packages/*/lib/
 *.vsix
 .dev-host/
 .worktrees/
 .gh-cache/
 test/sandbox/.build-mock-llm/
 test/sandbox/*.report.html
+# 装配实验室的每次运行产物（ledger / HTML 报告 / 截图）：随时可重新生成，不入库。
+test/assembly-lab/out/
+# #162 时「空实例整轮」（`--empty`）的产物单独放一处（out-empty/）；#177 起那套跑法就是
+# 默认跑法、`--empty` 已退役，这里只留一条给老目录，免得旧产物突然变成待提交。
+test/assembly-lab/out-empty/
+# 安装引导页浏览器冒烟的产物（台账 / 截图）：同上，随手重跑即可。
+test/install-guide/out/
+# 旧侧栏 × 现装配侧栏并排渲染对照的产物（台账 / 截图）：同上。
+test/legacy-sidebar/out/

@@ -1,0 +1,12 @@
+# `@dsh-one/dsh-host-capabilities` 的 profile 层补丁（#84）。
+#
+# profile 的 `dsh.profile.bundles` 里的每个包都要声明一个补丁文件，dsh 启动时按
+# 「包层 → 用户层」的顺序叠加；本行把宿主半挂进 loader 树。
+#
+# 这里刻意**只 insert 一行**：不覆盖任何官方行的 config、不 block 任何官方插件
+# （AGENTS.md 铁律「优先与官方插件共存」——宿主半只往树上加自己的能力，不动别人的）。
+#
+# 行 id 与包名一致，便于在 loader 快照/插件清单里一眼对应上。
+- insert:
+    - id: dsh-one-host-capabilities
+      name: '@dsh-one/dsh-host-capabilities'

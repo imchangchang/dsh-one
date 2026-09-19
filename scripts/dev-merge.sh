@@ -64,6 +64,19 @@ if ! I18N_BASE="$TARGET" bash "$SCRIPT_DIR/check-i18n.sh" "$BRANCH"; then
   exit 1
 fi
 
+# 平台兼容性合入门禁（#6）：新增行命中平台相关代码（process.platform / 平台专属命令 /
+# 信号 / 路径分隔符 / 子进程 stdio）或按状态变量分叉的逻辑时，要求任务提交
+# test/sandbox/verify.<slug>.platform.json，逐条声明「这条平台路径在哪验证过」
+# （ci-runner / real-machine / unit-test）并给出状态分支矩阵（分支条件 / 预期行为 /
+# 验证方式）；缺项拒绝合入，脚本会打印缺口与可复制的模板。
+# 与 i18n 门禁并列、同在 rebase 之前：判据看的是「待合入的新增行」，
+# 基点同样必须跟着 MERGE_TARGET 走（COMPAT_BASE），否则 develop 线会误报。
+echo "== 平台兼容性合入门禁自检（基点 ${TARGET}）=="
+if ! COMPAT_BASE="$TARGET" bash "$SCRIPT_DIR/check-platform-compat.sh" "$BRANCH"; then
+  echo "平台兼容性检查未通过，拒绝合入。" >&2
+  exit 1
+fi
+
 echo "== rebase $BRANCH 到最新 $TARGET =="
 # --rebase-merges：保留分支内的 merge 提交结构。普通 rebase 会把 merge 提交
 # 展开重放——若任务分支已预 merge 过集成线（如开发期间手动同步），展开会让
@@ -78,6 +91,10 @@ rebase 有冲突。进入 $WT 解决：
   ...解决冲突后 git add，然后 GIT_EDITOR=true git rebase --continue...
   scripts/dev-finish.sh        # 重新自测 + 更新 done 标记
 再回到集成线重跑：MERGE_TARGET=$TARGET scripts/dev-merge.sh $SLUG
+
+若冲突发生在 packages/*/lib/（构建产物，已不入库，#106）：那份字节不该合，解冲突时
+把它从索引里去掉即可——git rm packages/<包>/lib/<文件>，然后照上面的 --continue 继续。
+下次 build 会重新生成，内容以源码为准。
 EOF
   exit 1
 fi
@@ -99,9 +116,49 @@ git worktree remove "$WT"
 git -C "$TARGET_WT" branch -d "$BRANCH" >/dev/null
 git tag -d "done/$SLUG" >/dev/null
 
+# workspace 面的链接刷新（#187）：插件包之间按**包名**互相引用
+# （`@dsh-one/dsh-plugin-kit/<模块>`），这些链接由 `npm install` 建在
+# `node_modules/@dsh-one/` 下。新增包 / 改包名 / 改包内子路径导出之后，集成线这侧
+# 可能还没有那些链接——重建产物会挂在 `Could not resolve "@dsh-one/…"`（#94 合入时
+# 的现场）。判据**直接看链接在不在**（而不是猜「这次合入有没有动 workspaces 面」）：
+# 缺了才装这一次，装完仍缺就交给下面的 build 响亮失败。
+# 两个位置都看：集成线是嵌套 worktree 时，模块解析会一路往主工作区的 node_modules 走。
+ROOT_WT=$(git worktree list --porcelain | awk 'NR==1{print $2}')
+missing_links=""
+for manifest in "$TARGET_WT"/packages/*/package.json "$ROOT_WT"/packages/*/package.json; do
+  [ -e "$manifest" ] || continue
+  name=$(sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$manifest" | head -1)
+  [ -n "$name" ] || continue
+  if [ ! -e "$TARGET_WT/node_modules/$name" ] && [ ! -e "$ROOT_WT/node_modules/$name" ]; then
+    case " $missing_links " in *" $name "*) ;; *) missing_links="$missing_links $name" ;; esac
+  fi
+done
+if [ -n "$missing_links" ]; then
+  echo "== workspace 链接缺失（${missing_links}）——先 npm install 再重建 =="
+  npm --prefix "$TARGET_WT" install --no-audit --no-fund
+fi
+
 # 扩展运行时装载的是集成线的 dist/；合并只带了源码，不重建则 reload 后还是旧代码。
-echo "== 重建 ${TARGET} 的 dist（${TARGET_WT}）=="
-npm --prefix "$TARGET_WT" run build
+# 一次 build 出的产物不止 dist/：还有 packages/*/lib/（自有插件包的产物，不入库）——
+# 合并会把它们从版本库里删掉，这里重建后磁盘上才是当前源码对应的那一份。
+echo "== 重建 ${TARGET} 的产物（dist/ 与 packages/*/lib/，${TARGET_WT}）=="
+if ! npm --prefix "$TARGET_WT" run build; then
+  cat >&2 <<EOF
+
+⚠️  集成线现在是坏的：源码已经合入并清理完毕，但 **${TARGET} 的产物没有重建**
+    （dist/ 与 packages/*/lib/ 还是上一版，reload 窗口看到的仍是旧代码）。
+
+   最可能的两种原因与修法（在 ${TARGET_WT} 里执行）：
+     cd ${TARGET_WT}
+     npm install        # ① workspace 包链接缺失：报错里是 Could not resolve "@dsh-one/…"
+     npm run build      # ② 源码本身构建失败：按报错改，必要时新开 issue 修
+     npm run build      # 修好后再跑一次，确认产物真的重建出来
+
+   这一步之前的一切都已经完成（rebase / 复测 / --no-ff 合并 / worktree 与分支清理 /
+   done 标记删除），所以**不要重跑 dev-merge**，只需修上面这条链。
+EOF
+  exit 1
+fi
 
 echo
-echo "已合入 $TARGET 并清理 worktree / 分支 / done 标记（$TARGET 的 dist 已重建，reload 窗口生效）。"
+echo "已合入 $TARGET 并清理 worktree / 分支 / done 标记（${TARGET} 的产物已重建，reload 窗口生效）。"

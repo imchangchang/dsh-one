@@ -12,7 +12,6 @@ import type {
   ChatAssistantMessage,
   ChatBlock,
   ChatCommandMessage,
-  ChatCompactionMessage,
   ChatContext,
   ChatFile,
   ChatImage,

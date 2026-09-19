@@ -33,7 +33,7 @@ description: 在 git 仓库里用 git worktree 做多 session / 多 agent 并行
    d. 渲染：`node test/sandbox/report.mjs --ledger test/sandbox/verify.<slug>.ledger.json --out test/sandbox/verify.<slug>.report.html`（截图 base64 内嵌，单文件可分发）。
    e. 提交 ledger（报告 HTML 已 gitignore，不必提交），把报告路径交给用户审——**合入门禁 = 人审报告**：无问题直接等合入；有疑问才走流程 6。
    f. 无 UI 行为变化的任务（纯逻辑/文档）可不建 ledger，在 issue 里 comment 注明「无 UI 行为变化，沙盒报告不适用」。
-6. （仅当报告审查有疑问时）人工 `dev-ui-test.sh` 窗口验收——不再是默认门禁，命令与交接收口不变：构建 dist 后起该 worktree 专属的隔离 VSCode 实例（设置/扩展隔离在 `/tmp/dsh-uidev/<slug>/`，不碰日常 VSCode），人工验证渲染与交互。**代理/会话别自己跑 dev-ui-test**：沙箱或远程环境下 `code` 命令会静默返回 exit 0 但窗口不弹出（`/tmp/dsh-uidev/<slug>/user-data` 不生），而本机 GUI 会话（用户本机 dsh web 服务下跑的会话）里 `code` 会**真的弹出窗口并阻塞等待**——两种情况都别试，窗口是给用户看的。这一步直接把命令丢给用户本人，在真实终端跑，等验收结果回传再继续。**交给用户的单元 = 一条可复制的命令 + 应有的现象，分单下发**（示例）：
+6. （仅当报告审查有疑问时）人工 `dev-ui-test.sh` 窗口验收——不再是默认门禁，命令与交接收口不变：构建 dist 后起该 worktree 专属的隔离 VSCode 实例（设置/扩展隔离在 `/tmp/dsh-uidev/<slug>/`，不碰日常 VSCode），人工验证渲染与交互。**代理/会话别自己跑 dev-ui-test**：沙箱或远程环境下 `code` 命令会静默返回 exit 0 但窗口不弹出（`/tmp/dsh-uidev/<slug>/user-data` 不生），而本机 GUI 会话（用户本机 dsh web 服务下跑的会话）里 `code` 会**真的弹出窗口、抢走用户焦点、阻塞等待**——两种情况都别试，窗口是给用户看的。这一步直接把命令丢给用户本人，在真实终端跑，等验收结果回传再继续。**唯一例外**：问题只在 webview 宿主层（CSP / 剪贴板 / 原生菜单 / 多 webview 生命周期）复现、浏览器验证覆盖不到时，可以先跟用户说一句「接下来会弹一个窗口」再起，并**一次跑完立刻收掉**（`pkill -f "user-data-dir=/tmp/dsh-uidev/<slug>"`），不要反复起停——用户会看到桌面「一直弹窗」。**交给用户的单元 = 一条可复制的命令 + 应有的现象，分单下发**（示例）：
 
 ```
 【测试命令】（单条，复制即跑，已含进入 worktree）

@@ -117,16 +117,23 @@ function buildFromSource(tag, tmp, commit) {
 
 function runProbe(version, target, commit) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-watch-'))
-  const installed = target === 'source' ? buildFromSource(`dsh-v${version}`, tmp, commit) : installFromNpm(version, tmp)
-  const outJson = path.join(tmp, 'probe-results.json')
-  const args = [path.join(HERE, 'probe.mjs'), '--command', installed.command, '--expect-version', version, '--json', outJson]
-  if (installed.cwd) args.push('--cwd', installed.cwd)
-  const r = spawnSync(process.execPath, args, { encoding: 'utf8', timeout: 300_000 })
-  process.stdout.write(r.stdout ?? '')
-  process.stderr.write(r.stderr ?? '')
-  let results = null
-  try { results = JSON.parse(fs.readFileSync(outJson, 'utf8')) } catch { /* probe 早退时无 JSON */ }
-  return { exitCode: r.status ?? -1, results, via: installed.via }
+  try {
+    const installed = target === 'source' ? buildFromSource(`dsh-v${version}`, tmp, commit) : installFromNpm(version, tmp)
+    const outJson = path.join(tmp, 'probe-results.json')
+    const args = [path.join(HERE, 'probe.mjs'), '--command', installed.command, '--expect-version', version, '--json', outJson]
+    if (installed.cwd) args.push('--cwd', installed.cwd)
+    const r = spawnSync(process.execPath, args, { encoding: 'utf8', timeout: 300_000 })
+    process.stdout.write(r.stdout ?? '')
+    process.stderr.write(r.stderr ?? '')
+    let results = null
+    try { results = JSON.parse(fs.readFileSync(outJson, 'utf8')) } catch { /* probe 早退时无 JSON */ }
+    return { exitCode: r.status ?? -1, results, via: installed.via }
+  } finally {
+    // 这份临时安装（源码构建那条路还会在里面 pnpm install + build，能到 GB 级）探针一跑完
+    // 就没用了——结果已经读进内存。以前它从来不删，一次失败的本机运行就在 /tmp 里留一份
+    // 完整的 dsh 复制（#192 现场：3 个 dsh-watch-*）。
+    fs.rmSync(tmp, { recursive: true, force: true })
+  }
 }
 
 function badgeJson(label, message, color) {
@@ -168,7 +175,7 @@ function probeResultsMarkdown(probe) {
   // header 里标注安装途径（npm 包 / 源码构建）
   const rows = probe.results.results.map((r) => {
     const mark = { pass: '✅', fail: '❌', skip: '⏭️' }[r.status]
-    return `| ${mark} | \`${r.id}\` | ${r.name} | ${String(r.detail).replaceAll('|', '\\|').slice(0, 200)} |`
+    return `| ${mark} | \`${r.id}\` | ${r.name} | ${String(r.detail).replaceAll('|', '\\|').slice(0, 600)} |`
   })
   return [
     `探针结果：**${probe.results.passed} pass / ${probe.results.failed} fail / ${probe.results.skipped} skip**（dsh ${probe.results.expectVersion}，${probe.via ?? 'npm'}，ubuntu-latest + Node 24）`,
@@ -191,7 +198,7 @@ function issueBody({ rel, version, npmVersion, probe }) {
     probeResultsMarkdown(probe),
     '## 人工完整测试',
     '',
-    '探针只覆盖 wire 面（启动/认证/unary/WS 帧形状），**不含真模型行为**（流式渲染、工具执行、会话迁移等）。完整测试清单见 [docs/dsh-compat-checklist.md](../blob/main/docs/dsh-compat-checklist.md) 的「人工/补充项」一节。',
+    '探针只查**名字还在不在**（wire 面：启动/认证/unary RPC/WS 帧形状；客户端契约面：combo 里的 slot 名 / root 级 hook / 我们取用过的字段名；官方产物面：本机已安装官方包里的内部标识符——这一族坏了不报错、只是不生效），**不含真模型行为**（流式渲染、工具执行、会话迁移等），也不查「装起来崩不崩」。人工项见 [docs/dsh-compat-checklist.md](../blob/main/docs/dsh-compat-checklist.md) 的「人工/补充项」一节；装配形态的两道机器验证（`npm run verify:lab`、`npm run verify:host-half`）与前置条件见同文件「上游发版时该跑的三件事」。',
     '',
     '## Release notes',
     '',

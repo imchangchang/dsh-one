@@ -1,5 +1,5 @@
-import type { Logger } from '../log.ts'
-import { parse as parseSemver } from '../pure/semver.ts'
+import type { LogSink } from '../log.ts'
+import { is013WireVersion } from '../pure/dshWire.ts'
 
 /**
  * dsh >= 0.1.2-rc.1 browser-session auth: every process start mints a random
@@ -74,16 +74,13 @@ export function dshVersion(origin: string): string | undefined {
 }
 
 /**
- * true when the origin runs dsh on the 0.1.3+ wire. 0.1.3 (及其任意 prerelease /
- * 之后的 minor）才带 `submittedAttachments` 与 `assistantStream`；0.1.1/0.1.2
- * 一律 false（按老路径走，确保老版本零改动）。无法解析的版本保守返回 false。
+ * true when the origin runs dsh on the 0.1.3+ wire. 判定本身在纯模块
+ * `src/pure/dshWire.ts`（`is013WireVersion`）：同一份「版本 → wire 形状」的知识
+ * 上游探针也要用（#37），放这里两边会各写一份。本函数只负责把 origin 映射到
+ * 版本号；版本未知或解析不出来时保守返回 false，按老路径走。
  */
 export function is013Wire(origin: string): boolean {
-  const v = versionByOrigin.get(origin)
-  if (v === undefined) return false
-  const parsed = parseSemver(v)
-  if (parsed === null) return false
-  return parsed.major > 0 || parsed.minor > 1 || (parsed.minor === 1 && parsed.patch >= 3)
+  return is013WireVersion(versionByOrigin.get(origin))
 }
 
 /** Parse the `name=value` pair out of a Set-Cookie header ("name=value; Attr=..."). */
@@ -93,7 +90,7 @@ function parseSetCookie(value: string): string | null {
 }
 
 /** GET /?token=... and register the returned auth cookie. */
-export async function exchangeToken(origin: string, token: string, logger: Logger): Promise<ServerAuth> {
+export async function exchangeToken(origin: string, token: string, logger: LogSink): Promise<ServerAuth> {
   const res = await fetch(`${origin}/?token=${encodeURIComponent(token)}`, {
     redirect: 'manual',
     signal: AbortSignal.timeout(EXCHANGE_TIMEOUT_MS),
@@ -126,7 +123,7 @@ export function browserUrl(origin: string): string {
  * Non-throwing probe used before adopting or re-owning: a 303 answers only
  * when the token was minted by the very process on that port.
  */
-export async function probeToken(origin: string, token: string, logger: Logger): Promise<ServerAuth | null> {
+export async function probeToken(origin: string, token: string, logger: LogSink): Promise<ServerAuth | null> {
   try {
     return await exchangeToken(origin, token, logger)
   } catch (err) {

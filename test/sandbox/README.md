@@ -52,7 +52,7 @@ test/sandbox/run-sandbox.sh start --locale zh-cn --theme light --port 8080
 
 容器里跑**真 dsh**（设置校验、路由、审批、流式编排都走真实代码），只把 LLM 请求打进容器内假端点
 `/app/mock-llm/server.ts`——另一个子代理写的零依赖 `node:http` 服务，只会按 scenario 编排/回放模型响应，不真的推理。
-用于：在**不联网、无模型凭证**的情况下，用真 dsh 把整套交互链跑通、验证扩展对 dsh 各边界态（审批、错误、空会话等）的渲染与处理。
+用于：在**不联网、无模型凭证**的情况下，用真 dsh 把整套交互链跑通（会话创建、事件流、审批/提问等边界态由该端点的 scenario 编排）。
 
 命令（build 与 start 必须**配套**都带 `--mock-llm`——镜像里得先有 mock-llm 源码，运行时才会起它）：
 
@@ -151,134 +151,21 @@ test/sandbox/run-sandbox.sh --help   # 全部参数
 - **code-server 是浏览器工作台，没有原生窗口外壳**：插件 UI 以 webview 形式嵌在浏览器页面里，交互/截图都通过浏览器进行，与本机 VS Code 存在渲染差异（字体、主题刷新时机等）。这是设计内取舍——沙盒只保证环境一致与可重现，不追求像素级等同本机 VS Code。
 - 容器内跑真 dsh 需要模型凭证与联网；审批、流式、错误态等真 dsh 喂不出来的边界态，靠 mock dsh 场景喂（另见相关会话），不依赖本沙盒。**但用 `--mock-llm` 模式可以在不联网、无凭证的前提下把真 dsh 的整套逻辑跑起来**——LLM 走容器内假端点，边界态由该端点的 scenario 编排（见上文「Mock-LLM 模式」）。
 
+## 验收口径（#68 起）
+
+- **对话区/装配验收 = 浏览器验证**：对话区、侧栏树、设置页都是官方组件装配页。验收用仓库常驻的 Playwright harness（`test/assembly-lab/`，一条命令 `npm run verify:lab`）直开装配页跑断言 + 截图，快且确定性高；**底座契约完备性**（四棵树零 `slot entry crashed`、零缺失服务/钩子）是其中 CONTRACT 套件的常驻断言。这是第一道验收，跑法与套件清单见 `test/assembly-lab/README.md`。
+- **宿主行为验收 = VS Code 验证**：本沙盒（code-server + 真 dsh + 插件 vsix）配 Kimi WebBridge 截图与语义核对，或由人跑 `scripts/dev-ui-test.sh` 起隔离 VS Code 窗口实测（最终准绳）。
+- 旧的 Playwright 自动驱动（`verify-driver.mjs`）只驱动旧聊天 webview 的 composer（`textarea#input` + `.send-button`），旧聊天区下线后没有可驱动对象，已随 #68 移除；CI 基线 `verify.ledger.json` 收缩为侧栏/宿主回归项。
+
 ## 远程驱动配方（WebBridge 实测记录，2026-09-04）
 
-用 Kimi WebBridge 驱动这个页面做自动化截图/交互时的几个实测结论（避免重复踩坑）：
+用 Kimi WebBridge 驱动沙盒页面做手动截图/交互时的实测结论（避免重复踩坑）：
 
-- **webview iframe 是同源嵌套**：顶层有 2 个 `webview ready` 外框（聊天 840 宽 / 侧边栏 300 宽），内容在**内层 `active-frame`** iframe 里。evaluate 递归 `contentDocument` 可达（`try/catch` 跨源保护），往里钻到 `textarea#input`、`.send-button` 即可发消息。
-- **iframe 会被 webview host 反复重建**：查询和点击要在同一帧时序里完成，优雅写法 = 递归函数里找到即点；找不到就重试 2-3 次（重建间隙会瞬间查空）。
-- **发消息**：`textarea#input` 填值（用 `Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set` + `input` 事件，别直接 `el.value=`），再点 `.send-button`（合成 Enter keydown 无效，点按钮可靠）。
-- **命令面板路径**：`Cmd+Shift+P` → insertText → Enter 走的是 workbench 顶层 DOM，最可靠；但 WebBridge 的 `cdp` 通道需要浏览器扩展开启开发者模式（`cdpFullAccess`），没开时回退到 evaluate 合成事件。
-- **真 dsh 的 queue 语义**：网关直接 `session.prompt` 无会话 attach 时只是排队、turn 不启动（真行为，不是坑）；要从扩展 UI 的 New Chat 入口发（attach 后 prompt 即跑）。
-- **新建会话**：点侧边栏 + 后即使 tab 没立刻出现，会话与 attach 已生效——标题生成由 dsh 异步跑（mock 模式下标题也是 mock 编排的，易验证：标题会变成「收到：…」）。
-
-## 自动驱动（Playwright）
-
-`test/sandbox/verify-driver.mjs` 用 Playwright 在宿主侧驱动 code-server 页面，对 ledger（`verify.ledger.json`）里**带 `driver` 字段**的条目做确定性回归：新建会话 → 发 prompt → 断 mock 回复 → 截图 → 把该项 `result` 写回 ledger（`done`/`fail`）。用于 CI/主线自动回归；本地人工循环走上面的 WebBridge 配方（见「与 WebBridge 的分工」）。驱动写完结果后用 `report.mjs` 渲染成 HTML 报告（见「任务测试报告」）。
-
-### 前提
-
-- 沙盒**已起**（`test/sandbox/run-sandbox.sh start --mock-llm`，mock-llm 模式），`--url` 指向它。
-- Playwright 与 Chromium 已装（在仓库根执行）：
-
-  ```bash
-  npm i -D playwright
-  npx playwright install chromium
-  ```
-
-  `npx playwright install chromium` 默认写 `~/Library/Caches/ms-playwright`（workspace 外，会触发提权）；本机已装过缓存时可跳过。需要重装时用
-  `PLAYWRIGHT_BROWSERS_PATH=/tmp/dsh-sandbox-pw-browsers npx playwright install chromium`，把浏览器装进可写区（此后运行驱动脚本也须带同一环境变量）。
-
-### 命令
-
-```bash
-node test/sandbox/verify-driver.mjs \
-  --ledger test/sandbox/verify.ledger.json \
-  --url http://127.0.0.1:8080 \
-  --out /tmp/dsh-sandbox-shots/ \
-  [--only F-01]            # 逗号分隔的 id 列表，可选；不给=全部装 driver 的项
-```
-
-- `--ledger <path>`：台账；默认 `test/sandbox/verify.ledger.json`。
-- `--url <code-server地址>`：默认 `http://127.0.0.1:8080`。
-- `--out <截图目录>`：每项截图 `<id>.png`；默认 `/tmp/dsh-sandbox-shots/`。
-- `--only F-01,R-01`：只跑指定 id。
-- `--headed` / `--keep-open`：调试用（有头浏览器 / 结束后不关浏览器）。
-
-### Ledger 字段
-
-驱动只读 `driver` 格（`driver` 可缺省，缺省的项跳过不执行）。除 `prompt` 外都是可选字段，缺省走原有行为：
-
-```json
-{
-  "id": "F-01",
-  "driver": {
-    "prompt": "测试一下",             // 发送给新会话的消息（可选：fillAndClear 项可省）
-    "expectText": "收到：测试一下",    // 断言：等待 webview 中出现该文本（超时 120s）
-    "afterSendFill": "我的草稿",      // 可选：点发送后立刻填入 composer（pending 接管前正在输入）
-    "approve": true,                  // 可选：等待权限审批面板并点 Allow once（英文 locale）
-    "expectDraft": "我的草稿",        // 可选：断言 composer textarea 值包含该文本（草稿恢复检查）
-    "expectPlaceholder": "占位文本",  // 可选：断言 composer textarea 的 placeholder 包含该文本
-    "fillAndClear": "草稿文本",        // 可选：填入该文本并点 .clear-all-button，断言输入框为空
-    "keyClearUndo": "草稿文本",        // 可选：填入该文本后 Ctrl+C 双击清空（断言第一次只亮 .clear-confirm-hint 提示不动文本、第二次清空）再 Ctrl+Z 断言恢复原文
-    "keyClearUndoKey": "escape",      // 可选：配 keyClearUndo，清空键换 ESC（缺省 ctrl+c）
-    "fillSlash": "/g",                // 可选：填入该文本但不发送（触发 slash 补全弹窗/参数 hint 行）
-    "fillDraft": "草稿文本",           // 可选：填入该文本但不发送 + 等防抖落盘（草稿持久化，配 reloadWindow）
-    "fillAnswer": "半答文本",          // 可选：填问答卡自定义回答输入（未提交，配 reloadWindow）
-    "reloadWindow": true,             // 可选：整页重载模拟重启（webview 内存全毁，草稿靠 drafts.json 恢复）
-    "expectAnswerDraft": "半答文本",   // 可选：断言问答卡自定义输入框的值包含该文本（重载后半答恢复）
-    "expectTextAfterReload": "收到：x", // 可选：重载后断言 webview 出现该文本（历史消息随状态重推仍在）
-    "expectPopup": ["/goal", "hint"], // 可选：断言 webview 出现这些文本（数组逐条，15s/条；配 fillSlash）
-    "hoverText": "文本",              // 可选：悬停含该文本的元素（commit chip 等）让悬浮卡弹出再截图
-    "reconnect": {                    // 可选：断连横幅场景（kill dsh → 横幅 → respawn → 恢复），见下方小节
-      "container": "dsh-sandbox-<slug>",
-      "connectingText": "Connection lost, reconnecting",
-      "failedText": "Reconnection failed",
-      "recoveredText": "Connection restored",
-      "buttonRecovery": false,        // true=点「立即重连」恢复；false=自动退避自愈
-      "blindPrompt": "盲窗期间发送",   // 自动路径：失明期间发送，恢复后断言补齐（re-baseline）
-      "afterPrompt": "恢复后发送"      // 恢复后发送，断言消息流续上
-    }
-  },
-  "result": "pending",              // 驱动每次跑完覆写：done（断言命中）/ fail（断言超时，notes 写原因）
-  "screenshots": []
-}
-```
-
-### reconnect 断连场景（driver.reconnect）
-
-对「kill 实例 → webview 断连横幅 → respawn → 自愈」类场景的确定性驱动，流程：
-
-1. `dsh-port-holder.mjs` + `dsh-probe.mjs` 经 stdin 拷进容器（docker cp 保留宿主 uid/权限、粘滞 /tmp 里容器用户删不掉旧文件——先 `docker exec -u root rm -f`）。
-2. capture：`pgrep -f 'web --host 127.0.0.1 --port'` 找 dsh（注意：真实 dsh 进程的 comm 是 `MainThread`，**不能按 `node` 匹配**；且 pgrep 会同时匹配到 respawn 的 `sh -c` 包装层与捕获脚本自身——排除 self、排除 comm=sh），把 cmdline/env/cwd/port 落 `/tmp/dsh-reconnect/` 后 kill -9。
-3. 立即在同端口拉起 holder：POST /api/host.describe 回 rpcId 回显（**扩展 10s 健康探测继续通过，manager 不 detach controller**——否则「探测最多 10s 后必然 detach」会把重连窗口挤没），其余请求 404/WS 断连（mux attach 立即失败，退避确定性演进）。
-4. 断言 connecting → failed 横幅 → respawn（停 holder + 按保存信息重拉 dsh + probe 等就绪）。
-5. 恢复路径二选一：自动退避（先发 blindPrompt 制造盲窗事件，恢复后经 re-baseline 补齐）；按钮（点「立即重连」后**立即发 afterPrompt**——dsh 0.1.1 重连后无 pending 事件时不发 session/subscribed、静默挂住 socket 但事件照常流，host 把「本会话任意帧」当恢复信号，消息帧即确定性信号）。
-6. 断言 recovered 横幅出现并自动隐藏 → 恢复后回显 → 断线前内容仍在。多阶段截图。
-7. 结尾幂等 cleanup（停 holder、dsh 死了就重拉）；SIGTERM/SIGINT 兜底同款 cleanup（外部超时杀进程也要收敛沙盒——裸 try/finally 兜不住 SIGTERM）。
-
-所有 docker exec 走 `execFile` 的 `timeout`（超时杀子进程）；Playwright 等待全部走 bounded 看门狗 + 显式 timeout；另有一项 5min 硬上限。
-
-### 执行流程（每项）
-
-其余字段（`phase`/`name`/`expect`/`coverageNote` 等）是报告/人看的，驱动不动。跑完把更新后的 ledger 原样写回（JSON 格式化，见 `result`/`screenshots`/`notes`）。
-
-### 执行流程（每项）
-
-1. 打开 `--url`，等 `.monaco-workbench` 出现（超时 30s）。
-2. 点活动栏 `a.action-label[aria-label="DSH One"]`。
-3. 新建会话（主路径侧边栏「New ungrouped session」；后备命令面板「New Session」——见「已知边界」）。
-4. 在聊天 webview 内嵌同源 iframe（`#active-frame`）里对 `textarea#input` `fill`，再点 `.send-button`（合成 Enter 不可靠，点按钮可靠——实测结论）。
-5. 断 `expectText`（`frame.locator('body').filter({hasText})` 轮询，超时 60s）；命中 `done`，超时 `fail`。
-6. 截图 `page.screenshot({path: --out/<id>.png})`（整页可见区域，webview iframe 内容渲染进图）。
-7. `Meta+W` 关当前 chat tab，再进下一项。
-
-**实测坑（2026-09-04 记录）**：
-
-- 新会话**首条** prompt 的 mock 回显是 skill/上下文注入文本，不是 prompt 本身。dsh 在新会话首轮会把 skill 与上下文作为一条 **user 消息**注入，成为 mock「最后一条 user 消息」的匹配对象，于是兜底规则回显成「收到：<注入文本>」，`「查天气」→ get_weather` 规则也因此在首条不命中。驱动先发一条固定暖场消息（`开始`）消耗注入轮，再发 `driver.prompt`，此时它才是最后一条 user 消息，mock 干净回显「收到：<prompt>」/ 命中工具规则。这是 dsh 首轮注入的确定性行为。
-- webview 内嵌 iframe 会被宿主**反复重建**（见上方 WebBridge 配方），所以每条对 frame 的操作都要即时重扫 `page.frames()`，不能缓存 FrameHandle——驱动里 `findFrame` 每次都重扫。
-- webview 内的「New ungrouped session」按钮 hover 才可见；用 `.workspace-group[data-workspace-id="__ungrouped__"] .workspace-row` hover 后再点。
-
-### 与 WebBridge 的分工
-
-| | WebBridge（Kimi 浏览器扩展） | Playwright 驱动（本小节） |
-|---|---|---|
-| 驱动者 | 人/AI 在真实浏览器里点 | 宿主脚本（Node + Playwright） |
-| 触发 | 人工循环、临时截图/交互 | CI/主线自动回归 |
-| 确定性 | 靠人判断 | 脚本按 ledger `expectText` 断 |
-| 输出 | 人截图/记录 | ledger `result` + `<id>.png` + 汇总 |
-
-WebBridge 适合「边改边看」的本地人工迭代，Playwright 驱动适合「无人在场」的自动回归，两者互不替代。
+- **webview iframe 是同源嵌套**：内容在**内层 `active-frame`** iframe 里。evaluate 递归 `contentDocument` 可达（`try/catch` 跨源保护）。
+- **iframe 会被 webview host 反复重建**：查询和点击要在同一帧时序里完成；找不到就重试 2-3 次。
+- **命令面板路径**：`Cmd+Shift+P` → insertText → Enter 走的是 workbench 顶层 DOM，最可靠；WebBridge 的 `cdp` 通道需要浏览器扩展开启开发者模式（`cdpFullAccess`）。
+- **新建会话**：点侧边栏 + 后会话即创建（标题由 dsh 异步生成；mock 模式下标题也是 mock 编排的）。
+- **对话区交互**：装配页是官方 dsh web 界面，输入框/发送按钮的 selector 与官方 web 一致（不再是旧自研聊天区的 `textarea#input` / `.send-button`）。
 
 ## 任务测试报告（worktree dev-finish 产物，合入门禁）
 
@@ -299,16 +186,15 @@ cp test/sandbox/verify.ledger.example.json test/sandbox/verify.<slug>.ledger.jso
 |---|---|
 | `title` | 报告标题 |
 | `branch` / `commit` | 被验分支与 commit（dev-finish 时由生成方填写） |
-| `environment` | `{mode,dsh,locale,theme,image,driver,date}` 任意键值，渲染成信息表 |
+| `environment` | `{mode,dsh,locale,theme,image,date}` 任意键值，渲染成信息表 |
 | `coverageNote` | 覆盖范围声明（真桌面/真模型/平台问题不在范围内） |
 | `items[]` | 条目，见下 |
 | `items[].id` | `F-xx`（新增功能）/ `R-xx`（回归） |
 | `items[].phase` | `new-feature` 或 `regression`；**new-feature 排前、regression 排后** |
 | `items[].name` / `expect` | 名称 + 期望描述（人审/报告看，写「看到什么」，别写「应当正常」） |
-| `items[].result` | `pending`=未执行；`done`=驱动执行完待人工判定；`pass`/`fail`=结论已定 |
+| `items[].result` | `pending`=未执行；`pass`/`fail`=结论已定（人看截图/现象逐项判定） |
 | `items[].screenshots` | 截图路径数组（指向 `--out` 输出目录） |
 | `items[].notes` | 失败原因/执行说明 |
-| `items[].driver` | 可选；`{prompt, expectText}`，有则 verify-driver 自动跑 |
 
 ### 命令
 
@@ -316,16 +202,10 @@ cp test/sandbox/verify.ledger.example.json test/sandbox/verify.<slug>.ledger.jso
 # 1. 起沙盒（默认实例，先 run-sandbox.sh status 确认空闲；与其他任务并行验证时各用各的 --instance，见「并行实例」）
 test/sandbox/run-sandbox.sh start --mock-llm --port 8080
 
-# 2. 驱动：结果写回 ledger（done/fail + 截图路径）
-node test/sandbox/verify-driver.mjs \
-  --ledger test/sandbox/verify.<slug>.ledger.json \
-  --url http://127.0.0.1:8080 \
-  --out /tmp/dsh-sandbox-shots/
+# 2. 用 Kimi WebBridge（或人开窗 dev-ui-test.sh）逐项操作 + 截图到 /tmp/dsh-sandbox-shots/，
+#    对照 expect 逐条判定，把结论写进 ledger 各项的 result/notes/screenshots。
 
-# 3. 逐项看截图定结论：符合期望 done→pass，不符改 fail 并在 notes 写明；
-#    渲染前不能留 pending/done——「每项通过/失败」是 gate 的判定依据。
-
-# 4. 渲染 HTML 报告
+# 3. 渲染 HTML 报告
 node test/sandbox/report.mjs \
   --ledger test/sandbox/verify.<slug>.ledger.json \
   --out test/sandbox/verify.<slug>.report.html
@@ -334,5 +214,9 @@ node test/sandbox/report.mjs \
 - 报告 HTML 已 gitignore（`test/sandbox/*.report.html`），随时可重新渲染；**ledger（含结论）随任务分支提交**，是报告的事实来源。
 - 截图产物在 `/tmp/dsh-sandbox-shots/`（不落仓库，见「产物目录约定」）。
 - 无 UI 行为变化的任务（纯逻辑/文档）可不建 ledger，在 backlog 条目变更记录里注明「无 UI 行为变化，沙盒报告不适用」。
+
+### 平台覆盖声明（`verify.<slug>.platform.json`）
+
+与 ledger 并排的另一种产物：任务的新增行命中平台相关代码或按状态变量分叉的逻辑时，`dev-merge.sh` 的平台兼容性自检（#6，`scripts/check-platform-compat.sh`）要求提交 `test/sandbox/verify.<slug>.platform.json`，逐条声明「这条平台路径在哪验证过」并给出分支矩阵。**没命中就不需要这个文件**；格式、字段口径与本地跑法见 `docs/development.md` 的「合入门禁」一节（门禁被拒时会直接打印可复制的模板，照模板补齐即可）。
 
 

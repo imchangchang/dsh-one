@@ -1,5 +1,4 @@
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -11,6 +10,7 @@ import {
   parseProcTcpListeners,
   socketInodeFromFdLink,
 } from '../src/server/externalDsh.ts'
+import { scratchDirSync } from './scratchDirs.ts'
 
 const silentLogger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} } as unknown as import('../src/log.ts').Logger
 
@@ -79,7 +79,7 @@ test('isDshCommandLine: 识别 npm 全局安装与本地 checkout 的 dsh 命令
 })
 
 test('probeDshVersionFromCommandLine: 解析入口并执行 --version（临时 bin.js fixture）', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'dsh-probe-'))
+  const dir = scratchDirSync('dsh-probe-')
   const pkgDir = join(dir, 'node_modules', '@deepseek-ai', 'dsh')
   mkdirSync(join(pkgDir, 'lib'), { recursive: true })
   writeFileSync(join(pkgDir, 'lib', 'bin.js'), "console.log('dsh version 0.1.2-rc.1')\n")

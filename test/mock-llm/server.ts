@@ -475,7 +475,6 @@ export async function createMockLlm(opts?: { scenario?: MockLlmScenario }): Prom
  */
 export const MDIMG_DEMO_PNG = '/tmp/mdimg-demo.png'
 export const MDIMG_BIG_PNG = '/tmp/mdimg-big.png'
-export const MDIMG_MISSING_PNG = '/tmp/mdimg-missing.png'
 
 /**
  * 预置内嵌图片 fixture（仅 CLI 启动路径调用，工厂/单测不触发）：320x180 示例

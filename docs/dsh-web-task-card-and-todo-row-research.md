@@ -12,7 +12,7 @@
 
 ## 0. 四种形态一览
 
-| # | 形态 | 渲染座位（slot） | 数据来源 | 是否 durable 聊天节点 |
+| # | 形态 | 渲染槽位（slot） | 数据来源 | 是否 durable 聊天节点 |
 |---|---|---|---|---|
 | 1 | header jobs 弹层 | `conversation.session.header.actions`（id `job-list`, order 20） | `jobsBySession` store ← `session/jobs` wire 帧（host job registry 实时推送） | 否，会话级实时状态 |
 | 2 | workflow-run 卡 | `conversation.chat.node` key `workflow-run` | 聊天流 durable 事件节点 `node.data` | 是（已研究） |
@@ -36,7 +36,7 @@ ctx.slots.inject("conversation.input.dock", () => ctx.slots.register({
 }, TodoDock));
 ```
 
-渲染座位在 composer stack 中、输入条上方（7254 行：`zone !== void 0 && renderSlot("conversation.input.dock", zone)`，紧跟 `inputBar` 之前）。槽声明为 `kind: "list"`、`scope: "session"`（9977 行附近）。
+渲染槽位在 composer stack 中、输入条上方（7254 行：`zone !== void 0 && renderSlot("conversation.input.dock", zone)`，紧跟 `inputBar` 之前）。槽声明为 `kind: "list"`、`scope: "session"`（9977 行附近）。
 
 `TodoDock` 是纯适配器：`todos: useProjection("todos") ?? []` —— 直接读宿主计算的 `todos` 投影，无本地状态。
 

@@ -1,0 +1,80 @@
+{
+  "title": "DSH One 装配线测试报告：dsh 0.1.6-alpha.1 兼容修复（#76）",
+  "branch": "agent/dsh-016-sidebar-compat",
+  "commit": "bc153e0",
+  "environment": {
+    "mode": "浏览器验证（真实仓库模块 + 真实 dsh 网关只读 + 假宿主）",
+    "dsh": "0.1.6-alpha.1",
+    "locale": "zh-cn（官方词典）",
+    "theme": "dark",
+    "driver": "playwright chromium + .dev-host/assembly-lab/verify-016.mjs（13 条断言；.dev-host 按仓库 .gitignore 不入库，原文见本报告 notes）",
+    "date": "2026-09-16T08:20:00Z"
+  },
+  "coverageNote": "本报告是浏览器验证（第一道验证）：真实网关 3080（dsh 0.1.6-alpha.1）只读 + 装配页真实模块。未覆盖：真 VS Code webview 宿主层（CSP/剪贴板/内置浏览器命令/多 webview 生命周期）、真模型输出、以及 macOS 之外平台。本轮为兼容修复，浏览器验证覆盖了现场症状与底座契约完备性两类断言；VS Code 验证（dev-ui-test.sh）留待主线决定是否补跑。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "侧栏树在 dsh 0.1.6 上恢复会话列表（#76 现场症状）",
+      "expect": "侧栏装配页（/lab/sidebar，宽 380）：工作区列表与会话行（role=treeitem）渲染出来，行上有会话标题与相对时间；控制台**零 pageerror、零 console.error**；**零 `slot entry crashed`**（页面无 data-slot-error 元素）；`sidebar.workspaces` 槽位下有内容。对照截图 sidebar.png（修前为 0 行 + `slot entry crashed in 'sidebar.workspaces'` + `TypeError: usePanelInfo is not a function`）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh76/sidebar.png"
+      ],
+      "notes": "断言实测：treeitems=17、slotErrors=[]、errors=0；列表文本「新会话 | 工作区 | dsh-launcher | VoxKey | dsh-plan | 新会话 | Kimi模式加载失败原因排查 | 刚刚 | 审查仓库架构合理性 | 21小时 | npm 创建 dsh-one 组织发布包 | 1天 | …」。真因与修法：官方 ui-layout 经 `ctx.slots.provideRoot({hooks:{panelInfo}})` 下发钩子，0.1.6 起官方会话树（ui-workspace SessionTree/FlatList/SearchResults）消费 `usePanelInfo`；三棵树 block 掉 ui-layout 后该钩子无人提供 → 树组件挂载即抛。修法 = 自有三个 frame 插件各补 provideRoot（机制层 1）。同一网关官方 web 直连（带 cookie）对照：treeitems=17、零报错。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "chat 树在 dsh 0.1.6 上恢复对话区（会话面板槽位 keyed main 对齐）",
+      "expect": "chat 装配页（/lab/chat，宽 1200）：对话区渲染官方新会话 hero + composer（工作区/模式/模型选择器在列）；**零 pageerror、零 slot entry crashed**；会话面板挂在 keyed `main` 槽位上（`main` 子项 > 0、`main.conversation` 有内容、`conversation.composer.bar` 有内容）。对照截图 chat.png（修前 conversation 槽位 0 子项、整块空白）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh76/chat.png"
+      ],
+      "notes": "断言实测：main=1、main.conversation=1、conversation.composer.bar=1、errors=0。官方 0.1.6 把会话面板槽位从 0.1.2 的 single `conversation` 改成 keyed `main`（key=`conversation`，ui-conversation 的 `slots.inject('main', …)`）；自有 chat frame 原先只声明 single `conversation`，注册一直 pending → 对话区空白。现两版槽位都声明，按注册表实际有贡献的那个渲染（取键方式与官方 MainPanel 一致：`activePanelId ?? 'conversation'`）。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "底座契约完备性断言：三棵树在真实网关上零崩溃、零缺失钩子",
+      "expect": "侧栏 / 对话 / 设置三棵装配树各自打开 9s：每棵树**零 `slot entry crashed`**（无 data-slot-error）且**零 pageerror**（例外见 F-04 备注的单条官方件噪音）。这是 AGENTS「底座的契约完备性」铁律要求的验证集断言，用于让底座缺口在验证阶段暴露。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh76/sidebar.png",
+        "/tmp/dsh76/chat.png",
+        "/tmp/dsh76/settings.png"
+      ],
+      "notes": "断言实测：sidebar errors=0 / slotErrors=[]；chat errors=0 / slotErrors=[]；settings slotErrors=[]（errors 见 F-04 备注）。驱动脚本 .dev-host/assembly-lab/verify-016.mjs 共 13 条断言全绿。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "契约清单单测：三棵树提供 panelInfo + layout 服务面覆盖官方 ILayout 全成员",
+      "expect": "`node --test test/assemblyShellContract.test.ts` 4 条全绿：三个 frame 插件都经 ctx.slots.provideRoot 提供 panelInfo 且在 effect 清理里撤销；PANEL_INFO_SOURCE 形状与官方 PanelInfo 一致（activePanelId: string | null）且快照引用稳定；LayoutController 覆盖官方 ILayout 全成员（selectPanel/beginNavigation/toggleSidebar/openRightbar/closeRightbar/dispose）且 selectPanel 非法目标照官方抛错；chat 树两版会话面板槽位（single conversation + keyed main）都声明并各自有渲染分支。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "4/4 通过。注意：这些插件运行时依赖 react 与官方私有包（仓库未安装、走 esbuild external），单测 import 不进来，故与 pluginLocales.test.ts 同款做源码级核对。已知噪音（不在本项断言内，另立 #74）：设置树 open/切到「Agent 预设」节时控制台出现若干 `cannot get required service \"sessions\" in inactive context` 未处理 rejection（来源 @deepseek-ai/dsh-client-ui-agent-preset 的槽位控制器读取会话范围；页面照常渲染该节内容；官方 web 同动作零报错——已由 #74 跟踪）。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "既有 node 测试套件全绿",
+      "expect": "`npm run typecheck` 无输出错误；`npm test` 全部通过；`npm run build` 打出 extension/chatWebview/sessionsWebview/spawnDsh 与 11 个自有插件 bundle。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "typecheck 通过；npm test 571/571 通过（含本轮新增 4 条）；build 产物照常（dist/assembly/plugins 下 11 个 @dsh-one 插件）。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "settings 树在 0.1.6 上照旧可用（设置页渲染）",
+      "expect": "设置装配页（/lab/settings，宽 1200）：左侧分节导航（通用设置/插件/模型服务/Agent 预设/已归档会话…）与内容列渲染；`settings.section` 有内容、至少一条设置行（`settings.general.item` 子项 > 0）；无 slot entry crashed。对照截图 settings.png。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh76/settings.png"
+      ],
+      "notes": "断言实测：settings.section=1、settings.general.item=6、slotErrors=[]；文本含「设置 | 通用设置 | 插件 | 模型服务 | Agent 预设 | … | 语言 | 中文 | 字号大小 | 对话显示 | 繁忙时的发送行为 …」。与修前对比：修前同一页面也正常渲染，说明设置页不依赖 panelInfo（用户现场「设置页正常」一致）。"
+    }
+  ]
+}

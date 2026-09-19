@@ -1,0 +1,110 @@
+{
+  "title": "DSH One 验收报告：#164 全新 DSH_HOME 上侧栏树起不来（block list 挡掉了 ui-commands）",
+  "branch": "agent/fresh-profile-boot-pending",
+  "commit": "5fbe8bcbc6be7f7e6669af6594176ee1b1a95e20",
+  "environment": {
+    "mode": "浏览器验证（test/assembly-lab：仓库真实模块 + 真 dsh 网关只读 + 假宿主）",
+    "dsh": "0.1.6-alpha.1",
+    "locale": "zh（日常实例）/ en（全新 DSH_HOME 的隔离实例）",
+    "theme": "dark",
+    "driver": "LAB_PORT=3196 node test/assembly-lab/verify.ts（56 项 2971 条断言，日常实例）；F-55 另在自起的全新 DSH_HOME 上网关上跑；LAB_GATEWAY=<临时实例> 再跑一轮空实例整轮",
+    "date": "2026-09-17T12:00:00Z"
+  },
+  "coverageNote": "本轮改的是「侧栏树装哪些官方插件」这一层（block list）+ 实验室的验证集，不改任何渲染逻辑。真桌面 VS Code 窗口不在本报告范围（AGENTS 铁律：agent 一律不起真窗），浏览器验证覆盖改动的全部行为：那个 boot 门就发生在页面里，F-55 就是它的常驻断言，四棵树的渲染与几何由既有套件回归。空实例整轮的红清单另见 R-04（那些是 #162 的普查范围，不是本轮改动引起的）。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "全新 DSH_HOME 上侧栏树能挂上（F-55 绿）——本轮修的那件事",
+      "expect": "在**自起的全新 DSH_HOME 网关**（临时目录当 HOME、--port 0 随机端口、--no-open，跑完按 PID 收掉）上打开装配页：侧栏树的就绪点 `.dshOneTree_root` 出现（整棵树真的挂上了）、页面上零 `web boot: … did not activate` / 零 `waiting for service`、零 `slot entry crashed`、零 pageerror、fiber 探针报零 scope 进 FAILED。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/fresh164-after-mounted.png"
+      ],
+      "notes": "逐条核对：`PASS F-55 … 断言 27/27（12.4s）`。观测行（整轮那一次）：「全新网关：DSH_HOME=/var/folders/…/dsh-lab-fresh-home-※ http://127.0.0.1:※ pid=※ 版本=0.1.6-alpha.1」「全新网关上开局会话数=0」「sidebar：ready=true 未激活=0 崩溃日志=0 pageerror=0」「sidebar：fiber 探针等待 1588ms 后静下来（事件数 139）」「sidebar：探针登记插件=40 事件总线=1 scope=139 状态分布={\"active\":70,\"loading\":69}」「chat / settings：ready=true 未激活=0 崩溃日志=0 pageerror=0」「收尾：临时 DSH_HOME 已删除=true」。截图里能看到侧栏树正常渲染：顶栏那一行（「All workspaces 0」胶囊 + 搜索 / 折叠全部 / 添加工作区 / 设置 / 多选五枚）、零工作区空态文案、底部「Recycle bin 0」入口行——这正是新装用户第一次打开侧栏该看到的样子。三棵树（sidebar / chat / settings）都在同一台干净网关上验过；实验室那棵 `sidebar-official` 对照档不在列（不是生产形态，且与 sidebar 树共用同一份 block list，真断也是同一处断）。",
+      "screenshotsNote": "截图 = F-55 在自起干净网关上拍的侧栏树（改后）。"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "反例：把这两件挡回去，同一套件当场红（证明这条门禁有牙）",
+      "expect": "把 `ui-commands` 与 `ui-permission-presets` 放回侧栏树的 block list（= 改前的状态）后重跑 F-55：侧栏树那条当场红——就绪点不出现、报出 `@deepseek-ai/dsh-client-ui-model-selection: pending (waiting for service: commandUi)`、combo 里也没有这两件。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/fresh164-before-blank.png"
+      ],
+      "notes": "逐条核对：改前实测 `FAIL F-55 … 断言 23/27（36.6s）`，四条红逐条对上——① `sidebar：首屏就绪（.dshOneTree_root）`（就绪点没出现）；② `sidebar：零装载未激活（缺服务/缺钩子）`，实测值就是 `web boot: 1 entry did not activate / @deepseek-ai/dsh-client-ui-model-selection: pending (waiting for service: commandUi)`；③④ `sidebar：combo 里有 @deepseek-ai/dsh-client-ui-commands` 与 `…ui-permission-presets`（该插件不在本页的 /plugins-local 请求里）。同一轮 chat / settings 两棵树照旧绿（它们本来就没被这条挡着），说明这条门禁红的是**侧栏树那一处**，不是「整台网关坏了」这种含糊红。截图是那一轮拍的：页面上是 `HARNESS / Failed to load plugins` + 那段 pending 原文——这就是新装用户看到的现场（一片空白 + 一句英文报错）。",
+      "screenshotsNote": "截图 = 同一套件在改前代码上拍的侧栏树（改前，空白 + pending 原文）。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "侧栏树的装配清单里确实含这两件（combo 证据）",
+      "expect": "侧栏树页面发出的 `/plugins-local/…` combo 请求里含 `@deepseek-ai/dsh-client-ui-commands/client.js` 与 `@deepseek-ai/dsh-client-ui-permission-presets/client.js`。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "逐条核对：`PASS F-55` 的两条 —— `sidebar：combo 里有 @deepseek-ai/dsh-client-ui-commands（#164 放行的两件）` 与 `… ui-permission-presets …`。mirror 日志同一侧证据：侧栏树那一份过滤结果从改前的「kept 32 段、dropped 23 件」变成「kept 34 段、dropped 21 件」，dropped 列表里不再有这两件。这两条断言比「页面挂没挂」更早定位：页面没挂可能是别的原因，而 combo 里没有它就直接说明是装配清单把它挡了。",
+      "screenshotsNote": "这条是请求层断言，截图无意义。"
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "单测钉住这两件不再进侧栏 block list（离网关也能红）",
+      "expect": "`test/wireFilter.test.ts` 断言：`SIDEBAR_BLOCKED_IDS` 里**没有** `ui-commands`、`ui-permission-presets`、`ui-model-selection`（前两件是 #164 放行的，第三件本来就不该在列）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "逐条核对：`node --test test/wireFilter.test.ts` → `tests 6 / pass 6 / fail 0`。三条新增断言各带失败文案（`ui-commands 在侧栏树上必须放行（#164）`）。这条的价值：整轮验证要一台网关才跑得起来，而这条在 `npm test` 里就挡住「手滑把这两件写回 block list」。",
+      "screenshotsNote": "单测，无界面。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "现有套件整轮（日常实例）：56 项 2971 条断言、2960 通过",
+      "expect": "日常实例（http://127.0.0.1:3080）上跑整轮 `verify:lab`：本轮改动只该让侧栏树多装两件官方插件，其余断言一条都不该变红；三条已知红（F-41 / F-49 / R-06）与本轮改动无关。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "逐条核对：整轮输出逐条读过 —— `PASS F-01 43/43（17.1s）`、`PASS F-10 20/20`、`PASS F-11 4/4`、`PASS F-55 27/27`；三条红逐条归因：**F-41 164/165**（`dsh-plan` vs `dsh-plan1`——同一台机器上另一条并行线正在改名工作区，与 #148 同因）、**F-49 35/44**（夹具那条标题没生效，读到当天真实标题，与 #158 同因）、**R-06 0/1**（会话数 1210 → 1212，当轮机器上另有 session 在造会话；README 早记过这条会被别的 session 撞红）。三条都不是本轮改动引起：F-41 / F-49 的根因与侧栏装配清单无关，R-06 是环境噪声；F-01 / F-10 / F-11 / F-55 四条直接相关的全绿。侧栏树那一族的形态断言也全绿（F-04 PARITY 196/196、F-12 34/34、F-23 80/80、F-35 107/107、F-42 173/173、F-44 81/81、F-52 42/42）——说明多装那两件没有多渲染出任何东西（它们的座位 `conversation.input.permission` / `conversation.input.model` 在侧栏树里没人声明）。",
+      "screenshotsNote": "整轮控制台输出为证，报告不嵌日志。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "F-01 / F-10 / F-11 的期望一个字没放宽",
+      "expect": "三条受影响的既有套件按新形态重跑仍全绿，且判据没有变松。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "逐条核对：**F-01 43/43**（日常实例，与改前同一份断言、同一份数量；它在**改前的空实例**上本来是红的——那次实测 28/39，红的就是侧栏树那三条 + chat 右栏三条）；**F-10 20/20**（新增的 `waitForFiberQuiet` / `describeFiberFailure` / `fiberStateCounts` 只是从 `driftSuites.ts` 提到 `harness.ts` 共用，断言与判据逐字未改）；**F-11 4/4**（它查的是「block 的每一项都在 wire 里」，放行两件只让清单更短；顺带更正了它失败线索注释里一条错误结论：2026-09-16 那两条红的真因不是「官方并进别的插件」，而是本地 llm-provider 的补丁把那两行禁掉了）。三棵树 block list 的条目数：侧栏树由 23 项变成 21 项（chat 与 settings 两棵树没动）。另外单独复核过 F-01 在**空实例**上：`sidebar：首屏就绪` 与 `零装载未激活` 现在都绿（改前那一处是红的），它剩下的两条红是「空实例上没有会话行可看」，属 #162 的判据自足性普查范围。",
+      "screenshotsNote": "无。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "门禁：typecheck / 单测 / build / 安装引导页冒烟",
+      "expect": "`npm run typecheck`、`npm test`、`npm run build`、`npm run verify:install-guide` 四条全过。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "逐条核对：`tsc --noEmit` 无输出（过）；`npm test` → `tests 853 / pass 853 / fail 0`；`npm run build` 产出 `dist/extension.js` 等 + 六个自有插件 bundle（与改动前同一份产物清单）；`npm run verify:install-guide` → `断言 204 条，通过 204 条；条目 15 项（失败 0 项）`。`verify:plugins-official` 未跑：本轮没动 `packages/dsh-*` 的清单或产物（改的是装配期的 block list 与实验室 harness）。",
+      "screenshotsNote": "命令行输出为证。"
+    },
+    {
+      "id": "R-04",
+      "phase": "regression",
+      "name": "空实例整轮实测：红清单与归因（归 #162，不是本轮引入）",
+      "expect": "对着全新 DSH_HOME 的实例跑整轮，把红清单列出来并逐条归因；本轮改动只该消掉「侧栏树挂不上」这一类，不该引入新的红。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "逐条核对：`LAB_GATEWAY=<临时 DSH_HOME 实例> LAB_TOKEN=<那台的 token> LAB_PORT=3196 node test/assembly-lab/verify.ts --out /tmp/dsh-fresh164-lab-empty --quiet` → **56 项 1119 条断言、958 通过**（日常实例同一批套件是 2971 条——空实例上很多套件连第一条前置都过不去，所以条数本身少了一大截，这正是 #162 要处理的那类判据）。红 44 项、绿 12 项（绿名单：F-05 / F-10 / F-11 / F-13 / F-21 / F-24 / F-26 / F-39 / F-47 / F-53 / F-55 / R-06）。红名单：F-01 / F-02 / F-03 / F-04 / F-06 / F-07 / F-08 / F-09 / F-12 / F-14 / F-15 / F-16 / F-17 / F-18 / F-19 / F-20 / F-22 / F-23 / F-25 / F-27 / F-28 / F-29 / F-30 / F-31 / F-32 / F-33 / F-34 / F-35 / F-36 / F-37 / F-38 / F-40 / F-41 / F-42 / F-43 / F-44 / F-45 / F-46 / F-48 / F-49 / F-50 / F-51 / F-52 / F-54。抽样读原因，红法只有两类，都是「当天数据取不到」：① **前置条件直接判红**（F-07 `侧栏有 ≥ 2 个真实工作区分组（keys=0）`、F-14 `真网关上取到置顶与未读各一个夹具会话（pin=false unread=false）`、F-09 / F-15 / F-16 / F-17 / F-49 … 同形，整套只剩 1 条断言 = 开头就停）；② **拿不到参照物后整段几何断掉**（F-42 `量法成立：…工作区行都在（这一轮网关有工作区数据）` 与 `参照物自洽——行内容左缘 = 行里第一枚图标（图标=null 行内容=null）`、F-04 `两侧都取到 projectRow 元素（own=false official=false）`）。两类都在 #162 的普查范围里（「能自控的自控：夹具自己造工作区 / 会话 / 分组 / 回收站内容」），本轮不碰。**对本轮的意义（改前 vs 改后，同一类实例）**：改前在全新 `DSH_HOME` 上跑 F-01 是 **28/39**，红的是侧栏树那三条（`首屏就绪（.dshOneTree_root）` 不出现 + `零装载未激活` 报 `pending (waiting for service: commandUi)`，另有 chat 右栏三条）；改后同一类实例上 F-01 是 **34/39**，**侧栏树那三条全绿**，剩下五条全是「空实例上没有会话可看」（sidebar 会话行、官方侧栏会话行、chat 右栏三条）——即本轮消掉的是「树挂不上」，剩下的是数据依赖。**口径与边界**：没有在空实例上用改前代码跑过**整轮**做逐项基线（改前侧栏树在任何全新实例上都挂不上，凡是要侧栏树的套件必然全红，那种基线没有分辨力）；本条的结论建立在「F-01 同类实例前后对照」+「四条与本轮直接相关的套件（F-01 / F-10 / F-11 / F-55）在空实例整轮里全绿」两条证据上。**「空实例整轮全绿」是 #162 的验收，不是本条的**。",
+      "screenshotsNote": "整轮控制台输出为证。"
+    },
+    {
+      "id": "R-05",
+      "phase": "regression",
+      "name": "文档与验证集随实测刷新；全程没起真 VS Code 窗口",
+      "expect": "改了行为就要改文档：实验室 README 写清「干净 profile 那一档」的规矩、F-55 在套件表里、计数按实测刷新；CHANGELOG 按用户话写一条。全程用浏览器验证（Playwright），没有起真窗、没有对真网关派发原生副作用动作。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "逐条核对：**README** 新增「干净 profile 那一档（#164）」一节（为什么日常网关不够、`freshGateway` 的三条硬要求 = `--port 0` / 按 PID 收 / 不碰 `~/.dsh`、与 #162 的边界与复用接口、空实例上已知的既有红条目）+ 套件表加 F-55 一行 + 计数刷成「56 项 2971 条」并记下这一轮三条红的归因。**CHANGELOG** 在 `[Unreleased] → Fixed` 加一条用户话：「侧栏：刚装好、还没有任何历史数据时第一次打开侧栏，树不再是一片空白」。**实验室纪律**：全程只开浏览器页面；F-55 起的网关用临时 DSH_HOME（实测那台机器的 `~/.dsh/dsh-owned.json` 里始终只有扩展自己的 3080 那条记录，没被写）；收尾按 PID `SIGTERM`，没有用过 `pkill`。",
+      "screenshotsNote": "无。"
+    }
+  ]
+}

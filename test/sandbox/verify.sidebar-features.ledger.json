@@ -1,0 +1,116 @@
+{
+  "title": "DSH One 装配实验室报告：浏览器验证套件（#78）",
+  "branch": "agent/sidebar-features",
+  "commit": "841e35e242a0b98b80d2d54f990f0d77854e524a",
+  "environment": {
+    "mode": "浏览器验证（真实仓库模块 + 真实 dsh 网关只读 + 假宿主）",
+    "dsh": "0.1.6-alpha.1",
+    "gateway": "http://127.0.0.1:3080",
+    "lab": "http://127.0.0.1:3311",
+    "driver": "playwright chromium + test/assembly-lab/verify.ts（8 个套件）",
+    "date": "2026-09-16T03:07:15.715Z"
+  },
+  "coverageNote": "本报告是浏览器验证（第一道验证）：装配页由仓库真实模块（pageHtml / wireFilter / trees / assemblyMirror）构建，数据面是本机真实 dsh 网关（只读），宿主通道是假宿主（按同一协议应答）。未覆盖：真 VS Code webview 宿主层（CSP 差异、剪贴板、原生菜单、多 webview 生命周期）、运行中回合的停止路径、真模型输出、macOS 之外的平台。这些见 VS Code 验证（scripts/dev-ui-test.sh，最终准绳）与 test/sandbox 沙盒。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "底座契约完备性：四棵树在真实网关上零崩溃、零缺失契约（CONTRACT 套件）",
+      "expect": "实验室四棵树（自有 sidebar 树、官方浏览区对照档、chat 树、settings 树）各自在真实网关只读下打开：**零 `slot entry crashed`**（官方渲染层崩溃 + 页面无 `data-slot-error` 元素）、**零 pageerror**、**零装载未激活**（官方 `web boot: … did not activate` / `waiting for service`，即缺服务/缺钩子那类底座缺口）；且该树自己的关键座位**有内容**（不是空壳）、该树的 frame 插件 bundle 真的装进了页面（combo 请求里有它的 id、页面上有它的 CSS 标记）。",
+      "result": "pass",
+      "screenshots": [
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/sidebar-features/test/assembly-lab/out/shots/contract-sidebar.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/sidebar-features/test/assembly-lab/out/shots/contract-sidebar-official.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/sidebar-features/test/assembly-lab/out/shots/contract-chat.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/sidebar-features/test/assembly-lab/out/shots/contract-settings.png"
+      ],
+      "notes": "本套件断言 32 条，通过 32。\n观测：\n- sidebar：ready=true 槽位锚点=8 崩溃标记=0 崩溃日志=0 未激活=0 真实 pageerror=0 已知噪音=0 自有工作区树的会话行=2\n- sidebar-official：ready=true 槽位锚点=9 崩溃标记=0 崩溃日志=0 未激活=0 真实 pageerror=0 已知噪音=0 官方浏览区的会话行=2\n- chat：ready=true 槽位锚点=20 崩溃标记=0 崩溃日志=0 未激活=0 真实 pageerror=0 已知噪音=0 对话区 composer 座位=1\n- settings：ready=true 槽位锚点=6 崩溃标记=0 崩溃日志=0 未激活=0 真实 pageerror=0 已知噪音=16 设置内容区=1\n- settings：放行已知噪音 16 条（#74：设置树里官方 @deepseek-ai/dsh-client-ui-agent-preset 的槽位控制器在非活跃上下文读 sessions 服务（官方 web 同动作零报错），设置页照常渲染——与本仓库底座契约无关。）"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "三棵树冒烟渲染：侧栏会话树 / 对话区 / 设置页都出真内容（SMOKE 套件）",
+      "expect": "侧栏树：真实网关的会话行（自有树插件渲染）与分组行都在，行上有标题文本，侧栏壳的新建会话按钮在。对话区：composer 座位里有可编辑输入框。设置页：设置内容区渲染出多行设置项。三棵树控制台零 error。",
+      "result": "pass",
+      "screenshots": [
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/sidebar-features/test/assembly-lab/out/shots/smoke-sidebar.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/sidebar-features/test/assembly-lab/out/shots/smoke-chat.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/sidebar-features/test/assembly-lab/out/shots/smoke-settings.png"
+      ],
+      "notes": "本套件断言 13 条，通过 13。\n观测：\n- sidebar：分组行=13 会话行=2 文本长度=159\n- chat：composer 可编辑元素=1 自有对话容器=1 main 槽位子项=1 main 下的会话面板=1 composer.bar 座位子项=1\n- settings：通用设置行=1 行内容元素=6 内容区后代=69"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "关键交互：行内码右键菜单、清空（Esc ×2）+ 反悔（Ctrl+Z）、commit 卡片（INTERACT 套件）",
+      "expect": "chat 树：给消息正文里的行内码点右键 → 弹出官方 Menu（role=menu）承载的单图标项，行内码被高亮标记，Esc 后菜单与高亮都撤掉。正文里的 7 位 hash → 悬停出提交卡片，卡片内容来自宿主能力口（假宿主回执），点卡片上的 GitHub 按钮 → 页面发出一次 vscode.openExternal。composer 里输入文字后按 Esc → 出「再按一次」提示；再按 Esc → 草稿清空且出撤销入口；Ctrl+Z → 草稿复原。",
+      "result": "pass",
+      "screenshots": [
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/sidebar-features/test/assembly-lab/out/shots/interact-menu.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/sidebar-features/test/assembly-lab/out/shots/interact-gitcard.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/sidebar-features/test/assembly-lab/out/shots/interact-clear-arm.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/sidebar-features/test/assembly-lab/out/shots/interact-clear-done.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/sidebar-features/test/assembly-lab/out/shots/interact-clear-undo.png"
+      ],
+      "notes": "本套件断言 14 条，通过 14。\n观测：\n- 右键菜单：{\"marked\":1,\"menuPresent\":true,\"role\":\"menu\",\"items\":1,\"iconItems\":1}\n- git 卡片：{\"present\":true,\"text\":\"Lab Bot19 小时前 (2026-09-15 08:00:00.000Z)lab: fake commit deadbeesecond line of the fake body3 个文件变更, +12, -4提交 0123456在 GitHub 打开\",\"buttons\":2}\n- GitHub 按钮发出的 openExternal：[\"https://github.com/example/repo/commit/deadbee\"]\n- 第一次 Esc 后的提示元素=1\n- 第二次 Esc 后的草稿=\"\" 撤销入口=1\n- Ctrl+Z 后的草稿=\"lab clear test\""
+    },
+    {
+      "id": "F-04",
+      "phase": "new-feature",
+      "name": "侧栏树外观与几何对齐官方（PARITY 套件，260/340/500 三档宽度）",
+      "expect": "同一 frame、同一网关数据、同一宽度下，自有树的原生元素与官方浏览区同名元素（按类名后缀配对）的 computed style（分节头、搜索胶囊、图标按钮、分组行、会话行、标题、时间、图标位、列表容器）与几何矩形逐项相等；数值不硬编码——官方改版两边跟着变，不相等才报。两组例外都写明了理由：**列表容器只比宽度**（自有树多一条分组过滤条，容器矮一行是功能带来的），**两侧都没产生某元素时该组跳过**（例如当前会话是空白会话时没有相对时间可量；一侧有另一侧没有仍判失败）。**密度档（#85）的处置**：密度是有意的差异（VS Code 档比官方档紧），所以对齐断言先把自有页的密度变量按它自己声明的官方兜底值对齐（「没人给偏好时 = 官方档」正是这套变量承诺的语义），并同时钉住「VS Code 档真的更紧」与「对齐后 = 官方基准」两条。",
+      "result": "pass",
+      "screenshots": [
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/sidebar-features/test/assembly-lab/out/shots/parity-own-340.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/sidebar-features/test/assembly-lab/out/shots/parity-official-340.png"
+      ],
+      "notes": "本套件断言 181 条，通过 181。\n观测：\n- 对齐口径：自有树（.dshOneTree_*）对官方对照档（官方 hash 类名，按类名后缀配对），逐组比 computed style 各属性 + 几何矩形；共 10 组元素 × 3 档宽度（260/340/500）\n- 密度档兜底值（自作树 CSS 读出并回填到 frame）：icon-button-size=28px icon-button-size=28px section-header-height=36px section-header-gap=4px icon-button-size=28px search-height=28px search-expanded-height=30px icon-button-size=28px icon-button-size=28px icon-button-size=28px search-expanded-height=30px list-padding-bottom=16px row-gap=2px group-gap=4px overflow-row-height=28px meta-font-size=12px row-padding-inline=8px row-height=34px session-row-height=32px title-font-size=14px title-line-height=20px meta-font-size=12px meta-line-height=20px search-row-min-height=48px group-gap=4px icon-button-size=28px meta-font-size=12px icon-button-size=28px row-padding-inline=8px meta-font-size=12px meta-line-height=20px meta-font-size=12px meta-font-size=12px section-header-height=36px title-font-size=14px list-padding-bottom=16px group-gap=4px meta-font-size=12px session-row-height=32px row-padding-inline=8px meta-font-size=12px meta-font-size=12px"
+    },
+    {
+      "id": "F-05",
+      "phase": "new-feature",
+      "name": "宿主能力口页面侧：统一获取点、id 配对、结构化错误（BRIDGE 套件）",
+      "expect": "装配页注入的 `__DSH_ONE_HOST__.call` 是函数；全页 `acquireVsCodeApi` **只被调用一次**（统一获取点约束，第二次会 throw）；并发调用按各自 id 兑现自己的回执；宿主拒绝时抛带 code 的结构化错误；上行消息形状是 {type:dshOne.hostCall,call,args,id} 且 id 各不相同。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "本套件断言 7 条，通过 7。\n观测：\n- 桥：{\"missing\":false,\"callType\":\"function\",\"acquireCalls\":1,\"shas\":[\"aaaaaaa\",\"bbbbbbb\"],\"codes\":[\"lab: fake commit aaaaaaa\",\"lab: fake commit bbbbbbb\"],\"rejected\":{\"code\":\"unknown-call\",\"message\":\"lab host: unknown call lab.unknown\"},\"ids\":[\"hc1-2lkkbpth\",\"hc2-8nd2h6tu\",\"hc3-wydintcg\",\"hc4-y290ks0n\"],\"shapeOk\":true}"
+    },
+    {
+      "id": "F-06",
+      "phase": "new-feature",
+      "name": "可移植性：页面上没有自有 frame 标记时，三个 dsh-* 插件照常工作（PORTABLE 套件）",
+      "expect": "chat 树在**抹掉自有 frame 标记**的页面上（`data-shell*` 属性一律不落进 DOM，等于官方 web 那种「没有我们的 shell frame」的处境）照常可用：官方对话区容器仍在；夹具正文被 git 卡片装饰、悬停出提交卡片；行内码右键出菜单、Esc 撤掉；GitHub 按钮有宿主桥时走 `vscode.openExternal`，把宿主桥撤掉后改走页面 `window.open`（官方 web 侧那条路）；composer 里 Esc ×2 清空、Ctrl+Z 复原。",
+      "result": "pass",
+      "screenshots": [
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/sidebar-features/test/assembly-lab/out/shots/portable-menu.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/sidebar-features/test/assembly-lab/out/shots/portable-gitcard.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/sidebar-features/test/assembly-lab/out/shots/portable-clear-arm.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/sidebar-features/test/assembly-lab/out/shots/portable-clear-undo.png"
+      ],
+      "notes": "本套件断言 11 条，通过 11。\n观测：\n- 抹掉 frame 标记后的页面：data-shell=0 data-shell-overlay=0 官方对话区容器=1\n- 无 frame 标记时的右键菜单：{\"menu\":true,\"items\":1,\"marked\":1}\n- 无 frame 标记时的提交卡片：{\"present\":true,\"text\":\"Lab Bot19 小时前 (2026-09-15 08:00:00.000Z)lab: fake commit deadbeesecond line of the fake body3 个文件变更, +12, -4提交 0123456在 GitHub 打开\",\"buttons\":2}\n- 有宿主桥时的外链出口：[\"https://github.com/example/repo/commit/deadbee\"]\n- 撤掉宿主桥后的外链出口：[\"https://github.com/example/repo/commit/deadbee\"]"
+    },
+    {
+      "id": "F-07",
+      "phase": "new-feature",
+      "name": "侧栏六项核心功能（#81）：分组过滤、活状态计数、回收站抽屉、批量选择、不折叠、状态读写与视图态持久化",
+      "expect": "侧栏树（真实网关只读 + 假宿主）：**旧版 groups.json 的形状注进宿主状态存储就是可用数据**（分组 chip 按它渲染，过滤只留归属该分组的工作区）；分组由界面新建后按同一形状写回宿主状态存储（version 1、membership 在、旧字段 activeGroupId 不被抹掉）。**计数与行同源**：每个工作区行尾的「运行中/等待交互」角标数值 = 该工作区下会话行里 `data-dshone-tree-status` 的数（这同时证明工作区内会话没有被官方那 5 行截断，**不折叠**：不出现「显示更多」行，行数 = 该工作区的会话总数）。**回收站**：官方归档集合在抽屉里按工作区组织、每行有还原按钮；批量选择态出复选框与动作条，选中计数随点选变化，退出后动作条消失。**视图态**：当前过滤的分组写进官方惯例的 `dsh.workspaceTree.view`（localStorage），同上下文重载后仍然生效。全程零 pageerror（归档/还原**不被点击**——那会写真实网关）。",
+      "result": "pass",
+      "screenshots": [
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/sidebar-features/test/assembly-lab/out/shots/sidebar-group-filter.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/sidebar-features/test/assembly-lab/out/shots/sidebar-activity-counts.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/sidebar-features/test/assembly-lab/out/shots/sidebar-recycle-drawer.png",
+        "/Users/cgeng/Workspaces/dsh-one/.worktrees/sidebar-features/test/assembly-lab/out/shots/sidebar-multi-select.png"
+      ],
+      "notes": "本套件断言 27 条，通过 27。\n观测：\n- 真实网关上的工作区分组键：54b1f167-5db2-49f8-aa61-01828d446bf3, 1c035e6a-c954-46f5-b0fd-95de0d79789e, 8f908f22-a4f2-4f6c-aae4-f034fe4269e1, e7f1b064-6497-4860-bbc6-f03620e97933（共 13 个）\n- 分组 chip：all,g-lab-one,g-lab-two\n- 展开了 13 个分组：54b1f167=1行(角标无) 1c035e6a=1行(角标无) 8f908f22=1行(角标无) e7f1b064=2行(角标1/0) b09d7d32=10行(角标无)\n- 回收站入口角标=498 抽屉={\"groups\":[\"8f908f22-a4f2-4f6c-aae4-f034fe4269e1\",\"e7f1b064-6497-4860-bbc6-f03620e97933\",\"b09d7d32-d44f-4766-8aee-0d434f648207\",\"d7ecd7c7-4657-42a3-a4ac-c3b790240bfa\",\"09bd708b-367c-479a-a89b-88d26f3dcfa3\",\"f7e6042b-0b8d-4b92-ae47-19e5d2063118\",\"\"],\"rows\":498,\"restores\":498,\"empty\":true,\"status\":false}\n- 可勾选会话行=128 已勾选=2 动作条=\"已选 2 项移入回收站退出选择\""
+    },
+    {
+      "id": "R-06",
+      "phase": "regression",
+      "name": "实验室对真实网关只读（跑前跑后会话数不变）",
+      "expect": "整轮浏览器验证跑完，网关上的会话数与跑前完全相同：实验室只渲染与做本地夹具交互，不创建会话、不发 prompt、不归档（唯一写类动作是 token 换票，与扩展自身连接路径相同）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "本套件断言 1 条，通过 1。\n观测：\n- 网关会话数：跑前 1137，跑后 1137"
+    }
+  ]
+}

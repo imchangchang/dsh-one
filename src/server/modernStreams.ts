@@ -1,15 +1,13 @@
 import type { Disposable } from 'vscode'
 import type { Logger } from '../log.ts'
-import { openStream, getMux } from './remoteMux.ts'
+import { openStream } from './remoteMux.ts'
 import {
   parseEventStreamReady,
   parseEventStreamFrame,
   parseControlStreamFrame,
   parseWorkspaceStreamFrame,
-  parseFollowStreamFrame,
 } from '../pure/remoteFrames.ts'
 import type { EventStreamFrame, WorkspaceStreamFrame } from '../pure/remoteFrames.ts'
-import type { AssistantStreamBaseline, AssistantStreamFrame } from '../pure/assistantStream.ts'
 import {
   applyControlFrame,
   createControlSnapshot,
@@ -17,13 +15,12 @@ import {
   type ControlSnapshot,
 } from '../pure/controlSnapshot.ts'
 import { sendWaterfallResult } from './dshRpc.ts'
-import { is013Wire } from './serverAuth.ts'
 
 /**
  * Shared logical streams for the 0.1.2 transport, refcounted per origin:
  * one `$events` stream and one `session/control` stream serve every consumer
- * (sessionsStore sidebar, jobsStore, chat sessions). The singleton owns
- * reconnect+backoff; subscribers just register handlers, which keeps the
+ * (the sessionsStore sidebar and, formerly, the chat sessions). The singleton
+ * owns reconnect+backoff; subscribers just register handlers, which keeps the
  * per-consumer code the same shape as the legacy mux subscriptions.
  */
 
@@ -275,25 +272,6 @@ function startControlStream(origin: string, logger: Logger, state: ControlStream
   )
 }
 
-/** Drop the shared streams and the mux socket of an origin (server restart). */
-export function purgeModernStreams(origin: string): void {
-  const state = eventStreams.get(origin)
-  if (state) {
-    state.closed = true
-    if (state.timer !== null) clearTimeout(state.timer)
-    state.subscription?.dispose()
-    eventStreams.delete(origin)
-  }
-  const control = controlStreams.get(origin)
-  if (control) {
-    control.closed = true
-    if (control.timer !== null) clearTimeout(control.timer)
-    control.subscription?.dispose()
-    controlStreams.delete(origin)
-  }
-  getMux(origin, state?.logger ?? control?.logger ?? ({} as Logger)).close()
-}
-
 /** `workspace/follow` stream subscription (self-reconnecting). */
 export function subscribeWorkspaceStream(
   origin: string,
@@ -338,66 +316,3 @@ export function subscribeWorkspaceStream(
   }
 }
 
-/** Snapshot of the opening `session/follow` frame. */
-export interface FollowSnapshot {
-  cursor: number
-  records: unknown[]
-  hasMore: boolean
-  header: Record<string, unknown>
-  projections: Record<string, unknown>
-  /** 0.1.3 opt-in 后的内嵌 assistant 流基线（随时可能缺失）。 */
-  assistantStream?: AssistantStreamBaseline
-}
-
-/** `session/follow` stream subscription; reconnect is the caller's job. */
-export function subscribeFollowStream(
-  origin: string,
-  logger: Logger,
-  sessionId: string,
-  handlers: {
-    onSnapshot: (snapshot: FollowSnapshot) => void
-    onEvent: (event: unknown) => void
-    onAssistantStream?: (frame: AssistantStreamFrame) => void
-    onError: (err: Error) => void
-  },
-): Disposable {
-  return openStream(
-    origin,
-    'session/follow',
-    {
-      args: {
-        request: {
-          address: { kind: 'session', sessionId },
-          // 0.1.3 的实时 assistant 增量是显式 opt-in 侧信道；不传则旧客户端能跑
-          // 但文本在 attempt 落盘前完全不出现（转圈→整段蹦出）。0.1.2 没有此
-          // 字段，按版本分叉只对 0.1.3+ 送 —— 0.1.2 请求体保持逐字节一致。
-          ...(is013Wire(origin) ? { assistantStream: true } : {}),
-        },
-      },
-    },
-    logger,
-    {
-      onItem(value: unknown) {
-        const frame = parseFollowStreamFrame(value)
-        if (frame === null) return
-        if (frame.type === 'snapshot') {
-          handlers.onSnapshot({
-            cursor: frame.cursor,
-            records: frame.records,
-            hasMore: frame.hasMore,
-            header: frame.header,
-            projections: frame.projections,
-            ...(frame.assistantStream !== undefined ? { assistantStream: frame.assistantStream } : {}),
-          })
-          return
-        }
-        if (frame.type === 'assistant-stream') {
-          handlers.onAssistantStream?.(frame.frame)
-          return
-        }
-        handlers.onEvent(frame.event)
-      },
-      onError: (err) => handlers.onError(err),
-    },
-  )
-}

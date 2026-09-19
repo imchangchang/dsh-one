@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { TurnUsageFold } from '../src/pure/turnUsage.ts'
 import { ConversationFolder, navigateAnchorOf } from '../src/pure/conversation.ts'
-import type { SessionEventLike, StreamChunkData } from '../src/pure/conversation.ts'
+import type { SessionEventLike } from '../src/pure/conversation.ts'
 import type { ChatAssistantMessage, ChatMessage } from '../src/pure/chatContract.ts'
 
 let seq = 0
@@ -11,10 +11,6 @@ let seq = 0
 function ev(type: string, data: unknown): SessionEventLike {
   seq += 1
   return { type, seq, time: 1_700_000_000_000 + seq, data }
-}
-
-function chunkEv(turn: number, step: number, chunk: StreamChunkData): SessionEventLike {
-  return ev('assistant/chunk', { turn, step, chunk })
 }
 
 /** Fold a list of events through a fresh fold; returns the result. */

@@ -1,59 +1,23 @@
 # DSH One Roadmap
 
-## 方向：从嵌入 UI 到 VSCode 原生前端
+## 方向：装配官方前端，不自研聊天 UI（2026-09-14 修订，#68）
 
-现状是 iframe 嵌入 dsh web UI。已决策的演进方向：**VSCode 原生前端**，聊天面设计参考 Claude Code 的 VSCode 扩展（CLI 本体 + 薄桥接扩展的分层，dsh 对应 CLI、本扩展对应 VSCode 侧前端）。分三个阶段。
+历史演进：iframe 嵌入（v0.x）→ 自研聊天 webview（#11 系列，已归档于 `develop/dsh-web-alignment`）→ **官方组件装配**（#60 试错、#64 M1 落地、#68 下线自研聊天区后成为唯一对话区）。
 
-### 阶段一：管理面原生化（已完成）
+现状形态：**自研会话侧栏 + 装配对话区**。对话区用官方 dsh web 前端组件在自有 shell 里组装（代码在 `src/ui/assembly/`、`src/server/assemblyMirror.ts`；架构讲解见 `docs/assembly-architecture.html`）。已拍板不再自研聊天 UI 的原因：自研派要长期追官方协议与 UI 对齐，每个 dsh 版本升级都是一轮重活（#11 系列做到 537 单测仍难逃此命）；装配派让官方前端自己演进，dsh-one 只维护 shell、代理与过滤清单。
 
-- Session TreeView：会话列表 / 新建 / 重命名 / 归档 / 聚焦（`src/ui/sessionTree.ts`）。已知过渡限制：嵌入的 dsh web UI 无深链，点击会话只能聚焦面板，无法远程切换会话——待阶段二自写聊天面后解决。
-- workspace 映射自动化：Sessions 树按 workspace 分组，当前文件夹置顶，其他 workspace 可从上下文菜单"在 VSCode 中打开文件夹"。
-- 反向桥补丁已退役（`src/server/workspaceBridge.ts` 连同 `src/pure/workspace.ts` 已删除）；`src/server/manager.ts` 的 `preseedWorkspace` 也已去掉——影响方向拍板为 dsh → VS Code 单向，当前文件夹不再反向注册回 dsh（被删的工作区不再复活）。
+### 已完成的阶段
 
-### 阶段二：聊天面自写 webview（骨架完成）
+- **管理面原生化**：会话列表 / 新建 / 重命名 / 归档 / 聚焦（侧栏 `dshOne.chat` 视图，数据层 `src/ui/sessionsStore.ts`），按 workspace 分组、当前文件夹置顶。
+- **装配对话区（#64 M1，验证线 develop/cordis-chat）**：插件整包过滤（blocklist：官方外框 + 官方侧栏）+ 自有外框插件接管根外框与主题 + loopback 代理（登录 cookie、跨来源改写、sec-fetch-* 剥离）。浏览器验证 + VS Code 验证两道关全过。
+- **默认打开与旧聊天区下线（#68）**：点活动栏 DSH One 图标自动打开装配对话区（每窗口一次，手动关过不再强开）；旧自研聊天区全部代码、命令、harness、ledger 场景下线。
 
-侧边栏新增原生聊天视图 `dshOne.chat`（WebviewView），设计参考 Claude Code：工具调用卡片可见可折叠、权限确认/提问内联在对话流上方不打断焦点、运行中发送按钮变为常驻停止按钮。架构：宿主侧 `src/ui/chatView.ts` 持有 `ChatSessionController`（`src/server/chatSession.ts`，折叠 mux 事件为 ChatState），前端 `src/ui/chat/webview.ts`（marked + dompurify 渲染 markdown，esbuild 打包）按 `src/pure/chatContract.ts` 的冻结契约收发消息。Sessions 树点击会话即附着并聚焦聊天视图；新建会话直接落入聊天；归档/删除当前会话或服务停止时回空态；每次服务运行首次刷新自动附着当前 workspace 最新会话。
+### 装配线后续（按 issue 顺序）
 
-**已排除 Chat Participant API**，原因：
+- **#65 goal 2：特有功能插件化**——把 dsh-one 特有交互（如侧栏联动的会话深链）做成官方装载协议下的插件。
+- **#66 goal 3：通用组件上游化**——把验证过的自有组件提回上游，减少长期分叉。
 
-- 权限确认 / 工具块 / thinking / 内嵌 diff 全部是 proposed API，无法发布 Marketplace；
-- 输入框模型、模式切换器是 Copilot 私有 UI，第三方拿不到。
-
-行业佐证：Cline / Roo Code / Continue 全部选自写 webview。
-
-骨架已知缺口（待后续补齐）：无消息分页（历史全量渲染）、空白会话不在树中显示故自动附着只挑有内容的会话。
-
-输入区已对齐 dsh web：`+` 图片附件（受 `imageLimits` 投影限额预检）、权限模式选择器（`permissions` 投影 + `/permission` 斜杠命令切换）、模型选择器（`session.models` / `session.selectModel`）、会话统计行（`sessionStats` 投影，`src/pure/sessionStats.ts` 格式化）。
-
-### 阶段三：聊天面精化（借鉴 Claude Code 设计）
-
-- 权限确认内联在对话流中，不打断焦点；
-- 工具调用默认可见、可折叠，另有 Focus view；
-- diff 双层：聊天内 inline + 一键跳原生 diff 视图；
-- Plan 产出为 Markdown 文档；
-- `@` 模糊引用文件；
-- session 历史分组 + 搜索；
-- `session.fork` 做 rewind。
-
-### dsh API 支撑（已核实 0.1.1-rc.2）
-
-可支撑：
-
-- WS `/api/events.mux` 流式事件，`assistant/chunk` 结构化增量；
-- `session.prompt`（queue / steer，斜杠命令同入口）；
-- `approval/requested` → POST `/api/respond` 权限回环；`question/requested` 同构；
-- `ToolEventView`：host 已算好 generic / terminal / diff 渲染意图；
-- `session.models` / `selectModel`；`agentPreset.*`；permissions 投影 + `/permission` 命令；
-- `session.search` / `fork` / `rename`。
-
-缺口：
-
-- 附件仅支持图片；
-- client-runtime 的运行时代码是浏览器 bundle，不能在扩展宿主复用——事件折叠要自己写（契约 `.d.ts` 完备）。
-
-### 与 docs/session-model.md 的关系
-
-`docs/session-model.md` 是长期北极星（session = branch / worktree 模型）；本文的阶段是它的演进路径。
+已知过渡限制：装配页内切会话不经过扩展，侧栏高亮以「最后一次从扩展侧打开的会话」为准；从侧栏点会话能聚焦装配面板，但深链到指定会话待 #65。
 
 ## 已知不足
 
@@ -62,8 +26,8 @@
 | 项 | 类别 | 说明 |
 | --- | --- | --- |
 | Remote（SSH/WSL/容器）未验证 | 缺陷 | 声明了 `extensionKind: ["workspace"]`（跑在远端），webview 里访问 127.0.0.1 依赖 VSCode 自动端口转发，理论上可行但没实测过。 |
-| 多窗口 port=0 各起各的 | 缺陷 | `port: 0` 时跳过复用探测（`src/server/manager.ts:136`），每个窗口各 spawn 一个 dsh 实例。多个实例并发写 `~/.dsh` 正是复用机制要防的场景，目前靠"默认端口非 0"规避。 |
-| 真实 UI 未经人工点验 | 缺陷 | iframe 嵌入官方 UI 的完整链路没有人工验证记录；单测只覆盖 `src/pure/`。 |
+| 多窗口 port=0 各起各的 | 缺陷 | `port: 0` 时跳过复用探测（`src/server/manager.ts`），每个窗口各 spawn 一个 dsh 实例。多个实例并发写 `~/.dsh` 正是复用机制要防的场景，目前靠"默认端口非 0"规避。 |
+| 装配对话区的人工点验依赖发版清单 | 缺陷 | 装配的浏览器验证已自动化（第一道关），但 VS Code 验证（最终准绳）目前靠人按清单开窗实测。 |
 
 ## 候选方向
 
@@ -71,5 +35,4 @@
 | --- | --- | --- |
 | Remote 实测 | 增强 | 在 SSH / WSL / devcontainer 三种环境各过一遍发版点验清单（见 `docs/development.md`），根据结果决定改代码还是改 README 的限制声明。 |
 | 心跳看门狗防孤儿 | 增强 | 目前 VSCode 崩溃（非 deactivate 路径）会留下孤儿 dsh 进程。可以加周期性心跳文件，dsh 侧或扩展重启时发现陈旧实例做提示/回收（回收必须沿用复用语义，只动自己 spawn 过的）。 |
-| 上游融合：嵌入侧栏隐藏 与 postMessage 桥 | 增强 | 扩展侧融合（workspace 预置，空窗口侦听桥已随阶段一退役）已落地，但受限于 dsh 客户端能力：官方未提供嵌入隐藏侧栏的能力（预留参数 `dsh_embed` 已删除，0.1.1-rc.2/0.1.2-rc.1 均未消费）、无 workspace 锁定模式、无 postMessage 桥（无法深链/跟随打开）。需给上游 dsh 提 issue/PR。阶段二落地后本项自然消解。 |
 | Copilot LM Provider | 增强 | 把 dsh 的模型能力注册为 VSCode Language Model Provider（`vscode.lm`），让 Copilot Chat 等消费。属于新能力探索，优先级最低。 |

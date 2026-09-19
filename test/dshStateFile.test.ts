@@ -15,7 +15,6 @@ import {
   resolveTagFile,
   serializeGroupFile,
   serializeIdListFile,
-  serializeTagFile,
   serializeTagFileV2,
   type TagFileV2,
 } from '../src/pure/dshStateFile.ts'

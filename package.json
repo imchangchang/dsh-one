@@ -24,10 +24,14 @@
     "Other"
   ],
   "activationEvents": [
-    "onStartupFinished"
+    "onStartupFinished",
+    "onWebviewPanel:dshOne.assembledChat"
   ],
   "main": "./dist/extension.js",
   "l10n": "./l10n",
+  "workspaces": [
+    "packages/*"
+  ],
   "contributes": {
     "icons": {
       "dsh-fish": {
@@ -40,11 +44,6 @@
     },
     "commands": [
       {
-        "command": "dshOne.open",
-        "title": "%dshOne.open.title%",
-        "category": "DSH One"
-      },
-      {
         "command": "dshOne.openExternal",
         "title": "%dshOne.openExternal.title%",
         "category": "DSH One"
@@ -55,10 +54,14 @@
         "category": "DSH One"
       },
       {
-        "command": "dshOne.openInTab",
-        "title": "%dshOne.openInTab.title%",
-        "category": "DSH One",
-        "icon": "$(globe)"
+        "command": "dshOne.assembledChat",
+        "title": "%dshOne.assembledChat.title%",
+        "category": "DSH One"
+      },
+      {
+        "command": "dshOne.assembledSettings",
+        "title": "%dshOne.assembledSettings.title%",
+        "category": "DSH One"
       },
       {
         "command": "dshOne.restart",
@@ -91,15 +94,44 @@
         "category": "DSH One"
       },
       {
+        "command": "dshOne.statusPanel",
+        "title": "%dshOne.statusPanel.title%",
+        "category": "DSH One"
+      },
+      {
         "command": "dshOne.showLogs",
         "title": "%dshOne.showLogs.title%",
         "category": "DSH One"
       },
       {
-        "command": "dshOne.sessions.refresh",
-        "title": "%dshOne.sessions.refresh.title%",
-        "category": "DSH One",
-        "icon": "$(refresh)"
+        "command": "dshOne.copyLink",
+        "title": "%dshOne.copyLink.title%",
+        "category": "DSH One"
+      },
+      {
+        "command": "dshOne.copyLanLink",
+        "title": "%dshOne.copyLanLink.title%",
+        "category": "DSH One"
+      },
+      {
+        "command": "dshOne.restartLan",
+        "title": "%dshOne.restartLan.title%",
+        "category": "DSH One"
+      },
+      {
+        "command": "dshOne.restartLocal",
+        "title": "%dshOne.restartLocal.title%",
+        "category": "DSH One"
+      },
+      {
+        "command": "dshOne.checkUpdate",
+        "title": "%dshOne.checkUpdate.title%",
+        "category": "DSH One"
+      },
+      {
+        "command": "dshOne.upgrade",
+        "title": "%dshOne.upgrade.title%",
+        "category": "DSH One"
       },
       {
         "command": "dshOne.session.new",
@@ -122,75 +154,8 @@
         "command": "dshOne.openInstallPage",
         "title": "%dshOne.openInstallPage.title%",
         "category": "DSH One"
-      },
-      {
-        "command": "dshOne.session.rename",
-        "title": "%dshOne.session.rename.title%",
-        "category": "DSH One"
-      },
-      {
-        "command": "dshOne.session.archive",
-        "title": "%dshOne.session.archive.title%",
-        "category": "DSH One"
-      },
-      {
-        "command": "dshOne.session.fork",
-        "title": "%dshOne.session.fork.title%",
-        "category": "DSH One"
-      },
-      {
-        "command": "dshOne.session.copyReference",
-        "title": "%dshOne.session.copyReference.title%",
-        "category": "DSH One"
-      },
-      {
-        "command": "dshOne.session.attachFile",
-        "title": "%dshOne.session.attachFile.title%"
-      },
-      {
-        "command": "dshOne.workspace.openFolder",
-        "title": "%dshOne.workspace.openFolder.title%",
-        "category": "DSH One"
       }
     ],
-    "menus": {
-      "editor/context": [
-        {
-          "command": "dshOne.session.attachFile",
-          "when": "editorIsOpen",
-          "group": "2_dshOne@1"
-        }
-      ],
-      "explorer/context": [
-        {
-          "command": "dshOne.session.attachFile",
-          "when": "resourceScheme == file && !explorerResourceIsFolder",
-          "group": "2_dshOne@1"
-        }
-      ],
-      "editor/title/context": [
-        {
-          "command": "dshOne.session.rename",
-          "when": "resourceScheme == webview-panel && resourcePath =~ /^webview-panel\\/webview-dshOne\\.chatPanel-/",
-          "group": "2_dshOne@1"
-        },
-        {
-          "command": "dshOne.session.fork",
-          "when": "resourceScheme == webview-panel && resourcePath =~ /^webview-panel\\/webview-dshOne\\.chatPanel-/",
-          "group": "2_dshOne@1"
-        },
-        {
-          "command": "dshOne.session.copyReference",
-          "when": "resourceScheme == webview-panel && resourcePath =~ /^webview-panel\\/webview-dshOne\\.chatPanel-/",
-          "group": "2_dshOne@1"
-        },
-        {
-          "command": "dshOne.session.archive",
-          "when": "resourceScheme == webview-panel && resourcePath =~ /^webview-panel\\/webview-dshOne\\.chatPanel-/",
-          "group": "2_dshOne@1"
-        }
-      ]
-    },
     "viewsContainers": {
       "activitybar": [
         {
@@ -228,12 +193,10 @@
           "minimum": 0,
           "description": "%dshOne.port.description%"
         },
-        "dshOne.chatFontSize": {
-          "type": "number",
-          "default": 14,
-          "minimum": 12,
-          "maximum": 17,
-          "description": "%dshOne.chatFontSize.description%"
+        "dshOne.lanAccess": {
+          "type": "boolean",
+          "default": false,
+          "description": "%dshOne.lanAccess.description%"
         }
       }
     }
@@ -241,8 +204,15 @@
   "scripts": {
     "build": "node build.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "node --test test/*.test.ts test/mock-dsh/*.test.ts test/mock-llm/*.test.ts",
-    "package": "npm run build && vsce package"
+    "test": "npm run build && node --test test/*.test.ts test/mock-dsh/*.test.ts test/mock-llm/*.test.ts",
+    "verify:host-half": "npm run build && node scripts/verify-host-half-official.mjs",
+    "verify:plugins-official": "npm run build && node scripts/verify-plugins-official.mjs",
+    "verify:clean-profile": "npm run build && node scripts/verify-clean-profile.mjs",
+    "verify:lab": "npm run build && node test/assembly-lab/verify.ts",
+    "verify:lab-version": "node scripts/verify-lab-version.mjs",
+    "package": "npm run build && vsce package",
+    "verify:install-guide": "node --import ./test/install-guide/register.mjs test/install-guide/smoke.mjs",
+    "verify:legacy-sidebar": "npm run build && node --experimental-transform-types --disable-warning=ExperimentalWarning --import ./test/legacy-sidebar/register.mjs test/legacy-sidebar/verify.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
@@ -251,9 +221,5 @@
     "esbuild": "^0.24.2",
     "playwright": "^1.62.1",
     "typescript": "^5.7.2"
-  },
-  "dependencies": {
-    "dompurify": "^3.4.14",
-    "marked": "^18.0.11"
   }
 }
