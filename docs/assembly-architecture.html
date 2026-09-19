@@ -43,132 +43,137 @@
 
 <h1>dsh-one 装配架构：从顶向下</h1>
 <p class="meta">
-  写于 2026-09-14 · 对应验证线 <code>develop/cordis-chat</code> 的 #64 M1 合入态 ·
-  本文里的术语都能在 AGENTS.md 的词表里查到标准说法
+  写于 2026-09-20，对应 <code>main</code> 上的 2.0.0 ·
+  本文是 <code>docs/architecture.md</code> 的另一种讲法（那边讲模块与流程、这边讲四层与一次请求怎么走），两边事实一致，细节以那边为准 ·
+  <code>slot</code> / <code>shadow</code> / <code>seam</code> / <code>combo</code> 是官方机制的原词，中文只在第一次出现时括注一句
 </p>
 
 <div class="note">
-<b>先用一句话说清楚我们在做什么</b>：你的 dsh 网关照常跑，浏览器打开还是完整的官方界面；与此同时，VS Code 里的 dsh-one 面板用<b>同一套官方前端代码</b>渲染出一个<b>没有侧栏的聊天窗口</b>。
-我们只是把官方界面里两个不适合塞进 VS Code 的插件（官方外框、官方侧栏）在自己这一端过滤掉了，网关那边一行代码都没改。
-这就是「双前端」：一个网关，两种界面，各用各的。
+<b>先用一句话说清楚我们在做什么</b>：你的 dsh 网关照常跑，浏览器打开还是完整的官方界面；与此同时，VS Code 里的 dsh-one 页面用<b>同一套官方前端代码</b>渲染出界面——对话区、侧栏、设置页各是一棵「装配树」，装的是官方插件，只是把与 VS Code 容器撞车的官方件挡在门外，再叠上我们自己的件。网关那边一行代码都没改。
 </div>
 
-<h2>架构总图</h2>
-<p><img class="diagram" src="assembly-architecture-diagram.png" alt="装配架构总图"></p>
+<h2>0. 三棵树，四个层</h2>
+<p>「装配」在这个仓库里指：用官方 dsh web 的前端组件，在我们的 shell 里组装出 VS Code 界面。树定义在 <code>src/ui/assembly/trees.ts</code>，一棵树 = 一份 block list（不进这棵树的官方插件）+ 一个自有 frame 插件 + 追加的自有插件。</p>
+<table>
+  <tr><th>树</th><th>落在哪个容器</th><th>block list</th><th>自有 frame 插件</th></tr>
+  <tr><td><code>CHAT_TREE</code></td><td>编辑器标签页（<code>dshOne.assembledChat</code>，单例，可另开会话标签页）</td><td>2 条：官方外框、官方侧栏</td><td><code>@dsh-one/vscode-chat-ui-layout</code></td></tr>
+  <tr><td><code>SIDEBAR_TREE</code></td><td>侧栏 view <code>dshOne.chat</code></td><td>12 条：官方外框、对话区那几件、设置子页组、侧栏专属件</td><td><code>@dsh-one/vscode-sidebar-ui-layout</code></td></tr>
+  <tr><td><code>SETTINGS_TREE</code></td><td>编辑器标签页（<code>dshOne.assembledSettings</code>，单例）</td><td>14 条：官方外框、官方侧栏、对话流卡片组</td><td><code>@dsh-one/vscode-settings-ui-layout</code></td></tr>
+</table>
+<p>浏览器验证（<code>npm run verify:lab</code>）在真网关上跑<b>四棵树</b>：上面三棵生产树，加一棵只存在于实验室的对照档 <code>sidebar-official</code>（同一份 block list、只是不装自有工作区树插件，用来把自有树与官方浏览区逐项对照）。</p>
 
-<h2>0. 整个系统就四层</h2>
-
-<div class="layer host"><b class="tag">第 1 层</b><b>VS Code 扩展宿主（Node）</b> —— 负责把面板搭起来
-  <p>你在命令面板点「打开装配对话区」之后，这一层做四件事：确保网关已经在跑；用 token 换来登录 cookie；向网关要一份官方插件清单，把不要的两个插件从清单里划掉、把我们自己的外框插件加进去；最后生成本地转发服务器（loopback 代理）和面板页面，把页面塞进 webview。</p>
+<div class="layer host"><b class="tag">第 1 层</b><b>VS Code 扩展宿主（Node）</b> —— 把面板搭起来
+  <p>你在命令面板点「打开装配」之后（或侧栏/设置被打开时），这一层做六件事：确保网关在跑（没有就启动或复用，绝不碰别人正在用的实例）；用 token 换登录 cookie；带 cookie 请求网关首页，取出官方 <code>__DSH_BOOT__</code> 清单与前端资产名；按该树的 block list 过滤清单、把自有插件加进去；起 loopback 代理；生成装配页 HTML 塞进 webview。</p>
   <table>
     <tr><th>文件</th><th>它负责什么</th></tr>
-    <tr><td><code>src/ui/assemblyView.ts</code></td><td>命令入口和面板生命周期：什么时候开、什么时候关、关的时候把本地服务器一并收掉</td></tr>
-    <tr><td><code>src/server/serverAuth.ts</code></td><td>登录凭证：dsh 每次启动会发一个一次性 token，拿它去网关换成 cookie，后续请求都靠这个 cookie 证明身份</td></tr>
-    <tr><td><code>src/ui/assembly/wireFilter.ts</code></td><td>清单过滤：一份纯函数，输入官方清单，输出「删了两个插件、加了外框插件」的新清单，带单测</td></tr>
-    <tr><td><code>src/ui/assembly/pageHtml.ts</code></td><td>生成装配页的 HTML：官方约定的四个全局对象、安全策略、传输桥、诊断探针都在这里面注入</td></tr>
+    <tr><td><code>src/ui/assemblyView.ts</code></td><td>三个页面的宿主侧：命令与容器、面板生命周期（单例/会话标签页、重载后恢复）、清单与代理的准备、版本门、主题广播、预热</td></tr>
+    <tr><td><code>src/server/manager.ts</code></td><td>dsh web 进程生命周期：re-own（reload 后认领）、复用探测、spawn、就绪轮询、健康检查、局域网开关</td></tr>
+    <tr><td><code>src/server/serverAuth.ts</code></td><td>登录凭证：拿一次性 token 换成 cookie，后续请求都靠它证明身份</td></tr>
+    <tr><td><code>src/ui/assembly/wireFilter.ts</code></td><td>清单过滤：纯函数，输入官方清单与一棵树的 block list，输出「删掉这些、加上自有插件」的新清单，带单测</td></tr>
+    <tr><td><code>src/ui/assembly/pageHtml.ts</code></td><td>生成装配页 HTML：<code>__DSH_BOOT__</code>、<code>__DSH_TRANSPORT__</code>、<code>__ModuleLoader__</code> 门面、探针、失败提示条都在这里注入</td></tr>
   </table>
 </div>
 
-<div class="layer proxy"><b class="tag">第 2 层</b><b>loopback 代理</b> —— webview 和网关之间的「翻译兼保镖」
-  <p>webview 里的页面不能直接连网关：登录 cookie 带不过去，网关还会检查请求来源（只有它认的来源才放行）。所以在 127.0.0.1 上起一个只存在于你电脑里的转发服务器：页面的所有请求先发给它，由它<b>代为附上 cookie、把请求来源改写成网关认可的写法</b>，再转给网关；响应原路返回。面板关掉，它就消失。</p>
+<div class="layer proxy"><b class="tag">第 2 层</b><b>loopback 代理（<code>src/server/assemblyMirror.ts</code>）</b> —— webview 与网关之间的翻译兼保镖
+  <p>webview 里的页面不能直接连网关：登录 cookie 带不过去，网关还会检查请求来源。所以在 127.0.0.1 上起一个只存在于本机的转发服务器，页面的请求先发给它，由它附上 cookie、把请求来源改写成网关认可的写法，再转给网关。同一窗口同一网关地址只有一个代理实例（引用计数），最后一个面板关掉才消失。</p>
   <table>
     <tr><th>它干的事</th><th>为什么要这么做</th></tr>
-    <tr><td>转发普通接口请求（<code>/api/*</code>）</td><td>附带登录 cookie；把请求来源（Origin）改写成网关自己；剥掉浏览器自动加的来源声明头（sec-fetch-*）——少了任何一步都会被网关当成可疑请求拒绝（403），这是我们踩过坑后修好的</td></tr>
-    <tr><td>转发实时数据流（WebSocket）</td><td>聊天过程中的流式输出、后台任务状态都走这条管道，转发时保持双向原样</td></tr>
-    <tr><td>过滤插件整包</td><td>网关把全部插件代码打包成一个大文件下发，还校验文件内容（改名单重新申请会直接 404）。所以我们的做法是：整包原样取回来，按每个插件代码段开头的标记切成一段一段，把 block list 里那两个插件的段删掉，剩下的拼好再给页面——网关完全不知道这回事</td></tr>
-    <tr><td>伺服我们自己的外框插件</td><td>它是 dsh-one 自己的代码，不从网关拿，直接读扩展目录下的文件</td></tr>
+    <tr><td>转发普通请求与实时数据流（<code>/api/*</code>、WebSocket 升级）</td><td>附登录 cookie；Origin / Referer 改写成网关自己的权威；剥掉浏览器自动加的 <code>sec-fetch-*</code>——少任何一步都会被网关的栅栏拒成 403，这是踩过坑后修好的</td></tr>
+    <tr><td>过滤插件整包（combo）</td><td>网关把全部插件代码拼成一个大文件并校验内容，改名单重新申请直接 404。所以做法是：整包原样取回来，按每段开头的 <code>window.__ModuleLoader__.load({</code> 切开，删掉 block list 里的段，拼好再给页面——网关完全不知道这回事</td></tr>
+    <tr><td>过滤插件事件流（<code>/plugins-local/events</code>）</td><td>官方前端自己开会拉一条事件流，每帧带的是<b>未过滤的全量</b>插件名单；0.1.6-alpha.2 起客户端会采纳它，不过滤就会把挡掉的官方插件装回来、把我们自己的插件条目卸掉，整页白。所以页面把那条流改道到这里，逐帧跑同一个过滤函数</td></tr>
+    <tr><td>伺服我们自己的插件产物</td><td>它们是 dsh-one 自己的代码，不从网关拿，直接读扩展目录下的文件（<code>dist/assembly/plugins/**</code>）</td></tr>
   </table>
 </div>
 
 <div class="layer page"><b class="tag">第 3 层</b><b>webview 页面</b> —— 官方组件的运行地（注意：不是 iframe，是顶层页面）
-  <p>这一层几乎全是官方代码在跑。页面加载时，官方主程序（WebBoot）按照清单把插件一个个装起来、建好组件运行环境（cordis 插件树）、最后把界面渲染到页面上。我们唯一的作品是 <b>外框插件</b>（约 4KB），它做三件官方外框才会做的事：</p>
-  <ol class="seq">
-    <li><b>搭骨架</b>：官方界面需要一个「根外框」来安放各个区域。我们的根外框只留一个区域——对话区。官方侧栏插件虽然也被加载了，但骨架上没给它留位置，它就没地方出现，这就是「没有侧栏」的实现方式：不是藏起来，是根本没给它留槽位。</li>
-    <li><b>补一个最小服务</b>：官方聊天组件硬性依赖一个叫 layout 的服务（管理侧栏/详情面板的开关）。我们提供一个只做必要动作的替代品，官方组件照常工作。</li>
-    <li><b>涂颜色</b>：主题颜色由一个叫 ThemePresenter 的部件写到页面上，它原来住在被过滤掉的官方外框插件里。不过滤它就没有颜色；过滤了它就必须由我们补上——这是我们复刻进外框插件的。</li>
-  </ol>
-  <p>页面上还有一颗「诊断探针」（只在 VS Code 环境里激活）：它把控制台的报错、键盘点击事件、网络桥的动向转发到 VS Code 的输出面板，方便排查「只在 VS Code 里才出现」的问题。在普通浏览器里它完全不启动。</p>
+  <p>这一层几乎全是官方代码在跑：官方的模块加载器接管后建立组件运行环境（cordis 插件树），按清单把插件一个个装起来，我们的 frame 插件注册 <code>root</code> slot 并渲染整页。我们的作品只有那一组自有插件：三个 frame 插件（搭骨架、提供官方要的 layout 服务、把主题落到页面）、主题跟随、会话启动注入与上报、设置齿轮、会话桥，以及工作区树、git 卡片、右键菜单、清空件、会话导出这几件可移植件。</p>
+  <p>页面上还有一颗<b>诊断探针</b>（只在 VS Code 环境里激活）：把控制台的报错、网络桥的动向转发到 VS Code 的输出面板，方便排查「只在 VS Code 里才出现」的问题。普通浏览器里它完全不启动。另有一条<b>失败提示条</b>：官方渲染器故意让装配错穿出所有边界并卸掉整棵界面，页面运行时发现「起过内容、又连续两拍一个可见的盒都没有」就落一行说明加一个重载入口，页面好着的时候一个字节不动。</p>
 </div>
 
 <div class="layer gw"><b class="tag">第 4 层</b><b>dsh 网关</b> —— 你日常在用的那个实例（比如 3080 端口），一行没改
-  <p>它照常提供四样东西：首页（里面带着官方插件清单）、插件整包、普通接口、实时数据流（WebSocket）。浏览器直接打开它，看到的就是完整的官方界面——这就是「双前端」的另一半。</p>
+  <p>它照常提供四样东西：首页（带 <code>__DSH_BOOT__</code> 清单与前端资产）、插件整包、普通接口、实时数据流。浏览器直接打开它看到的就是完整官方界面——这就是「双前端」的另一半。</p>
 </div>
 
-<h2>1. 打开面板时，依次发生什么</h2>
+<h2>1. 打开一个装配页，依次发生什么</h2>
 <ol class="seq">
-  <li>你点「打开装配对话区」，扩展先确认网关活着（没有就按老规矩启动或复用，绝不碰别人正在用的实例）。</li>
+  <li>命令或侧栏被打开，扩展先确认网关活着（没有就按老规矩启动或复用）。</li>
   <li>拿 token 向网关换出登录 cookie。</li>
-  <li>带 cookie 请求网关首页，从返回的 HTML 里取出官方插件清单。</li>
-  <li>过滤清单：删掉官方外框和官方侧栏两个插件，加上我们自己的外框插件。</li>
-  <li>起 loopback 代理，生成装配页，开面板。</li>
-  <li>页面开始加载：先装官方提供的「模块加载器」，再由官方主程序接管。</li>
-  <li>官方主程序建组件运行环境，按清单把 44 个插件逐个装起来（插件代码经代理拿：官方插件走过滤后的整包，我们的外框插件走本地文件）。</li>
-  <li>全部装好后，界面渲染出来：我们的骨架上，官方对话区组件接管主区域。</li>
-  <li>官方自带的启动逻辑开始工作：自动恢复你上次聊的会话，或者连上最近用的工作区新开一个——输入框随即可用。</li>
+  <li>带 cookie 请求网关首页，从返回的 HTML 里取出官方清单与前端资产名。</li>
+  <li>按这棵树的 block list 过滤清单，把该树的自有插件加进去。</li>
+  <li>取共享的 loopback 代理（没有就起一个），生成本地整包 URL——它是过滤版官方整包 + 我们自己的 bundle 的拼接，URL 里的版本号同时代表这两半内容（这是 webview 的缓存键）。</li>
+  <li>生成装配页并开面板。</li>
+  <li>页面加载：官方 <code>__ModuleLoader__</code> 门面就位 → 阻塞的 bootstrap 脚本起来 → 主 bundle 按清单装插件（官方插件从代理拿过滤后的整包，我们的插件从本机文件拿）。</li>
+  <li>我们的 frame 插件注册 <code>root</code>，界面渲染出来；它声明的那些座（按树而定：对话区的会话面板座与右列座、侧栏位、全宽悬浮层）随之生效，官方那些件照常注册进来。</li>
+  <li>官方启动逻辑接着工作：恢复上次的会话，或连上最近的工作区新开一个；要注入某个会话时由我们的会话启动插件把它打开并上报。</li>
 </ol>
 
 <h2>2. 发一条消息，数据怎么走</h2>
 <div class="flow">
   <div class="node"><b>你在输入框打字（官方组件）</b>回车发送</div>
-  <div class="arr"><span>→</span>普通接口请求<br>（网络桥转给代理）</div>
-  <div class="node"><b>loopback 代理</b>附上 cookie、改写好来源头</div>
+  <div class="arr"><span>→</span>普通请求<br>（页面里被改写到代理）</div>
+  <div class="node"><b>loopback 代理</b>附 cookie、改写好来源头</div>
   <div class="arr"><span>→</span></div>
   <div class="node"><b>网关</b>收到消息，开始执行这一轮</div>
 </div>
 <div class="flow">
-  <div class="node"><b>回复过程中的每一个增量</b>文字片段、工具调用卡、需要审批的询问</div>
-  <div class="arr"><span>←</span>实时数据流<br>（WebSocket）</div>
+  <div class="node"><b>回复过程中的每一个增量</b>文字片段、工具卡、需要审批的询问</div>
+  <div class="arr"><span>←</span>实时数据流</div>
   <div class="node"><b>loopback 代理</b>双向转发，原样不动</div>
   <div class="arr"><span>←</span></div>
   <div class="node"><b>官方消息流组件</b>边收边渲染，你看着回复逐字出现</div>
 </div>
-<p>整条链路上渲染消息的全是官方代码——我们只是给它换了一个住处的骨架，并把两个不需要的插件留在了门外。</p>
+<p>整条链路上渲染消息的全是官方代码——我们只是给它换了一个住处的骨架，并把几个不需要的件留在了门外。</p>
 
-<h2>3. 怎么验证它没问题（两道验证）</h2>
+<h2>3. 怎么验证它没问题（四道）</h2>
 <table>
   <tr><th>验证</th><th>怎么做</th><th>管什么用</th></tr>
-  <tr><td><b>浏览器验证</b></td><td>用 Playwright 开普通浏览器加载同一个装配页，自动跑断言</td><td>快、自动化，是第一道关：界面渲染对不对、有没有报错、侧栏是不是真的没了、能不能输入发送</td></tr>
-  <tr><td><b>VS Code 验证</b></td><td>起隔离的 VS Code 窗口真实加载扩展，人在窗口里操作</td><td>最终准绳。webview 里才有的一些差异（跨来源请求、安全策略执行、焦点行为）只有这里能验</td></tr>
+  <tr><td><b>上游探针</b></td><td><code>node scripts/dsh-upstream-watch/probe.mjs</code>（CI 每日自动跑，22 项）</td><td>官方那些名字还在不在：wire 协议、网关首页的启动契约、整包端点、Origin 栅栏、整包里的 slot / hook / 字段名、本机官方包里的内部标识符。坏了当天就在 issue 里报出来</td></tr>
+  <tr><td><b>浏览器验证</b></td><td><code>npm run verify:lab</code>：实验室自己起一台隔离的 dsh（临时数据目录、随机端口），用 Playwright 开四棵树跑断言</td><td>装起来活不活：零槽位崩溃、零装载未激活、关键槽位有内容、四棵树零 fiber 失败、block list 的每个 id 都在当天清单里找得到。改装配相关代码后必跑；接新版本用 <code>npm run verify:lab-version &lt;版本&gt;</code></td></tr>
+  <tr><td><b>官方页面真机</b></td><td><code>npm run verify:plugins-official</code>：隔离的数据目录与 profile 里把自有插件包装进去，用 Playwright 开<b>官方页面本身</b></td><td>可移植插件在官方那边真的加载并工作（改插件包之后必跑）</td></tr>
+  <tr><td><b>VS Code 验证</b></td><td><code>scripts/dev-ui-test.sh</code> 起隔离的 VS Code 窗口，人在窗口里操作</td><td>最终准绳。webview 宿主层才有差异的部分（剪贴板、原生菜单、多 webview 生命周期）只有这里能验</td></tr>
 </table>
-<div class="note warn"><b>为什么强调两道都要</b>：我们翻过两次车，都是浏览器验证全绿、一进 VS Code 就坏。两次的根子都是同一个——普通浏览器里页面和转发服务器算「同来源」，问题被掩盖；webview 里算「跨来源」，问题才暴露（一次是传输桥的请求被网关拒绝，一次是浏览器来源声明头被网关误读）。所以跨来源环境的回归断言现在常驻在自动化里。</div>
+<div class="note warn"><b>为什么浏览器验证之外还要真机</b>：我们翻过两次车，都是浏览器验证全绿、一进 VS Code 就坏——普通浏览器里页面与转发服务器算「同来源」，问题被掩盖；webview 里算「跨来源」才暴露（一次是传输桥的请求被网关拒绝，一次是浏览器来源声明头被网关误读）。那两条现在都有常驻断言。反过来，探针看不见「名字一个没少、语义变了」这一类：0.1.6-alpha.2 上客户端契约面全绿，可页面整棵渲染不出来（官方把插件名单的下发方式改了），这一类只由实验室抓。</div>
 
 <h2>4. 代码都在哪</h2>
 <table>
-  <tr><th>文件</th><th>在哪一层</th><th>一句话说明</th></tr>
-  <tr><td><code>src/ui/assemblyView.ts</code></td><td>宿主</td><td>命令入口、面板开关、取清单和过滤的编排</td></tr>
-  <tr><td><code>src/ui/assembly/pageHtml.ts</code></td><td>宿主（生成页面）</td><td>装配页的 HTML：四个全局、安全策略、传输桥、探针</td></tr>
-  <tr><td><code>src/ui/assembly/wireFilter.ts</code></td><td>宿主</td><td>清单过滤，纯函数，有单测</td></tr>
-  <tr><td><code>src/ui/assembly/probe.ts</code></td><td>页面</td><td>诊断探针，只在 VS Code 环境激活</td></tr>
-  <tr><td><code>src/ui/assembly/shell/chatLayoutPlugin.ts</code></td><td>页面（我们的插件）</td><td>骨架（根外框）、layout 服务替代品、主题着色</td></tr>
-  <tr><td><code>src/server/assemblyMirror.ts</code></td><td>代理</td><td>本地转发服务器：接口转发、数据流转发、插件整包过滤、伺服自有外框插件</td></tr>
-  <tr><td><code>src/server/serverAuth.ts</code></td><td>宿主</td><td>token 换登录 cookie</td></tr>
-  <tr><td><code>dist/assembly/plugins/@dsh-one/vscode-chat-ui-layout/</code></td><td>构建产物</td><td>对话区外框插件打包后的样子（约 4KB）</td></tr>
+  <tr><th>路径</th><th>在哪一层</th><th>一句话说明</th></tr>
+  <tr><td><code>src/ui/assemblyView.ts</code></td><td>宿主</td><td>三个页面的命令、面板生命周期、清单与代理的准备、面板恢复</td></tr>
+  <tr><td><code>src/ui/assembly/trees.ts</code> / <code>wireFilter.ts</code></td><td>宿主</td><td>三棵树的定义；清单过滤（纯函数，有单测）</td></tr>
+  <tr><td><code>src/ui/assembly/pageHtml.ts</code> / <code>probe.ts</code> / <code>failureNotice.ts</code> / <code>hostSdk.ts</code> / <code>hostBridge.ts</code></td><td>宿主与页面之间</td><td>装配页生成、诊断探针、失败提示条、页面侧的宿主调用 SDK 与宿主侧的白名单实现</td></tr>
+  <tr><td><code>src/server/assemblyMirror.ts</code></td><td>代理</td><td>loopback 代理：接口与数据流转发、整包过滤、事件流过滤、伺服自有插件产物</td></tr>
+  <tr><td><code>src/ui/assembly/shell/*.ts</code></td><td>页面（我们自己的插件源码）</td><td>只能用在我们 shell 里的 <code>@dsh-one/vscode-*</code>：三个 frame 插件、主题跟随、会话启动注入、会话桥、设置齿轮、外链捕获</td></tr>
+  <tr><td><code>packages/dsh-*/</code></td><td>页面（可移植插件，官方格式的 npm 包）</td><td>工作区树、git 卡片、右键菜单、清空件、会话导出；另有宿主半 <code>dsh-host-capabilities</code> 与私有的共用件 <code>dsh-plugin-kit</code></td></tr>
+  <tr><td><code>dist/assembly/plugins/&lt;插件 id&gt;/client.js</code></td><td>构建产物</td><td>自有插件打包后的样子（构建生成，不入库）</td></tr>
 </table>
 
-<h2>5. 审阅要点：六个关键决策，以及当初为什么没有选别的</h2>
+<h2>5. 审阅要点：关键取舍与被否掉的备选</h2>
 <table>
   <tr><th>我们选了什么</th><th>为什么</th><th>当初没选什么、为什么放弃</th></tr>
-  <tr><td>插件清单用减法：只列「不要什么」（block list，目前就两条）</td><td>dsh 以后升级、加新插件，我们这边自动跟上，不用每次手动维护清单</td><td>静态白名单（提前挑好要哪些）：dsh 一更新我们就滞后，还得维护二十来个精确版本号；npm 上的版本号和 dsh 自带的也对不齐</td></tr>
-  <tr><td>在转发服务器上过滤插件整包（整包取回、删掉不要的两段、拼好再给页面）</td><td>实测发现网关校验整包内容：请求里改插件名单会直接被拒（404），所以只能整包拿回来再删段</td><td>改名单重新申请整包：404；给 dsh 配一个禁用这两个插件的专属配置：会导致同一个网关上官方界面也打不开，违背「官方界面照常能用」的前提（这是你拍板否掉的）</td></tr>
-  <tr><td>自己写一个小插件（外框插件）顶替官方外框</td><td>官方这套组件本来就支持换骨架；实测把官方外框拿掉后，聊天组件会因为缺一个服务直接报错起不来——所以必须有人顶上，而 VS Code 里能用的骨架只有我们自己写</td><td>用官方外框但把侧栏藏起来（#60 的老做法）：藏的办法是一堆取巧的补丁，官方界面一更新补丁就可能失效，已废弃</td></tr>
-  <tr><td>由转发服务器剥掉浏览器自动加的来源声明头（sec-fetch-*）</td><td>网关会检查来源，而浏览器替我们声明的来源（「我来自另一个网站」）会被网关当成不可信请求直接拒绝。转发服务器是受网关信任的自己人，由它转发时把这些声明去掉就对了</td><td>在页面代码里改请求头：浏览器出于安全禁止修改这类头；放宽页面安全策略：治标不治本</td></tr>
-  <tr><td>官方前端代码一律现场从网关取，不打包进扩展</td><td>版本永远和正在跑的 dsh 一致；扩展安装包几乎不增大（净增约 4KB）</td><td>把官方前端代码打包进 dsh-one：安装包多 7MB，版本一旦错位就会出怪问题，每次 dsh 升级还得跟着发新版</td></tr>
-  <tr><td>传输用「双通道」：普通请求和数据流分开处理，都指向转发服务器</td><td>webview 的页面来源（vscode-webview://）下，官方客户端按默认方式连网关会失败；我们接管这两条线，统一指向转发服务器</td><td>让页面和转发服务器同源（浏览器验证时的形态）：webview 里做不到</td></tr>
+  <tr><td>清单用减法：只列「不要什么」（一树一份 block list）</td><td>官方升级加新插件我们自动跟上，不必跟着维护长名单；新增条目的理由都写在 <code>wireFilter.ts</code> 的注释里</td><td>静态白名单（提前挑好要哪些精确版本）：官方一更新我们就滞后，还得跟着维护版本号</td></tr>
+  <tr><td>在代理上过滤整包（整包取回、删段、拼好再给页面）</td><td>实测网关校验整包内容，请求里改插件名单会直接被拒（404），所以只能整包拿回再删段</td><td>改名单重新申请整包：404；给 dsh 配一个只禁用这几个件的专属配置：同一个网关上的官方界面也会跟着坏，违背「官方界面照常能用」的前提</td></tr>
+  <tr><td>自己写 frame 插件顶替官方外框</td><td>官方这套组件本来就支持换骨架；把官方外框拿掉后，别的官方件仍要 root 子槽声明、layout 服务与 <code>panelInfo</code> 钩子，这些由我们的 frame 提供</td><td>「加载官方外框 + 只遮蔽它的 root slot」：实测三条硬约束让它不可行（root 子槽声明是排他的、渲染授权按条目算、服务提供点在同一隔离域唯一），遮蔽后契约全活着但没人渲染，页面还是空白</td></tr>
+  <tr><td>官方件里能留的都留，只挡两类：与 VS Code 容器撞形态的、这棵树声明不了它槽位的</td><td>保留官方给用户的能力，只收敛与容器冲突的呈现；槽位声明不了的件留在清单里只是白背一个 id 依赖，摘掉才是对的</td><td>按「我们用不上」就挡：等于替官方裁剪功能，用户会少掉他自己装的东西</td></tr>
+  <tr><td>由代理剥掉浏览器自动加的 <code>sec-fetch-*</code></td><td>网关会检查来源，而浏览器替我们声明的「我来自另一个站点」会被当成不可信请求拒掉；代理是受网关信任的自己人，转发时去掉这些声明就对了</td><td>在页面代码里改请求头：浏览器出于安全禁止修改这类头</td></tr>
+  <tr><td>官方前端代码一律现场从网关取，不打包进扩展</td><td>版本永远和正在跑的 dsh 一致，扩展安装包也不跟着变大</td><td>把官方前端打包进 dsh-one：安装包变大，版本一旦错位就出怪问题，每次 dsh 升级还得跟着发新版</td></tr>
+  <tr><td>整包 URL 里带两半内容的版本号</td><td>这条 URL 就是 webview 的缓存键（24h 长缓存）：只带官方那半时，我们重建自己的插件 bundle 不改 URL，webview 会一直吃旧缓存，改了界面也看不到</td><td>只按网关版本做键：就是我们踩过的那次坑；一律禁用缓存：每个新标签页都要重下整个整包</td></tr>
+  <tr><td>传输用「双通道」：普通请求与数据流分开处理，都指向代理</td><td>webview 的页面源与网关不同，官方客户端按页面源寻址会打空；我们在页面里提供官方预留的传输 seam，把两条通道显式指向代理</td><td>让页面与代理同源（浏览器验证时的形态）：webview 里做不到</td></tr>
 </table>
 
-<h2>6. 已知边界和接下来的路</h2>
+<h2>6. 已知边界</h2>
 <ul>
-  <li><b>侧栏点会话还没接上（M2）</b>：现在在装配面板里开会话靠它自己恢复；下一步做「在 dsh-one 自己的会话列表里点一下，装配面板就打开那个会话」。</li>
-  <li><b>主题跟随是半吊子</b>：面板打开时按当前主题定色，之后你在 VS Code 里切主题，它不会实时跟着变（列入 M2）。</li>
-  <li><b>面板刷新后要重新打开</b>：VS Code 窗口 reload 后面板不自动恢复（列入 M2）。</li>
-  <li><b>更远的两条线</b>：#65 把 dsh-one 特有的功能（git 卡片、会话引用）做成官方格式的插件挂进来；#66 梳理哪些我们自己的组件可以回馈给官方生态。</li>
-  <li><b>体积</b>：装配相关让扩展安装包净增约 4KB（就是外框插件）；官方前端代码全部现场从网关取。</li>
-  <li><b>版本门</b>：如果网关的 dsh 版本和我们测试过的范围不符，页面顶部会出一条提示，功能照常能用。</li>
+  <li><b>官方 web 侧少几个入口是故意的</b>：编辑器标签页、独立设置页、建目录后接着开会话、编辑器窗口与集成终端这些能力在官方 web 上不存在，那些入口在那儿不渲染——不是漏配。</li>
+  <li><b>装配页与官方页同处境，没有 CSP</b>：宿主那层没有 CSP（查过生成页面与 wrapper 的实现），装配页因此也去掉了自带的策略，换来「第三方插件卡片在两边表现一致」；代价是失去脚本注入防护，页面里跑的东西与官方页相同。</li>
+  <li><b>block 官方外框的代价</b>：root 契约（子槽声明表、layout 服务、主题呈现、<code>panelInfo</code> 钩子）由我们提供，官方改这些得靠实验室的契约套件先炸，而不是用户撞见。</li>
+  <li><b>版本门只提示不阻断</b>：装配页期望 dsh 在 <code>[0.1.2-rc.1, 0.2.0)</code> 区间内，区间外只在页面顶部出一条信息条，功能照常可用。</li>
+  <li><b>局域网访问默认关闭</b>：开着的时候，同一局域网内拿到带 token 链接的人都能用这台机器上的 dsh（包括跑命令），所以默认不开、状态栏随时可切回本机。</li>
 </ul>
 
+<h2>7. 历史材料</h2>
+<p>仓库里还留着一张 2026-09-14 画的装配架构总图（<code>docs/assembly-architecture-diagram.png</code>），那是 <code>develop/cordis-chat</code> 验证线上 <code>#64</code> M1 的形态：当时只有对话区一棵树、block list 两条、外框插件还叫 <code>@dsh-one/vscode-shell</code>，图里写着「旧前端不动」「44 个插件」。这些说法今天都不成立了（三棵树、外框插件已改名、旧自研侧栏已摘钩、前端插件数量随版本变），那张图只作历史留档，不要拿它当现状；现状看本文与 <code>docs/architecture.md</code>。</p>
+
 <footer>
-  依据：<code>src/ui/assembly*/</code>、<code>src/server/assemblyMirror.ts</code> 的实际代码，#63 的可行性验证结论，#64 各轮验证记录。
-  相关文档：上游依赖总表 <code>docs/upstream-dependency-audit.html</code>；术语标准见 AGENTS.md 词表。
+  依据：<code>src/ui/assembly/**</code>、<code>src/server/assemblyMirror.ts</code>、<code>src/ui/assemblyView.ts</code>、<code>packages/dsh-*/</code> 的实际代码（2026-09-20 核实）。
+  相关文档：架构与依赖面详版 <code>docs/architecture.md</code>；上游依赖面与逐版本测试项 <code>docs/dsh-compat-checklist.md</code>；自有插件包 <code>docs/plugin-packages.md</code>；开发流程 <code>docs/development.md</code>；术语标准见 AGENTS.md 词表。
 </footer>
 
 </body>
