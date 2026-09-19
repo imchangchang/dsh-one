@@ -291,19 +291,22 @@ test('切块：空组不占位、未归组的殿后；组内置顶 = 在该组�
   assert.deepEqual(split.ungrouped, [])
 })
 
-test('切块：预设组没有成员也出块（恒占位），自建组空着不出现', () => {
+test('切块：#214 空组一律不占位（预设组也一样），有成员才出块', () => {
   const bucket = withPresetTagGroups(bucketOf(['A:s2', 'B:']))
   const sessions = [node('s1'), node('s2'), node('s3')]
   const split = splitByTagGroups(sessions, bucket, () => false)
-  // t-A 有成员 → 出块；t-B 空着 → 不出；三个预设组无论有没有成员都在。
-  assert.deepEqual(split.blocks.map((block) => block.def.id), ['t-A', ...PRESETS])
+  // t-A 有成员 → 出块；t-B 空着 → 不出；三个预设组也空着 → 一个都不出（不再各占一行）。
+  assert.deepEqual(split.blocks.map((block) => block.def.id), ['t-A'])
   assert.deepEqual(split.blocks[0]?.sessions.map((item) => item.id), ['s2'])
-  assert.deepEqual(split.blocks.slice(1).map((block) => block.sessions.length), [0, 0, 0])
   assert.deepEqual(split.ungrouped.map((item) => item.id), ['s1', 's3'])
-  // 归进预设组的会话照样落在那个块里。
+  // 「空着不渲染」不等于「没了」：三个预设组照旧在视图桶里——「移到分组…」的清单就是这份 tags。
+  assert.deepEqual(bucket.tags.map((tag) => tag.id), ['t-A', 't-B', ...PRESETS])
+  // 往预设组里归一条 → 它立刻出块（有成员才出块 ≠ 预设组出不了块）。
   const assigned = setSessionTagGroup(bucket, 's1', 'preset-doing')
+  const assignedSplit = splitByTagGroups(sessions, assigned as TagGroupBucket, () => false)
+  assert.deepEqual(assignedSplit.blocks.map((block) => block.def.id), ['t-A', 'preset-doing'])
   assert.deepEqual(
-    splitByTagGroups(sessions, assigned as TagGroupBucket, () => false).blocks.find((block) => block.def.id === 'preset-doing')?.sessions.map((item) => item.id),
+    assignedSplit.blocks.find((block) => block.def.id === 'preset-doing')?.sessions.map((item) => item.id),
     ['s1'],
   )
 })

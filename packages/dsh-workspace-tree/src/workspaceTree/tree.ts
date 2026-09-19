@@ -1207,6 +1207,10 @@ export function WorkspaceTree(props: TreeProps): unknown {
    * 用**视图桶**（#213）：三个预设组恒在这份清单里（名字走 l10n），任何一条会话都能直接
    * 归进它们——这正是旧侧栏 `presetTagSnapshots` 要保证的那件事。`current` 取自真实桶：
    * 归属本来就只有一份（指向预设组还是自建组在这里没有分别）。
+   *
+   * **这一节是空预设组唯一的入口**（#214 起空组不渲染成块、也就没有拖入落点）：所以这里
+   * 用视图桶这件事不能顺手改成真实桶——那样三个预设组在没成员的 workspace 里就彻底没了。
+   * 常驻断言 = F-64 的「移到分组…」清单里三个预设组恒在（含一个自定义组都没有的 workspace）。
    */
   const tagItemsFor = (sessionId: string): { items: unknown[]; selectedIds: string[] } => {
     const groupKey = groupKeyOfSession(sessionId)
@@ -1477,7 +1481,8 @@ export function WorkspaceTree(props: TreeProps): unknown {
             orderedGroups.map((group) => {
               const split = splitByTagGroups(
                 group.sessions,
-                // #213：视图桶——三个预设组恒在（没有成员也出块，是用户往里拖会话的落点）。
+                // #213：视图桶——三个预设组恒在。**空组不出块**（#214）：预设组没有成员时
+                // 不渲染组头、也就没有拖入落点，它的入口是会话行菜单的「移到分组…」。
                 tagViewBucket(group.key),
                 (node) => pinnedIds.has(node.id),
               )
