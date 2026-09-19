@@ -125,7 +125,7 @@
 | 未读标记（绿点 + 加粗） | `sessionsWebview.ts:2404`、`2438` | `pure/workspaceTreeView.ts:444`、`rows.ts:1221` | 一致 |
 | 清未读的时机 | 会话被宿主的对话 tab **打开**那一刻清（`sessionsStore.ts:1345-1363`，邮件语义） | 在侧栏里**打开**这条会话时清（`tree.ts:341-344`） | 不同（触发点不同，结果接近） |
 | 标签组块（pill + 贯穿竖线 + 组内缩进） | `sessionsWebview.ts:1975-2012`、`sessionsView.ts:581-634` | `tagGroups.ts:223-445`、`styles.ts:501-545`（#122 回到旧规格） | 一致 |
-| 内置三组（待办 / 进行中 / 已完成） | 每个工作区 seed：`pure/sessionTags.ts:13-20`、`sessionsStore.ts:2146` | 迁入时丢弃：`pure/sessionTagGroups.ts:24-28`、`52`、`106` | 缺（有意：#98/#107 定了不恢复那套） |
+| 内置三组（待办 / 进行中 / 已完成） | 每个工作区 seed：`pure/sessionTags.ts:13-20`、`sessionsStore.ts:2146`（内置组也能改名 / 换色） | **已恢复（#213）**：三个预设组恒在（渲染用的视图桶由 `pure/sessionTagGroups.ts` 的 `withPresetTagGroups` 恒补，持久数据里不预写；旧文件里 `preset-*` 的定义与归属照常收下）、名字走 l10n、**不可删、不可改名**、颜色可改 | 存在性一致（#213 把 #98/#107 的「迁入时丢弃」反过来）；改名不同（旧可改、现不可改） |
 | 拖会话入组 / 拖到组外移出 | `sessionsWebview.ts:2016-2052`、`1571`（MIME `text/dsh-session`） | `tagGroups.ts:193-210`、`411-435`、`tree.ts:973-984`（同一对 MIME 名） | 一致 |
 | 拖 pill 换组序（含插入指示线） | `sessionsWebview.ts:2059-2110`（MIME `text/dsh-tag`） | `tagGroups.ts:289-318`、`tree.ts:987-994` | 一致 |
 | 空组自动清理 | 有：`sessionsStore.ts` 的 `pruneEmptyCustomTags`（在 `moveToRecycleBin` / `moveToRecycleBinMany` 里**当场**调，判据 = 在基线里 ∧ 不在回收站） | 有：`tree.ts` 的空组清理 + `pure/sessionTagGroups.ts` 的 `pruneTagGroups`（判据由调用方给；#216 起与旧侧栏一致：在基线里 ∧ 不在归档 ∧ **不在回收站**，回收站集合一变就当场重跑） | 一致（#216 对齐） |
