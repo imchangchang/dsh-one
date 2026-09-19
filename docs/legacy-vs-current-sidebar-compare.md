@@ -128,7 +128,8 @@
 | 内置三组（待办 / 进行中 / 已完成） | 每个工作区 seed：`pure/sessionTags.ts:13-20`、`sessionsStore.ts:2146` | 迁入时丢弃：`pure/sessionTagGroups.ts:24-28`、`52`、`106` | 缺（有意：#98/#107 定了不恢复那套） |
 | 拖会话入组 / 拖到组外移出 | `sessionsWebview.ts:2016-2052`、`1571`（MIME `text/dsh-session`） | `tagGroups.ts:193-210`、`411-435`、`tree.ts:973-984`（同一对 MIME 名） | 一致 |
 | 拖 pill 换组序（含插入指示线） | `sessionsWebview.ts:2059-2110`（MIME `text/dsh-tag`） | `tagGroups.ts:289-318`、`tree.ts:987-994` | 一致 |
-| 空组自动清理 | 有：`sessionsStore.ts:1228-1240`（`pruneEmptyCustomTags`） | 有：`tree.ts:501-518`、`pure/sessionTagGroups.ts:301-315` | 一致 |
+| 空组自动清理 | 有：`sessionsStore.ts` 的 `pruneEmptyCustomTags`（在 `moveToRecycleBin` / `moveToRecycleBinMany` 里**当场**调，判据 = 在基线里 ∧ 不在回收站） | 有：`tree.ts` 的空组清理 + `pure/sessionTagGroups.ts` 的 `pruneTagGroups`（判据由调用方给；#216 起与旧侧栏一致：在基线里 ∧ 不在归档 ∧ **不在回收站**，回收站集合一变就当场重跑） | 一致（#216 对齐） |
+| 新建标签组的默认色 | 按**自建组数**在橙 / 紫 / 红里轮换（`pure/sessionTags.ts` 的 `nextCustomColor`，只看自建组、不看预设组） | 按 `TAG_COLORS` 顺序取第一个**本工作区还没被任何组占用**的颜色（预设组的当前颜色算占用；`pure/sessionTagGroups.ts` 的 `nextTagColor`，6 色全占用才回落按组数轮换） | 不同（#215 起判的是颜色而不是数量；都只给默认值，手选不受限） |
 | 标签组折叠态存在哪 | 标签组文件里（`sessionsStore.ts:1105-1111`） | 客户端存储：`pure/workspaceTreePrefs.ts:38-48`、`tagGroups.ts:82-84` | 不同（存储位置；用户不可感知） |
 
 ## A6. 回收站
