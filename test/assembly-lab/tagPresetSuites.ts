@@ -274,6 +274,14 @@ export const TAG_PRESETS_SUITE: LabSuite = {
         bare.length > 0 && bare.every((section) => PRESET_IDS.every((id) => section.pills.some((pill) => pill.id === id))),
         JSON.stringify(bare.map((section) => ({ key: section.key, pills: section.pills.map((pill) => pill.id) }))),
       )
+      // 未分组那个虚拟桶（分组键 = 空串）：播种数据里每条会话都属某个工作区，页面上不会
+      // 出现这个区块——按事实记下来，不拿它当断言（它走的是同一条渲染路径：`orderedGroups`
+      // 里每个分组都用同一个 `tagViewBucket(group.key)`）。
+      check.fact(
+        sections.some((section) => section.key === '')
+          ? '页面上有「未分组」区块，它的预设组也按上面那条一起判了'
+          : '页面上没有「未分组」区块（播种数据里每条会话都属某个工作区）——那一桶与工作区桶走同一条渲染路径',
+      )
 
       // ① 之三：名字对词典（zh / en 两份），相对顺序照模型。
       const namesOf = (section: SectionFact): string[] =>

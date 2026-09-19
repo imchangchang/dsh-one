@@ -5300,9 +5300,12 @@ export const SIDEBAR_MENUS_SUITE: LabSuite = {
         const expandedGroups = await sidebarMenuItems(page)
         const tagChildren = expandedGroups.items.filter((item) => item.marker.startsWith('tag:'))
         check.fact(`「移到分组…」展开后子项：${JSON.stringify(tagChildren.map((item) => ({ m: item.marker, t: item.text })))}`)
-        check.eqTexts('展开出本工作区的两个标签组（+ 不归入 + 新建）', tagChildren.map((item) => item.text), [
+        check.eqTexts('#213：展开出本工作区的两个自建标签组 + 三个预设组（+ 不归入 + 新建）', tagChildren.map((item) => item.text), [
           '组一',
           '组二',
+          '待办',
+          '进行中',
+          '已完成',
           '不归入标签组',
           '新建标签组',
         ])
