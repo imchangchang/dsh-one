@@ -1,13 +1,16 @@
 # 自有插件包：monorepo 结构、双端分发与官方 profile 安装（#73）
 
+本文对应 dsh-one 2.0.0；文中的实测读数与「真机实测」一节是 2026-09-16 在 dsh
+0.1.6-alpha.1 上跑出来的。
+
 这篇文档回答三个问题：自有插件怎么打成**官方格式的 npm 包**、同一个包怎么在
 VS Code 装配与官方 dsh web 两端都跑起来、以及怎么**实测**它真的在官方那边工作。
 
 ## 目标与结论（先看这一段）
 
 - dsh-one 里**能移植的插件**（`@dsh-one/dsh-*`）现在同时是**可安装的官方插件包**：
-  包住 `packages/<名>/`，`pnpm add file:packages/<名>` 或发布后的 `npm i` 能把它们
-  装进任意 dsh 实例的 profile。
+  包住 `packages/<名>/`，用官方的 `dsh plugin --profile <profile> add file:<包目录的绝对路径>`
+  就能把它装进任意 dsh 实例的 profile（包发布到 npm 之后，同一个命令直接写包名即可）。
 - **一次安装双端生效**：包进 profile 后，官方 web 直接加载它；VS Code 侧装配清单本就从
   同一个网关取（过滤 block list 后叠加自有插件），所以网关那边有的插件，VS Code 侧
   也自然出现。
@@ -73,23 +76,27 @@ packages/dsh-git-card/
                       #   sessionExport / workspaceTree 那几份；工作区树另有一个
                       #   src/workspaceTree/ 放行、工具栏、抽屉、样式等分件）
   src/index.ts        # 宿主半（本插件贡献全在浏览器侧，所以是空 apply）
-  lib/                # 构建产物（提交进仓库，与 dsh-host-capabilities 同一口径）
+  lib/                # 构建产物（不入库，由 `npm run build` 打出，见下面「构建」一节）
     client.js         #   官方 combo 格式的浏览器侧 bundle
     index.js          #   宿主半（ESM 单文件）
 ```
 
-三个可移植插件（提交卡 / 右键菜单 / 清空件）都要「在对话区容器上挂东西、向宿主请假」，
-这两件事的实现各只有一份，放在私有包 `packages/dsh-plugin-kit/` 里
-（`src/hostCapabilities.ts` 是宿主能力口、`src/mountPoints.ts` 是挂载点，
-`src/hostClient.ts` 是能力口底下的宿主调用通道）；各插件按 `@dsh-one/dsh-plugin-kit/hostCapabilities`
-这样的子路径取用，构建期由各插件自己的 bundle 各打一份进去。这个包 `private: true`
-且不发 npm，所以对装包链路是零影响——`lib/client.js` 依旧是自包含的。
+可移植插件要做的两件事——「在官方对话区容器上挂东西」与「向宿主请假」——各自的实现
+只有一份，都放在私有包 `packages/dsh-plugin-kit/` 里：
+`src/mountPoints.ts` 是挂载点（在官方对话区容器上挂东西——用它的有清空件、右键菜单、
+提交卡三个），`src/hostCapabilities.ts` 是宿主能力口（向宿主请假——用它的有提交卡、
+会话导出、工作区树三个），`src/hostClient.ts` 是能力口底下的宿主调用通道。
+各插件按 `@dsh-one/dsh-plugin-kit/mountPoints` 这样的子路径取用，构建期由各插件自己的
+bundle 各打一份进去。这个包 `private: true` 且不发 npm，所以对装包链路是零影响——
+`lib/client.js` 依旧是自包含的。
 
-发布的包只发产物（`files` 白名单只发 `lib/` 里的两个文件和补丁），源码不进 npm 包。
+发布的包只发产物（`files` 白名单只放 `lib/` 里的产物与补丁文件；`dsh-host-capabilities`
+是纯宿主半，只有 `lib/index.js` 一个），源码不进 npm 包。
 
 哪些件**不进** `packages/`：只能用在我们 shell 里的 `@dsh-one/vscode-*`（三棵树的
-外框、主题跟随、会话桥、设置齿轮）——它们要么渲染我们自己的外框，要么调 VS Code 宿主，
-拿到官方 web 里跑没有意义。它们照旧直接打成 `dist/assembly/plugins/<id>/client.js`。
+外框、主题跟随、会话选择桥、对话面板启动注入、设置齿轮）——它们要么渲染我们自己的外框，
+要么调 VS Code 宿主，拿到官方 web 里跑没有意义。它们照旧直接打成
+`dist/assembly/plugins/<id>/client.js`。
 
 ## 构建：一份产物，两端吃
 
@@ -162,7 +169,7 @@ node scripts/verify-plugins-official.mjs --keep   # 保留临时 HOME 与截图�
 
 | 线 | 验的是 | 跑法 |
 | --- | --- | --- |
-| **装配实验室** | **我们的装配页**（自有 shell + block list + 自有插件叠加）在真网关上装配得对不对 | `LAB_PORT=<空端口> npm run verify:lab` |
+| **装配实验室** | **我们的装配页**（自有 shell + block list + 自有插件叠加）在真网关上装配得对不对 | `npm run verify:lab`（要换实验室服务器端口时用 `LAB_PORT=<空闲端口>`；缺省先试 3179，被占用就自动退到随机端口） |
 | **官方 web 真机**（本文） | **官方页面**（官方全家桶 + 我们装进 profile 的包）加载与行为 | `npm run verify:plugins-official` |
 | **VS Code 验证** | webview 宿主层（剪贴板 / 原生菜单 / 多 webview 生命周期；#188 查实宿主不会给扩展页面施加 CSP，见 `docs/architecture.md`），最终准绳 | `scripts/dev-ui-test.sh`（只由人跑） |
 
@@ -185,9 +192,9 @@ node scripts/verify-plugins-official.mjs --keep   # 保留临时 HOME 与截图�
   清单已含同 id → 跳过叠加」还没实现，两端各自的产出一致（同一份源码），所以表现为
   「谁是有效的那份取决于装配清单」，而不是行为分叉。
 - **源内聚已做（#94）**：插件本体住在各自包内（`packages/<名>/src/`），包外没有第二份源；
-  三个可移植插件共用的挂载点与宿主能力口收在私有包 `packages/dsh-plugin-kit/`（不发布，
+  可移植插件共用的挂载点与宿主能力口收在私有包 `packages/dsh-plugin-kit/`（不发布，
   构建期打进各插件的 bundle）。仍留在 `src/ui/assembly/shell/` 的是只能用在我们 shell 里的
-  `@dsh-one/vscode-*`（外框、主题跟随、会话桥、设置齿轮）。
+  `@dsh-one/vscode-*`（外框、主题跟随、会话选择桥、启动注入、设置齿轮）。
 - **`src/pure/` 仍被插件包按相对路径引**（工作区树的推导、状态文件、词典等）：那是与扩展
   宿主、两个 webview 共用的纯逻辑层，不属于任何单个插件，所以没有跟着搬进包（#94 划的界）。
 - **官方侧的体验差异**：`dsh-workspace-tree` 在官方 web 里会 shadow 官方侧栏树（那是

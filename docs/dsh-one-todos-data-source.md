@@ -1,44 +1,43 @@
 # dsh-one 获取 todos 数据可行性研究报告
 
-> 归档注（2026-09-14，#68）：本文写于自研聊天区时代，文中的 `chatSession.ts`/`chatView`/`chat/webview.ts` 等文件引用是历史状态——旧聊天区已于 #68 下线，对话区改为官方组件装配。数据链路结论（host 推 `todos` 投影 + `todo/write` 事件）仍然成立，但「dsh-one 侧接入点」一节需按装配形态重新评估（特有功能走插件化，见 #65）。
+写于 2026-09-01（自研聊天区时期），2026-09-20 复核。纯研究，当时未改任何文件。
 
-纯研究，未改任何文件。结论先行：**host 完整推送 todos（history 基线 + `session/projection` 帧），`todo/write` 事件与 `todo_write` tool-call 事件都出现在 dsh-one 已订阅的 mux 流里——两种界面（TodoPanel 任务清单卡、TodoRow 消息内任务卡）都可做，dsh-one 侧只是"没读、没解析"，不是"拿不到"。**
+**还有用的部分**：host 侧那条链路——`todo_write` 往会话日志追加 durable 的 `todo/write` 事件，`dsh-tool-todo` 把它折成 `todos` 投影，history 响应与投影帧都能把它带出来——仍然成立，已按本机 dsh 0.1.6-alpha.1 复核。将来若自己写插件要读这份数据，照第 1、2 节走。
 
-## 1. `session.history` 基线（loadBaseline）里 projections.values 有没有 `todos`？
+**已作废的部分**：本文的落点是「在 dsh-one 自研聊天区里自己画 TodoPanel / TodoRow」。旧聊天区已在 #68 下线，对话区改成官方组件装配后，这两个组件由官方前端自己渲染，dsh-one 不需要再读 `todos`。下面凡提到 `chatSession.ts` / `chatView` / `chat/webview.ts` 的地方都是历史状态（这些文件已不在仓库里）。
 
-**有，host 一定带（只要用标准 dsh CLI），dsh-one 只是没读。**
+**0.1.6-alpha.1 复核出的差异**：
 
-- **装配**：`dsh-tool-todo` 是 `dsh-base/cordis.patch.yml` 的基座插件（`- id: tool-todo, name: '@deepseek-ai/dsh-tool-todo', config: { allowParallelInProgress: true }`），`dsh-session-projection` 同文件；dsh-base 是「every dsh profile」共享核心，dsh-one 通过 `spawnDsh.ts` 拉起的 host 就是这个 CLI，两个插件都在。
-- **投影单元注册**：`dsh-tool-todo/lib/index.js` 的 `apply()` 里 `ctx.inject(['sessionProjections'], …)` 注册 `todos` 单元：`key: 'todos'`、`init: () => null`、`apply: todo/write → event.data.todos; turn/start → null; 其余原样`、`stateVersion: 2`、带 `wire.view`。每次 `todo_write` 执行时 `exec.agent.session.append("todo/write", { todos })` 写一条 durable 事件。
-- **快照构成**：`dsh-session-projection/lib/index.js` 的 `SessionProjectionRegistry.snapshot(session)` 遍历所有带 wire view 的注册单元，逐个 key 写进 `values`（null 也写，`todosProjectionSchema` 是 `union([array, null])` 放行）。history 尾页 `projections.values` 含 `todos`：首写前为 `null`，首写后为 `[{content, status}, …]`。
-- **history 响应组装**：`dsh-host-apiproxy`（`api-proxy.js`）：history handler 只**尾页**（beforeSeq 缺省）带 projections；`historyCutOf` 对 attached session 走 `registry.snapshot(session)`，对 detached 走 `detachedProjectionsFor`（从事件重放折叠，同样产出 todos）。
-- **dsh-one 侧**：`loadBaseline`（`chatSession.ts`）拿到 `page.projections`（`dshRpc.ts` 的 `SessionHistoryPage.projections: { asOfSeq, values: Record<string, unknown> }`，宽松镜像，任何 key 都装得下），但只消费了 `title/permissions/sessionStats/imageLimits/contextPressure/contextBreakdown`，没读 `todos`。
+- history handler 与 `projections` 的计算：撰写时记在 `dsh-host-apiproxy`，该包在 0.1.6-alpha.1 已经不存在（本机 profile 里只剩一个指向旧路径的悬空软链）。现在 history 侧在 `dsh-session-query`：取历史时 `projections = ctx.get('sessionProjections')?.snapshot(session)`（`projectionMode === 'none'` 时不给）。
+- 事件流：撰写时说 dsh-one 订阅 `/api/events.mux` 的 `session/event` 帧，那是会话控制器（`chatSession.ts`）的做法，该文件已随旧聊天区删除。现在侧栏数据层（`src/ui/sessionsStore.ts`）仍走 mux，但只认 `session/projection` 等少数帧；0.1.2 起的共享逻辑流在 `src/server/modernStreams.ts`（`$events`）。
 
-**结论**：数据在基线 `projections.values.todos` 里，dsh-one 解析层是 `Record<string, unknown>` 宽松透传，加一行读取即可。当前是「没读」而非「缺失」。
+---
+
+## 1. `session.history` 基线里有没有 `projections.values.todos`？
+
+**有，host 一定带（只要用标准 dsh CLI）。**
+
+- **装配**：`dsh-tool-todo` 是 `dsh-base/cordis.patch.yml` 的基座插件（`- id: tool-todo, name: '@deepseek-ai/dsh-tool-todo', config: { allowParallelInProgress: true }`），`dsh-session-projection`（`- id: session-projection`）同文件；dsh-base 是每个 dsh profile 共享的核心，而 dsh-one 通过 `src/server/spawnDsh.ts` 拉起的 host 就是这个 CLI，两个插件都在。
+- **投影单元注册**：`dsh-tool-todo/lib/index.js` 的 `apply()` 里 `ctx.sessionProjections.register(...)` 注册 `todos` 单元：`key: 'todos'`、`init: () => null`、`apply: todo/write → event.data.todos; turn/start → null; 其余原样`、`stateVersion: 2`、带 `wire.view`。每次 `todo_write` 执行时 `exec.agent.session.append("todo/write", { todos })` 写一条 durable 事件。
+- **快照构成**：`dsh-session-projection` 的 `snapshot(session)` 遍历所有带 wire view 的注册单元，逐个 key 写进 `values`（`null` 也写，`todosProjectionSchema` 是 `union([array, null])` 放行）。所以 `projections.values.todos`：首写前为 `null`，首写后为 `[{content, status}, …]`。
+- **history 响应组装**：`dsh-session-query` 在取历史时把 `projections` 附在响应上。撰写时写的 `dsh-host-apiproxy` 路径与 `historyCutOf` / `detachedProjectionsFor` 两个名字在 0.1.6-alpha.1 找不到，不再引用。
+- **dsh-one 侧现状**：`src/server/dshRpc.ts` 镜像了 `SessionHistoryPage.projections`（`{ asOfSeq, values: Record<string, unknown> }`，宽松透传），从 session.list 行读 `title` / `agentPreset` / `sessionStats` / `tokenUsage` / `modelSelection`；`src/ui/sessionsStore.ts` 另外用 mux 的 `session/projection` 帧（key `title`）推进标题。**`todos` 没人读**——是「没读」，不是「拿不到」。旧聊天区那条路（`chatSession.ts` 的 `loadBaseline` 只消费 title/permissions/sessionStats/imageLimits/contextPressure/contextBreakdown）已随文件删除。
 
 ## 2. 会话事件流里有没有 `todo/write` / `todo_write` tool-call 事件？
 
-**两个都有，dsh-one 已订阅的流就是它们经过的通道。**
+**两个都有。**
 
-- **mux 无过滤转发**：dsh-one `muxEvents.ts` 订阅 `/api/events.mux`。host 端对每个 session 事件 push `{type:'session/event', sessionId, event, view}`，不做类型过滤。`todo/write` 是 dsh-session 已知事件类型，由 dsh-tool-todo 的 execute 写入。
-- **`todo_write` 是普通 tool/call**：agent 调用时产生 `tool/call` 事件，`data.arguments` 是模型 args 的 JSON 字符串（host 端自己也在 `JSON.parse` 做 result-view 配对）；被拒绝/失败的调用 args 也原样保留。dsh-one `ToolCallEventData.arguments?: string`（conversation.ts）与之镜像一致。
-- **`todos` 投影帧也在**：`SessionProjectionRegistry.drive` 在 todo/write（新数组引用）与 turn/start（→null）时通知 `onChanged`；host-apiproxy broadcast `{type:'session/projection', sessionId, key:'todos', value, seq}`。这个帧类型 dsh-one 的 `onFrame` 已处理（chatSession.ts 的 `session/projection` case），只是 switch 里没 `todos` 分支、落 default。
-- **dsh-one 现状**：`todo/write` 事件进 `ConversationFolder.applyEvent` 后落 `default: return false`（静默忽略）；`tool/call` 折叠成 `ChatToolBlock` 但只保留 title/detail（来自 host view），丢掉了 `data.arguments`——TodoRow 需要的 args 快照在事件里、没进折叠模型。
+- **`todo/write` 是已知的 durable session 事件类型**：`dsh-session` 的 `known-event-types.js` 里有它（0.1.6-alpha.1 也在），由 `dsh-tool-todo` 的 execute 写入。
+- **`todo_write` 是普通 tool/call**：agent 调用时产生 `tool/call` 事件，`data.arguments` 是模型 args 的 JSON 字符串（host 端自己也 `JSON.parse` 做 result-view 配对）；被拒绝/失败的调用 args 也原样保留。
+- **投影帧**：`dsh-session-projection` 在 `todo/write`（新数组引用）与 `turn/start`（→ null）时通过 `onChanged` 通知，客户端收到 `session/projection`（key = `todos`）帧，按 higher-seq-wins 更新。
+- **dsh-one 现状**：`src/pure/conversation.ts` 仍会解析 `todo_write` 的 args 算 planSummary（写进 `ChatToolBlock.todos`），但这份契约（`src/pure/chatContract.ts` 的 `ChatState`）现在只有单测消费——旧聊天区下线后没有渲染端了。
 
-## 3. 可行性结论 + 集成路径
+## 3. 集成路径（历史）
 
-**可行性高，纯增量消费，无 host 侧缺项。** dsh-one 已有 6 个投影（title/permissions/sessionStats/imageLimits/contextPressure/contextBreakdown）的同构消费机制（基线 seed + `session/projection` 帧 higher-seq-wins），todos 是第 7 个，机制完全一样。
-
-### ① TodoPanel（输入框上方可折叠任务清单卡）—— 走投影
-
-数据 = `todos` 投影（last-wins 整表折叠，turn/start 清为 null；host 已算好，客户端零折叠）。改动：`chatSession.ts` 加 `todosSeq` + `applyTodosValue()`、`loadBaseline` 读 `projections.values.todos`、`onFrame` `session/projection` 加 `case 'todos'`；`chatContract.ts` `ChatState` 加 `todos?`；webview 渲染折叠卡（`progressLabel`：done/active/pending 计数、非零段 `·` 连接）。语义：`null`=无清单（首写前/turn/start 后）、`[]` 空数组不渲染。
-
-### ② TodoRow（聊天流任务卡）—— 走 tool/call 事件 args
-
-数据 = 单次 `todo_write` tool-call 节点的 `data.arguments`（JSON 字符串 `{todos:[{content,status}]}`）静态快照 → `planSummary`（done/total、首个 in_progress 的 content、其余 in_progress 数 → `+N`）。改动：`conversation.ts` `applyToolCall` 对 `name==='todo_write'` 解析 args；`ChatToolBlock` 加 `todos?: {done,total,activeContent,activeExtra}`；webview 渲染。备选数据源：host view 的 `rawInput` 是数组且 generic 分支只认 string，不如直接解析事件 args 可靠（模型原始 JSON，两种状态都带）。
+撰写时列了两条路：① TodoPanel 走 `todos` 投影（基线 seed + `session/projection` 帧）；② TodoRow 走 tool/call 的 args。两条都依赖旧聊天区的契约与 webview，已作废。**将来若要自己读这份数据**，要做的只有第 1、2 节那些：history 基线读 `projections.values.todos`、认 `session/projection` 帧的 `todos` key，或者从事件流自行折叠 `todo/write`（规则照 `dsh-tool-todo` 的 `apply` 抄：last-wins 整表、`turn/start` 清空）。
 
 ### 缺失/降级说明
 
-标准 dsh CLI 下无缺失。若部署被改成不含 `dsh-tool-todo`/`dsh-session-projection`：history 尾页无 `todos`、无 `session/projection` 帧、`todo_write` 可能不存在。可行替代是客户端从 `session/event` 流自行折叠 `todo/write`（事件本身始终在，dsh-session known event type），"turn/start 清空 + last-wins"规则照抄 dsh-tool-todo 的 apply；TodoRow 不受影响（tool/call args 与投影无关）。dsh-one 面向标准 dsh CLI，此路径仅对自定义装配有意义。
+标准 dsh CLI 下无缺失。若部署被改成不含 `dsh-tool-todo` / `dsh-session-projection`：history 里没有 `todos`、没有投影帧、`todo_write` 也可能不存在。替代做法是客户端从事件流自行折叠 `todo/write`，事件本身始终在。
 
-> 本报告为静态代码核实结论，未做运行时抓包验证。
+> 本报告为静态代码核实结论，未做运行时抓包验证；0.1.6-alpha.1 的复核同样是读安装包源码，没有起实例。

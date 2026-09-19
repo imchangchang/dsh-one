@@ -1,5 +1,8 @@
 # dsh 上游版本兼容性测试清单
 
+本文对应 dsh-one 2.0.0（2026-09-20）。文中标注日期的段落是当时的现场记录；探针项数与
+实测读数以本机装的 dsh 0.1.6-alpha.1 为基线。
+
 dsh-one 是 dsh 的客户端（gateway HTTP/WS RPC + webview 嵌入），上游每个 release 都可能动 wire 协议与前端插件契约。本清单是对上游新版本的完整测试项，分两层：
 
 - **自动化探针**（`.github/workflows/dsh-upstream-watch.yml` 每日 04:00 UTC+8 跑 `scripts/dsh-upstream-watch/probe.mjs`，覆盖 wire 面、网关前端产物、客户端契约面与本机官方产物面，结果见 `upstream-watch` label 的 issue 与 README 徽章）。安装途径：版本已上 npm 走 `npm install`（快）；**GitHub-only 版本走源码构建**（codeload 源码包 → `pnpm install --frozen-lockfile` → `pnpm run build` → `node --import tsx/esm apps/cli/src/bin.ts`，上游 README 的 Run from source 路径），保证发 npm 前就能提前测。
@@ -20,20 +23,20 @@ dsh-one 是 dsh 的客户端（gateway HTTP/WS RPC + webview 嵌入），上游�
 | auth-401-fingerprint | 无凭证 POST /api/* → 401 + 正文 `unauthorized` | `src/server/portProbe.ts`（authDsh 指纹） |
 | token-exchange-cookie | `GET /?token=` → 303 + `dsh-auth-*` cookie | `src/server/serverAuth.ts` |
 | rpc-session-list | `session/list`：信封、rpcId 回显、`{items}` 行形状 | `src/server/dshRpc.ts` listSessions |
-| rpc-model-catalog | `session/modelCatalog`：`groups/default` 目录 | `src/server/modelCatalog.ts` |
+| rpc-model-catalog | `session/modelCatalog`：`groups/default` 目录 | `src/server/dshRpc.ts`（`session.models` 到 `session/modelCatalog` 的方法映射与共享缓存） |
 | rpc-agent-presets | `agentPresets/list`：预设数组 | `src/pure/agentPreset.ts` |
 | rpc-workspace-ops | `workspace/create` + `workspace/delete` | `src/server/dshRpc.ts` ensureWorkspace |
 | rpc-session-create | `session/create` → `{sessionId}` | 同上 createSession |
 | rpc-commands-list | `commands/list` 名册 | 同上 listCommands |
 | commands-execute-args | `commands/execute` 接受 dsh-one 现发的 args 形状。**形状不在探针里写死**：探针 import dsh-one 源码的同一份单一事实源 `src/pure/dshWire.ts` 的 `commandsExecuteArgs(version, …)`，按 `--expect-version` 分叉（0.1.2 及以前 `images`、0.1.3 起 `submittedAttachments`），用真实形状发一次（#37） | `src/pure/dshWire.ts`（`commandsExecuteArgs`）、`src/server/dshRpc.ts` executeCommand |
 | ws-mux-connect | WS `/api/remote.mux` 带 cookie 建连 | `src/server/remoteMux.ts` |
-| ws-session-follow | `session/follow` snapshot 帧（cursor/records/hasMore/projections；detail 记录 header 键与 version、是否有 chunkRows——0.1.3 起 header 与 records 形状变化在这里现形） | `src/server/modernStreams.ts`、`src/pure/chunkRows.ts` |
+| ws-session-follow | `session/follow` snapshot 帧（cursor/records/hasMore/projections；detail 记录 header 键与 version、是否有 chunkRows——0.1.3 起 header 与 records 形状变化在这里现形） | `src/pure/remoteFrames.ts`（snapshot 帧形状）、`src/pure/assistantStream.ts`（0.1.3 的 `assistantStream` 侧信道） |
 | ws-session-control | `session/control` baseline 帧 | `src/server/modernStreams.ts` |
 | boot-html-contract | 带 cookie GET 网关 `/`：HTML 含 `__ModuleLoader__`、`__DSH_BOOT__`、`const preference`，且 `__DSH_BOOT__` 能解析出 entries ≥ 40（实测 0.1.6-alpha.1 = 56、0.1.2-rc.1 = 46） | `src/ui/assembly/pageHtml.ts`（`__ModuleLoader__` 门面 + 主题预置脚本 + 内联 `__DSH_BOOT__`）、`src/server/assemblyMirror.ts`（原样反代 `/`） |
 | combo-endpoint | 从 `__DSH_BOOT__` 取首个 batch 的 combo URL（`/plugins/??…&rev=`）请求：HTTP 200 且 body > 10 KB（实测 0.1.6-alpha.1 = 20.4 KB、0.1.2-rc.1 = 18.2 KB） | `src/server/assemblyMirror.ts`（拉网关原 combo 后按插件段过滤）、`src/ui/assembly/wireFilter.ts` |
 | origin-fence | 带 cookie POST `session/list` 两次：`Origin: http://127.0.0.1:1` → 403、`Origin` = 网关权威 → 200 | `src/server/assemblyMirror.ts` 的 `proxyHeaders`（Origin/Referer 改写为网关权威） |
 
-后三项是装配形态的上游伺服面检查（#67 的 N1–N3，对应依赖总表 §4 的 F1–F6），它们与依赖总表 §6.2 原设计有一处出入：**N3 判据里的方法用 `session/list`，不用原写的 `host.describe`**——实测两个已支持版本（0.1.2-rc.1 / 0.1.6-alpha.1）的认证网关对 `/api/host.describe` 的任何 payload 都回 404 `not found`（栅栏判定先于路由，403 那一半拿它照样成立，但「权威 Origin → 200」判不出来）。`host.describe` 现在只剩「无凭证 → 401 指纹」那一条用途（见上表 `auth-401-fingerprint`）。
+后三项是装配形态的上游伺服面检查（#67 的 N1–N3）。它们与最初的依赖总表设计有一处出入：**N3 判据里的方法用 `session/list`，不用原写的 `host.describe`**——实测两个已支持版本（0.1.2-rc.1 / 0.1.6-alpha.1）的认证网关对 `/api/host.describe` 的任何 payload 都回 404 `not found`（栅栏判定先于路由，403 那一半拿它照样成立，但「权威 Origin → 200」判不出来）。`host.describe` 现在只剩「无凭证 → 401 指纹」那一条用途（见上表 `auth-401-fingerprint`）。那份依赖总表（`docs/upstream-dependency-audit.html`）只在 `agent/official-chat-embed` 分支上，main 里没有，`scripts/dsh-upstream-watch/probe.mjs` 的注释还按旧路径引用它。
 
 ### 客户端契约面（4 项，`scripts/dsh-upstream-watch/clientContract.mjs`）
 
@@ -44,7 +47,7 @@ dsh-one 是 dsh 的客户端（gateway HTTP/WS RPC + webview 嵌入），上游�
 | client-combo-index | 取法前提：combo 的插件段边界可切、官方 slot 契约目录可取 | 段数 ≥ 40 且每段 id 可读、契约目录 ≥ 30 条；不成立说明官方改了 combo 结构，按该文件注释核对取法 |
 | client-slots | 14 组关键 slot 名在场（遮蔽目标 `sidebar.workspaces`、会话面板座 keyed `main`/single `conversation`、右列座 `rightbar`/`details`、`sidebar`、`shell.overlay`、`settings.section/header/action`、各注入点…） | 每个名字要么在契约目录里、要么有注册/注入/渲染调用点；同名换代（如 `details`→`rightbar`）算同一组，任一代在场即通过 |
 | client-root-hooks | 4 条 root 级 hook 在场：`panelInfo`、`sessions`、会话等待态（`sessionStatus` / `sessionPendingInteraction` 两代）、`workspaces`，外加框架映射出的槽位 props `use<Name>` | 每条要求「provideRoot 里有这个键」且「`use<Name>` 这个 props 名在 combo 里」——#76 的 `usePanelInfo is not a function` 就落在这一条上；换过名的依赖（等待态）两组命名任一代在场即通过，名字表从产品侧 `src/pure/sessionPendingSource.ts` import，不手写 |
-| client-identifiers | 我们取用过的 14 组字段/方法名在场（composer 附件字段/动作两代名、`draftRev`、`insertReference`、`activePanelId`、`entryKey`、工作区快照字段、会话快照 `byId`、等待态取值名 `pendingInteraction` / `pendingInteractions`…） | 每个名字要在它该来的插件段里出现（例如附件字段只认 ui-conversation）——#78 抓到的 `imageIds`→`attachmentIds` 就是这一类 |
+| client-identifiers | 我们取用过的 15 组字段/方法名在场（composer 附件字段与动作两代名、`setDraft`、`draftRev`、`insertReference`、`activePanelId`、`entryKey`、工作区的 `archivedSessionIds` / `sessionIds` / `workspaceId` 与 `startSession`（注入目标开不了时落到新对话页的入口，#211）、会话快照 `byId`、等待态取值名 `pendingInteraction` / `pendingInteractions`…） | 每个名字要在它该来的插件段里出现（例如附件字段只认 ui-conversation）——#78 抓到的 `imageIds`→`attachmentIds` 就是这一类 |
 
 失败信息的形式：`dsh <当前版本> 缺 N 组：<名字>（期望出处 <官方源码路径>；我方使用点 src/…）`，照它去查官方 release notes 或改我们的取用路径。
 
@@ -150,7 +153,7 @@ root 卸掉——页面上一个可见的盒都不剩。页面运行时据此兜
 |---|---|---|---|
 | 上游探针 | `node scripts/dsh-upstream-watch/probe.mjs --command dsh --expect-version <版本>`（CI 里由 dsh-upstream-watch 每日自动跑） | 伺服面（wire + 网关前端产物：`/` 的启动契约、combo 端点、Origin 栅栏）+ 客户端契约面（combo 里的 slot/hook/字段名）+ 官方产物面（本机官方包里的内部标识符） | 本机有 dsh；探针自起临时 `DSH_HOME` 实例，只读 |
 | 浏览器验证（候选版本） | `npm run verify:lab-version <版本>` | **候选版本**上四棵树装不装得起来：零崩溃、零装载未激活、槽位有内容（F-01 CONTRACT）。脚本把候选版本装到临时目录再用它跑实验室，不动本机安装 | 见上一节「装配面」 |
-| 浏览器验证（本机版本） | `npm run verify:lab` | 同上，但验的是本机已装的那一版；改装配相关代码后跑它 | `npm run build` 过 |
+| 浏览器验证（本机版本） | `npm run verify:lab` | 同上，但验的是本机已装的那一版；改装配相关代码后跑它 | 无（这条 script 自己先 `npm run build`） |
 | 宿主半验证 | `npm run verify:host-half` | 网关侧插件半（`packages/dsh-host-capabilities`）与官方 dsh 的兼容 | 见 `scripts/verify-host-half-official.mjs` |
 
 另外，探针发现「名字没了」不等于「用户已经炸了」：先按 issue 里的期望出处核对官方改动，再决定是改我们的取用路径（大多数情况）还是登记版本支持范围的变化（README「dsh version tracking」一节）。

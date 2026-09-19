@@ -31,7 +31,7 @@
 
 **动了 workspaces 面就要装依赖**（#187，2026-09-18 实测踩过）：插件包之间按**包名**互相引用（`@dsh-one/dsh-plugin-kit/<模块>`），这些链接由 `npm install` 建在 `node_modules/@dsh-one/` 下。所以**新增插件包 / 改包名 / 改包内子路径导出**之后，任务 worktree 里必须**先 `npm install` 再自测**（否则 build 挂在 `Could not resolve "@dsh-one/…"`；只在自己装过依赖的机器上自测会得到假绿）。`dev-merge.sh` 侧已内置：合入范围动过 `package.json` / `package-lock.json` / `packages/*/package.json` 时它会先 `npm install` 再重建产物，重建失败会**响亮报错并指出修法**（不会留下"已合入但产物没重建"的静默坏状态）。
 
-**验证三层与跑法**（2026-09-16 起，浏览器验证 harness 已入库）：**浏览器验证**（`npm run verify:lab`，harness 在 `test/assembly-lab/`）用 Playwright 打开装配页跑断言——页面由仓库真实模块构建、数据面是本机真实 dsh 网关（只读）、宿主侧是假宿主，约 50 秒，是**第一道**，改装配相关代码（block list / 树定义 / 自有插件 / mirror / pageHtml）后必跑；**官方 web 真机**（`npm run verify:plugins-official`，脚本 `scripts/verify-plugins-official.mjs`）在隔离的临时 HOME + 临时 profile 里把自有插件包装进 profile，用 Playwright 打开**官方页面本身**验加载与行为，约 2 分钟，改插件包（`packages/dsh-*` 的清单/产物/补丁）后必跑；**VS Code 验证**（`scripts/dev-ui-test.sh`）起隔离 VS Code 窗口实测 webview 宿主层（CSP/剪贴板/原生菜单/多 webview 生命周期），慢，是**最终准绳**；**沙盒**（`test/sandbox/run-sandbox.sh`）在 code-server 里装真插件 vsix 做宣发截图与人工核对。四者不互相替代（实验室验的是我们的装配页、真机验的是官方页面）。跑法与套件清单见 `test/assembly-lab/README.md` 与 `docs/plugin-packages.md`。
+**验证四层与跑法**（2026-09-16 起，浏览器验证 harness 已入库）：**浏览器验证**（`npm run verify:lab`，harness 在 `test/assembly-lab/`）用 Playwright 打开装配页跑断言——页面由仓库真实模块构建、数据面是本机真实 dsh 网关（只读）、宿主侧是假宿主，**本机整轮约 15 分钟**（实测 899 / 938 / 942 秒；只跑某个套件用 `--suite <套件号>`，几十秒），是**第一道**，改装配相关代码（block list / 树定义 / 自有插件 / mirror / pageHtml）后必跑；**官方 web 真机**（`npm run verify:plugins-official`，脚本 `scripts/verify-plugins-official.mjs`）在隔离的临时 HOME + 临时 profile 里把自有插件包装进 profile，用 Playwright 打开**官方页面本身**验加载与行为，约 2 分钟，改插件包（`packages/dsh-*` 的清单/产物/补丁）后必跑；**VS Code 验证**（`scripts/dev-ui-test.sh`）起隔离 VS Code 窗口实测 webview 宿主层（CSP/剪贴板/原生菜单/多 webview 生命周期），慢，是**最终准绳**；**沙盒**（`test/sandbox/run-sandbox.sh`）在 code-server 里装真插件 vsix 做宣发截图与人工核对。四者不互相替代（实验室验的是我们的装配页、真机验的是官方页面）。跑法与套件清单见 `test/assembly-lab/README.md` 与 `docs/plugin-packages.md`。
 
 **起真 VS Code 窗口只有人跑（agent 一律不许自己起）**：`scripts/dev-ui-test.sh` 或任何 `code --extensionDevelopmentPath …` 都会在用户桌面上真的弹出一个窗口、抢走焦点，而 agent 自己既看不见也点不了它；用户上一轮已经被弹窗打扰过（2026-09-16）。规则：
 - agent 一律先用**浏览器验证**；改完装配相关代码跑 `npm run verify:lab` 就够，不要为了「看一眼」起窗口；
@@ -50,6 +50,10 @@
 **官方机制名词直接写英文原词（用户铁律，2026-09-16）**：官方已有的机制名词（`slot` / `shadow` / `seam` / `combo` / `shell` / `staticModules` 等）**标准写法就是英文原词**，不要硬译成中文——译名要么不准确、要么需要额外解释（反例：把 `seam` 译成「接缝」，读者无法从中文反推官方概念）。中文只在**首次出现处**用括号作一句平实解释；我方工程词（如 `hostCall`/`hostResult`、loopback 代理）同样优先用代码里真实的标识符，而不是另起比喻名。
 
 **文档说人话**：写给谁看就按谁的常识写——完整句子、不用电报式省略（禁「编排：取清单 → 过滤 → 起代理」式写法）、术语第一次出现时用一句日常话解释（代码标识符除外，用 code 标记）、讲理由就用「因为…所以…」的日常逻辑。写完自己读一遍，凡是需要猜的地方都改成人话。
+
+**约定俗成的写法优先，没有通行中文译名的直接写英文原文（用户铁律，2026-09-20）**：选词按这个顺序——① 官方或业界已有的**标准写法**：官方机制名词照下面那条用英文原词；标准缩写用**大写原形**（`UI` / `API` / `CLI` / `RPC` / `HTTP` / `WS` / `JSON` / `npm`），代码标识符、包名、文件名、URL 除外；② 有**通行中文译名**的用通行译名（如 `repository` → 仓库、`commit` → 提交）；③ **没有通行中文译名的直接写英文原文**（`combo` / `seam` / `shadow` / `slot` / `roster` 这类），不硬译、不自造中英混排的新词。拿不准就照官方文档与官方源码注释里的写法写。
+
+**文档里不要 AI 味（用户铁律，2026-09-20）**：文档是给用户或接手开发的人看的，判断标准是「读的人能不能拿它去干活」，不是读起来顺不顺。删掉填充与套话（「值得注意的是」「总而言之」「首先 / 其次 / 最后」「让我们」「赋能」「助力」「全方位」「深度」），不写排比，不用 emoji，不为显得全面而堆同义词；一段说清一件事，长句拆短；能写具体读数与标识符的地方不写形容词（「提升很大」→ 写出实测读数）。
 
 **官方机制优先，禁 hack（用户铁律）**：改官方组件的行为或呈现，必须按以下优先序选机制，禁止跳序走捷径——
 

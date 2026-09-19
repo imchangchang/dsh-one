@@ -1,20 +1,22 @@
 # 原型评估：官方 AppFrame 渲染 root + 只做 VS Code 形态适配（#89）
 
+> **写作时间与适用版本**：2026-09-16 前后的那一轮评估（#89），针对当时三条生产树（chat / sidebar / settings）各自去掉「block 官方 ui-layout」这一条后搭起来的原型树，下面的读数都是那一刻的实测。**结论至今仍然有效**：生产三棵树继续由自有外框插件渲染 root、继续 block 官方 `@deepseek-ai/dsh-client-ui-layout`（判据在 `src/ui/assembly/wireFilter.ts` 的 `UI_LAYOUT` 条目与其注释；#77 试过铁律的首选路径「加载官方件 + 只遮蔽它的 root slot」，三条硬约束使其不可行，证据在 `src/ui/assembly/shell/frameShared.ts` 的文件头）。要看当前事实请读那几处代码与 `docs/architecture.md`；本文只回答「为什么不走官方 AppFrame 渲染 root」这个问题。
+
 决策记录。原型与跑测代码曾在 `test/assembly-lab/prototypes/officialFrame/`（**不改任何生产文件、
 不进任何生产装配树**），该目录已随 #189 删除——它回答的问题已有结论（见下文），原型里那两处
 脆弱写法（`:has()` 结构规则、把 bootstrap 批当第一批的 `batches[0]`）也不再是正式实现的做法，
 留着只会继续示范废弃写法。要回看代码请查 git 历史（删除前的最后一个提交）。
 实机数据出处：`test/assembly-lab/out/proto/`（`official-frame.ledger.json` 台账、
-`official-frame.report.html` 单文件报告、`shots/*.png`）是 gitignored 的一次性产物，
+`official-frame.report.html` 单文件报告、`shots/*.png`）当时是 gitignored 的一次性产物、现已不在，
 截图副本保留在 `docs/official-frame-shots/`。环境：本机真实 dsh 网关 0.1.6-alpha.1（只读）、
 Playwright chromium、假宿主。
 
 ## 一句话结论
 
-**建议维持现状（自有 frame 插件渲染 root + block 官方 `@deepseek-ai/dsh-client-ui-layout`）**，
+**建议维持现状（自有外框插件渲染 root + block 官方 `@deepseek-ai/dsh-client-ui-layout`）**，
 只吸收原型里唯一一处净收益：**settings 树把设置页从自造槽位 `dshOne.settings.page` 换成官方
 keyed `main` 全局面板**（`ctx.layout.selectPanel` + `renderSlot('main', {}, {entryKey})`，
-零 CSS、纯官方机制）。
+零 CSS、纯官方机制）。这一处**已落地（#95）**。
 
 理由是：官方 AppFrame 的列几何是**产品决定**（侧栏列最小 56px 轨道、关不掉；侧栏宽钳在
 264–420；中列底线 400），而 VS Code 三种容器的形态是另一套语言（对话面板零侧栏、侧栏视图
@@ -164,7 +166,7 @@ AppFrame 路线的已知缺陷（要修得先搞清 cordis 事件投递顺序，
   `settings.action` 那一段（形态无关，未搬）；三棵树的宿主能力（`hostCall`）、导出、右键菜单等
   插件**照原样加载**（它们挂在官方语义容器上，原型下照常工作），但没有做逐项交互验收。
 - **没实测**：真 VS Code webview 宿主层（CSP / 剪贴板 / 原生菜单 / 多 webview 生命周期）——
-  本任务按 AGENTS.md 铁律只跑浏览器验证，没起真窗口；窄到 300px 以下、宽到 2000px 以上的档位；
+  按 AGENTS.md 的约定，agent 只跑浏览器验证、不自己起 VS Code 窗口，所以这一层没做；窄到 300px 以下、宽到 2000px 以上的档位；
   官方右栏在 chat 树里与自有插件（git 卡片、清空件）同时活跃时的交互；鼠标拖动把手时的
   指针捕获在真实 webview 里的表现（浏览器里实测可用）。
 - **只是推断**：主题差异的机制（推测是 cordis 事件投递与官方 presenter 的 apply 时序不同步）；
@@ -173,8 +175,10 @@ AppFrame 路线的已知缺陷（要修得先搞清 cordis 事件投递顺序，
 
 ## 七、建议
 
-1. **维持现状**：三棵树继续由自有 frame 插件渲染 root，继续 block 官方 `ui-layout`，
-   AGENTS.md 铁律的例外说明保持有效（本文件是这次复评的证据）。
+1. **维持现状**：三棵树继续由自有外框插件渲染 root，继续 block 官方 `ui-layout`。依据是
+   AGENTS.md「优先与官方插件共存、不顶替其角色」那条铁律里的例外——只有官方件与目标形态
+   **不可调和**时才允许 block，而本文就是当时那次复评的证据（官方 `ui-layout` 的列几何是产品
+   决定，与 VS Code 三种容器的形态不可调和）。
 2. **吸收一处净收益**（**已落地：见 #95**）：settings 树把设置页从自造槽位
    `dshOne.settings.page` 换成官方 keyed `main` —— chat 树 root 已经声明
    `main: { kind: 'keyed' }`，settings 树照做即可；配套把 `LayoutController.selectPanel` 从

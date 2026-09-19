@@ -2,12 +2,13 @@
 
 ## 环境要求
 
-- **Node ≥ 22.6**（`npm test` 用 `node --test` 直接跑 `.ts` 文件，依赖 22.6+ 的实验性 type stripping；构建本身 target 是 Node 22）。
-- VSCode ≥ 1.96（`engines.vscode`，`@types/vscode` 同步）。
+- **Node ≥ 22.19**（或 24 及以上）。这是 dsh 自己的 `engines` 要求（`^22.19 || >=24`，见 `.github/workflows/dsh-upstream-watch.yml` 的注释），CI 也是 Node 22 的最新小版本（`.github/workflows/ci.yml`）。`npm test` 用 `node --test` 直接跑 `.ts` 文件，靠的是 Node 内置的 type stripping（不加 flag）；构建本身 target 是 Node 22。
+- VS Code ≥ 1.96（`engines.vscode`，`@types/vscode` 同步）。
 - **本机已安装 dsh**：`npm i -g @deepseek-ai/dsh@next`。扩展不再自动下载运行时，调试和点验都需要真实 dsh。
 
 ```bash
-npm install   # 只有 devDependencies：typescript / esbuild / @vscode/vsce / @types/*
+npm install   # 根包只有 devDependencies：typescript / esbuild / @vscode/vsce / playwright / @types/*；
+              # 同时按 package.json 的 workspaces 把 packages/* 链接进 node_modules/@dsh-one/
 ```
 
 ## 克隆下来先构建一次（构建产物不入库）
@@ -24,7 +25,7 @@ npm install
 npm run build      # 打出 dist/ 与 packages/*/lib/
 ```
 
-**按 npm script 跑的命令会自己兜底**：`npm test` 与 `npm run verify:*` 都先挂一条 `npm run build`，新克隆直接跑不会缺文件。只有直接跑 `node test/xxx.test.ts`、`node scripts/verify-xxx.mjs` 这种绕过 npm script 的方式会遇到缺产物——那几条脚本开头会指名道姓说缺哪些文件、该跑什么（实现在 `scripts/check-build-artifacts.mjs`），不会静默失败。
+**按 npm script 跑的命令会自己兜底**：`npm test`、`npm run verify:lab`、`npm run verify:plugins-official`、`npm run verify:clean-profile`、`npm run verify:host-half`、`npm run verify:legacy-sidebar` 都先挂一条 `npm run build`，新克隆直接跑不会缺文件。两个 `verify:*` 不挂 build、也不缺产物：`verify:lab-version` 只管把候选版本的 dsh 装到临时目录再转发给实验室；`verify:install-guide` 直接由源码渲染宿主侧那两页（`vscode` 模块由 `test/install-guide/` 的夹具顶上），不读 `dist/`。只有直接跑 `node test/xxx.test.ts`、`node scripts/verify-xxx.mjs` 这种绕过 npm script 的方式会遇到缺产物——那几条脚本开头会指名道姓说缺哪些文件、该跑什么（实现在 `scripts/check-build-artifacts.mjs`），不会静默失败。
 
 ## npm scripts
 
@@ -32,9 +33,12 @@ npm run build      # 打出 dist/ 与 packages/*/lib/
 | --- | --- |
 | `npm run build` | `node build.mjs`：esbuild 把 `src/extension.ts` 打成单文件 `dist/extension.js`（cjs、target node22、`vscode` external、带 sourcemap），同时打出自有插件包的产物 `packages/*/lib/` 与装配用的 `dist/assembly/plugins/`。有 warning 会以非零码退出。产物都不入库，见上一节。 |
 | `npm run typecheck` | `tsc --noEmit`。注意 import 都带 `.ts` 后缀（`allowImportingTsExtensions` + `verbatimModuleSyntax`），新增 import 要遵守。 |
-| `npm test` | 先 `npm run build`（产物不入库，见上一节），再 `node --test test/*.test.ts`，只覆盖 `src/pure/`。改 pure 模块必须跑。 |
+| `npm test` | 先 `npm run build`（产物不入库，见上一节），再 `node --test test/*.test.ts test/mock-dsh/*.test.ts test/mock-llm/*.test.ts`。覆盖面以 `src/pure/` 为主，另含两个 mock 子套件（`test/mock-dsh/` 的假网关 RPC / WS、`test/mock-llm/` 的假模型端点）。改 pure 模块必须跑。 |
 | `npm run verify:lab` | 先 `npm run build`，再用 Playwright 跑装配的**浏览器验证**（harness 在 `test/assembly-lab/`）：实验室**自己起一台隔离实例**（临时 `DSH_HOME`、随机端口、经官方 RPC 播种真工作区与会话、跑完按 PID 收掉），整轮对着它跑——四棵树零槽位崩溃/零缺失契约、三树冒烟渲染、关键交互、侧栏树与官方外观逐项对齐、宿主能力口语义。**不需要本机有在跑的 dsh 网关**（用户日常那台只被只读探测两次）；要连外部实例用 `--gateway <url>`（那时按只读对待）。产物在 `test/assembly-lab/out/`（gitignored）。改装配相关代码后必跑，细节见 `test/assembly-lab/README.md`。 |
 | `npm run verify:lab-version <版本>` | 把**指定版本的 dsh** 装到临时目录、用它跑同一套浏览器验证（缺省只跑 F-01 CONTRACT），跑完删掉那份安装——**本机已装的 dsh 一个字节不动**。用途是接新版本时的门禁：探针只读字节，看不见「整棵装配起不来」（0.1.6-alpha.2 就是这样整页白的），只有真页面在那个版本上跑一遍才知道。细节见 `docs/dsh-compat-checklist.md` 的「装配面」一节。 |
+| `npm run verify:plugins-official` | 先 build。在**隔离的临时 HOME + 临时 profile** 里把 5 个可移植插件包（`packages/` 下声明了 `dsh.client` 的那 5 个）与宿主半装进 profile、起真 dsh web，再用 Playwright 打开**官方页面本身**核对加载与行为（约 2 分钟）。改插件包（清单 / 产物 / 补丁）后必跑——只跑装配实验室不算数，实验室验的是我们的装配页。细节见 `docs/plugin-packages.md`。 |
+| `npm run verify:host-half` | 先 build。在隔离的临时 HOME + 临时 profile 里装宿主半包（`packages/dsh-host-capabilities`）、起真 dsh 宿主，逐个调用能力端点并核对结果与落盘物。细节见 `scripts/verify-host-half-official.mjs`。 |
+| `npm run verify:legacy-sidebar` | 先 build。把**退役但仍在仓库里**的旧侧栏（`src/ui/sessionsView.ts` / `src/ui/sessionsWebview.ts`）与现在的装配侧栏放在同一份数据、同一宽度下并排渲染对照（9 个状态 × 3 档宽度，逐项量几何），约 3 分钟；产物在 `test/legacy-sidebar/out/`（gitignored），结论见 `docs/legacy-vs-current-sidebar-render.md`。 |
 | `npm run verify:clean-profile` | 干净 profile 门禁（#165）：在临时目录里起一个全新 `DSH_HOME`、把 `packages/` 下的自有插件包装进 profile、再起一个独立端口的 dsh，然后用装配实验室那套装配页逐棵树打开，核对「干净 profile 上装配页能起来」（不读 `~/.dsh/dsh-owned.json`、不碰你正在跑的实例，跑完按 PID 收掉）。细节与为什么要单列一条见 `test/assembly-lab/README.md`。 |
 | `npm run verify:install-guide` | 用 Playwright 跑**宿主侧那两页**的冒烟（harness 在 `test/install-guide/`）：安装引导 tab（按钮/下拉含选中态与外链/命令随平台更换/复制成功与失败反馈/分段切换）与侧栏状态页（未安装/启动中/未运行/启动失败/装配失败各自画成什么样、按钮发什么消息），页面都由真实宿主代码渲染（`vscode` 顶上假实现），明暗两态各跑一遍并留截图。不需要网关（这两页都不参与装配树）；`SMOKE_LOCALE=zh-cn` 用真中文译文渲染，产物在 `test/install-guide/out/`（gitignored），细节见 `test/install-guide/README.md`。状态页跟随服务状态变化（宿主侧订阅）由 `npm test` 的 `test/sidebarStatusPage.test.ts` 覆盖。 |
 | `npm run package` | 先 build，再 `vsce package` 打出 `.vsix`（`.vscodeignore` 排除了 src/test/node_modules 等，VSIX 里只有 dist + 清单 + 图标等）。 |
@@ -119,17 +123,17 @@ COMPAT_BASE=<集成线分支> scripts/check-platform-compat.sh agent/my-task   #
 仓库带了 `.vscode/launch.json`。流程：
 
 1. `npm run build`（launch 配置没有挂 preLaunchTask，改了代码要自己先 build）。
-2. 在 VSCode 里打开本仓库，按 F5，会拉起一个 Extension Development Host 窗口。
+2. 在 VS Code 里打开本仓库，按 F5，会拉起一个 Extension Development Host 窗口。
 3. 在宿主窗口的 `src/` 里下断点即可（有 sourcemap）。dev host 激活即自动启动 dsh（`dshOne.autoStart`，默认开）；日志在 dev host 的"输出 → DSH One"面板。
 
 注意：
 
 - 扩展不再自动下载运行时。dev host 里如果 PATH 上没有 dsh，启动会失败并提示安装（`npm i -g @deepseek-ai/dsh@next`）；也可以用 `dshOne.dshPath` 指向任意 dsh 可执行文件。
-- dev host 与正式 VSCode 共用 `~/.dsh` 和默认端口：如果 3080 上已有 dsh 在跑，dev host 会直接**复用**它而不是另起实例。
+- dev host 与正式 VS Code 共用 `~/.dsh` 和默认端口：如果 3080 上已有 dsh 在跑，dev host 会直接**复用**它而不是另起实例。
 
 ## src/pure/ 为什么不许 import vscode
 
-`src/pure/` 下的模块（envelope / readyLine / semver / workspace）用 `node --test` 直接跑单测，而 `node --test` 环境里没有 `vscode` 模块——一旦 import 就整个跑不了。所以约定：**pure 里只能出现 Node 内置模块和纯类型**。反过来，凡是"不碰 vscode API 的判断逻辑"（协议校验、正则解析、列表 diff）都应下沉到 pure，换取可测性。现有的文件头部注释都写明了这条约定，新增 pure 模块照做。
+`src/pure/` 下的模块（envelope / readyLine / semver / dshWire …）用 `node --test` 直接跑单测，而 `node --test` 环境里没有 `vscode` 模块——一旦 import 就整个跑不了。所以约定：**pure 里只能出现 Node 内置模块和纯类型**。反过来，凡是"不碰 vscode API 的判断逻辑"（协议校验、正则解析、列表 diff）都应下沉到 pure，换取可测性。现有的文件头部注释都写明了这条约定，新增 pure 模块照做。
 
 ## 逻辑 bug：先写失败单测再修
 
@@ -141,13 +145,13 @@ COMPAT_BASE=<集成线分支> scripts/check-platform-compat.sh agent/my-task   #
 ## 手动模拟异常场景
 
 - **未安装 dsh**：临时把 PATH 里的 dsh 摘掉（或把 `dshOne.dshPath` 指到不存在的路径），打开面板应报"未找到 dsh"并引导安装。
-- **验证复用语义**：先手动 `dsh web --port 3080` 起一个实例，再打开面板，状态栏 tooltip 应显示"已复用已有实例"，关闭 VSCode 后该实例应仍在运行。
+- **验证复用语义**：先手动 `dsh web --port 3080` 起一个实例，再打开面板，状态栏 tooltip 应显示"已复用已有实例"，关闭 VS Code 后该实例应仍在运行。
 
 ## 日志与事后取证（面板消失这类宿主行为）
 
 扩展的日志有两个落点：
 
-1. **输出面板**（VS Code 里「输出 → DSH One」），也是命令 `dsh-one: Show Logs` 打开的那一份；
+1. **输出面板**（VS Code 里「输出 → DSH One」），也是命令 `DSH One: Show Logs`（`dshOne.showLogs`）打开的那一份；
 2. **文件**：`<扩展 globalStorage>/logs/dsh-one-<进程号>.log`。macOS 上的完整路径是
 
    ```
@@ -236,7 +240,7 @@ scripts/lab-doctor.sh --kill   # 确认无误后真收
 
 ## 人工验收：面板在重载 / 切窗口之后还在（#169）
 
-这条只能人开真窗口验（宿主行为，浏览器验证到不了）。扩展自己不能起窗口，所以由人跑：
+这条只能靠 **VS Code 验证**（人开窗口实测，宿主行为，浏览器验证到不了）。扩展自己不能起窗口，所以由人跑：
 
 1. 起 dev host（`scripts/dev-ui-test.sh`，或 VS Code 里按 F5），确认侧栏亮了、对话面板 tab 开着，看一眼该面板当前是哪个会话；
 2. 命令面板跑 **Developer: Reload Window**，等窗口起来：
@@ -244,7 +248,7 @@ scripts/lab-doctor.sh --kill   # 确认无误后真收
    - 期望：多开的标签页（会话行菜单「在新标签页打开」开的那些）也各自回来，落在各自的会话；
    - 期望：日志（见上一节）里能看到 `chat panel restoring` → `chat panel restored`；
 3. 再验一次「切走窗口再回来」：切到别的应用（或别的 VS Code 窗口）几十秒再切回来，面板应原样还在（VS Code 不会因为焦点变化重载窗口，这条用于排除「我们自己把面板关掉」的可能）；
-4. 降级分支（可选，验「不静默空白」）：把 dsh 服务停掉（命令 `dsh-one: Stop Service`）后再 Reload Window——面板 tab 应当还在，里面是「dsh 服务没在运行 / 启动服务」的状态页，点「Start the dsh service」应把面板装起来；
+4. 降级分支（可选，验「不静默空白」）：把 dsh 服务停掉（命令 `DSH One: Stop Service`，`dshOne.stop`）后再 Reload Window——面板 tab 应当还在，里面是「dsh 服务没在运行 / 启动服务」的状态页，点「Start the dsh service」应把面板装起来；
 5. 会话已经删掉的情况：把某个会话归档/删掉，再 Reload Window——面板应弹一句「这个对话面板原来打开的会话已经不在了」，并且**不带那个会话**打开（不是一片空白）。
 
 ## 人工验收：改了自己的插件重建之后，Reload Window 就能看到新界面（#173）
@@ -253,17 +257,17 @@ scripts/lab-doctor.sh --kill   # 确认无误后真收
 `max-age=86400, immutable`（源稳定时跨 tab 命中 HTTP 缓存，见 `src/server/assemblyMirror.ts`）。
 改之前这个键只含**网关**那个版本号，我们自己重建 `dist/assembly/plugins/<id>/client.js` 时
 URL 一字不变 → webview 连条件请求都不发，改了样式 reload 也看不到（用户 2026-09-17 实测，
-issue #173）。现在 rev 是 `<网关版本>-<本地产物内容哈希>`（`wireFilter` 的 comboRev +
-`src/server/localBundleRev.ts`），本地产物一变缓存键就变。
+issue #173）。现在 rev 是 `<网关版本>-<本地产物内容哈希>`（`src/ui/assembly/wireFilter.ts` 的
+`comboRev` + `src/server/localBundleRev.ts`），本地产物一变缓存键就变。
 
-跑法（人开真窗口）：
+跑法（**VS Code 验证**，人开窗口实测）：
 
 1. 先 `npm run build`，起 dev host（`scripts/dev-ui-test.sh`，或 VS Code 里按 F5），确认侧栏（或对话面板）装起来了；
 2. 随便改**一行侧栏样式**：例如 `packages/dsh-workspace-tree/src/workspaceTree/styles.ts` 里标准档的
    `rowRadius: '8px'` 改成 `'12px'`（工作区行 / 会话行的圆角，肉眼可辨）；
 3. `npm run build`；
 4. 在 dev host 窗口跑命令面板的 **Developer: Reload Window**（等窗口起来）；
-5. **期望**：侧栏的行圆角立刻是新值。**不需要**重启 dsh 服务（`dsh-one: Restart Service`），
+5. **期望**：侧栏的行圆角立刻是新值。**不需要**重启 dsh 服务（`DSH One: Restart Service`，`dshOne.restart`），
    也不需要等缓存过期——改之前这两步是唯一的出路，这正是本条要守的事。
 6. 想留证据的话看 webview 的 devtools（命令面板 `Developer: Open Webview Developer Tools`，
    控制台里执行下面这段），重建前后两次读到的 rev **前一段相同、后一段不同**：
@@ -297,4 +301,6 @@ Webviews）时，页面拿到的还是**旧的那份 HTML 与旧 URL**，浏览�
    npx vsce publish --packagePath dsh-one-<x.y.z>.vsix   # 发布已有 vsix 用 --packagePath（位置参数是版本号）；用 Release 下载的那份，不重新打包
    ```
 
-注意：`package.json` 的 `"publisher"` 应是你发布的 marketplace 账号（现为 `cgeng`），发布前确认即可，无需修改。版本策略：每次发布 +1（正式版 patch+1，rc 按 rc.N 递增；首发 1.0.0），市场不可同版本重发。
+   **rc 不上市场是市场的硬性限制，不是我们的选择**：市场不接受 semver 预发布版本号——`version` 里带 `-rc.N` 时 `vsce publish` 直接报 `The VS Marketplace doesn't support prerelease versions`（实现在 `@vscode/vsce` 的 `out/publish.js`）。市场自己的 pre-release 通道要求版本号是**纯 `x.y.z`**，再在打包/发布时加 `--pre-release` 标记（`vsce package --pre-release` / `vsce publish --pre-release`）。dsh-one 没走那条通道：`-rc.N` 只到 GitHub Release（标 prerelease）为止，正式版才用上面这条普通 `publish` 上市场。
+
+注意：`package.json` 的 `"publisher"` 应是你发布的 marketplace 账号（现为 `cgeng`），发布前确认即可，无需修改。版本策略：每次发布 +1，脚本按「正式版 patch+1、当前是 rc 则建议同核心正式版」给**建议值**，实际版本号由人输入（1.1.0 → 2.0.0 这种跨度就是手输的）；rc 按 rc.N 递增；首发 1.0.0；市场不可同版本重发。

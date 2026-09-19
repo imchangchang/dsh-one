@@ -2,11 +2,11 @@
 
 本文件是 issue #128 的产出，供用户逐条挑剩下的差异。**只出对照结论，不改任何功能代码。**
 
+> **写作时间与适用版本**：2026-09-16，对分支 `develop/cordis-chat` 的提交 `d31fbdc`（该分支已整体合入 `main`）。此后本文跟着后续条目陆续补过结论（#151 展开态口径、#152 搜索高亮、#153 未读计数、#154 回收站抽屉与行、#155 分组拖拽与源行半透明、#213 / #215 / #216 标签组；逐条见 C1）。**表里的 `文件:行` 是写作时那份代码的行号**，代码此后有改动、行号会漂移；要看当前事实请读代码与 `docs/architecture.md`。旧侧栏（`src/ui/sessionsView.ts` 等）在 2.0.0 已摘钩（`src/extension.ts` 不再挂它，只作 #65 的迁移参照物），代码留在仓库里不再随主线演进。
+
 ## 怎么读这份对照
 
-- **两侧正本**（都用当次工作区里的代码）：
-  - 旧侧栏（vanilla，迁移参照物，只读勿改）：`src/ui/sessionsView.ts`（宿主侧 view provider + 消息处理 + 全部 CSS 的 `SESSIONS_STYLE`）、`src/ui/sessionsWebview.ts`（前端 HTML / CSS / 逻辑）、`src/ui/sessionsStore.ts`（数据与状态）、`src/pure/sessionTree.ts`（分组 / 排序 / 过滤）、`src/pure/sessionTags.ts`（标签色与内置组）。
-  - 现装配侧栏：`packages/dsh-workspace-tree/src/workspaceTree/*.ts`（15 个文件）、`src/ui/assembly/shell/sidebarLayoutPlugin.ts`（密度档与侧栏外框）、`packages/dsh-workspace-tree/src/workspaceTreePlugin.ts`、`src/pure/{workspaceTreeView,workspaceTreePrefs,treeGroups,sessionMarks,sessionEligibility,sessionTags,sessionTagGroups,recycleActions,recycleBinState}.ts`、`packages/dsh-workspace-tree/`。
+- **两侧正本**：旧侧栏（vanilla，迁移参照物，只读勿改）是 `src/ui/sessionsView.ts`（宿主侧 view provider + 消息处理 + 全部 CSS 的 `SESSIONS_STYLE`）、`src/ui/sessionsWebview.ts`（前端 HTML / CSS / 逻辑）、`src/ui/sessionsStore.ts`（数据与状态）、`src/pure/sessionTree.ts`（分组 / 排序 / 过滤）、`src/pure/sessionTags.ts`（标签色与内置组）；现装配侧栏是 `packages/dsh-workspace-tree/`（`@dsh-one/dsh-workspace-tree`）的 `src/workspaceTree/*.ts`（23 个文件）与 `src/workspaceTreePlugin.ts`，加 `src/ui/assembly/shell/sidebarLayoutPlugin.ts`（密度档与侧栏外框）、`src/pure/{workspaceTreeView,workspaceTreePrefs,treeGroups,sessionMarks,sessionEligibility,sessionTags,sessionTagGroups,recycleActions,recycleBinState}.ts`。
 - **判断只取四个值**：**一致** / **缺**（现在没有）/ **不同**（都有但不一致）/ **现在更好**。
 - **证据**：每条都写 `文件:行`。只写文件名的那几种（`rows.ts` / `tree.ts` / `styles.ts` / `selection.ts` / `tagGroups.ts` / `modals.ts` / `toolbar.ts` / `groupFilterBar.ts` / `recycleDrawer.ts` / `recycleEntry.ts` / `hoverCard.ts` / `format.ts` / `search.ts` / `locale.ts`）都在 `packages/dsh-workspace-tree/src/workspaceTree/` 下；`sessionsView.ts` / `sessionsWebview.ts` / `sessionsStore.ts` 在 `src/ui/` 下；`pure/xxx.ts` 在 `src/pure/` 下。读不出来的写「未核实」，不臆断。
 - 语言按仓库铁律：官方机制名词用英文原词（`slot` / `shadow` / `seam` / `combo`），不造词。
@@ -19,10 +19,10 @@
 
 | 功能 | 旧：怎么做（`文件:行`） | 现：怎么做（`文件:行`） | 判断 |
 | --- | --- | --- | --- |
-| 工作区分组顺序 = 工作区注册顺序 + 未分组桶收尾 | `pure/sessionTree.ts:243`、`316-338` | `pure/workspaceTreeView.ts:267-338`（`UNGROUPED_KEY` 收尾） | 一致 |
+| 工作区分组的顺序 | **当前文件夹优先，其余按工作区 `updatedAt` 降序**（`pure/sessionTree.ts:417-421`），未分组桶收尾 | 工作区注册顺序（网关给的官方顺序）+ 未分组桶收尾（`pure/workspaceTreeView.ts` 的 `deriveGroups`） | **不同**（本文原先判「一致」，渲染实测推翻了它，见 `legacy-vs-current-sidebar-render.md` 的 C-1） |
 | 「当前工作区」排最前 + 蓝色标识 | 按**当前会话**判：`sessionsWebview.ts:2311`（`has-active`）、`2337`（披 `vscode` 徽标）；置顶在 `pure/sessionTree.ts:416` | 按 **VS Code 当前打开的文件夹**判（#112）：`pure/workspaceTreeView.ts:283-306`、`353-360`；徽标 `workspaceTree/rows.ts:634`；置顶 `workspaceTree/tree.ts:542` | 不同（判据换了；观感同为「排最前 + 蓝色标识」） |
 | 空工作区行 | `sessionsWebview.ts:2310`、`2366-2369`：hover **不**换折叠三角、点击不响应 | `workspaceTree/rows.ts:569`、`613-622`：hover 照常换三角、点击能展开（展开后仍是空的）；`styles.ts:301-303` | 不同（小） |
-| 首次打开时的展开态 | `sessionsStore.ts:242`、`334`：`collapsed` 集合默认空 → **所有工作区都展开** | `pure/workspaceTreePrefs.ts:55-64`：`expandedGroups` 默认空 → **全部折叠**，只有当前会话那一组自动展开（`workspaceTree/tree.ts:446-453`） | 不同（最显眼的一条，见 C-1） |
+| 首次打开时的展开态 | `sessionsStore.ts:242`、`334`：`collapsed` 集合默认空 → **所有工作区都展开** | `pure/workspaceTreePrefs.ts` 的 `groupExpansion` 默认是**空记录** → **全部折叠**，只有当前会话那一组自动展开（`autoExpandGroup`，由 `workspaceTree/tree.ts` 那条 effect 调） | 不同（最显眼的一条，见 C1-1；#151 定了口径：跟官方一致） |
 | 工作区行 hover 四枚动作（＋ / 终端 / 打开文件夹 / 移除） | `sessionsWebview.ts:2340-2363` | `workspaceTree/rows.ts:509-553`（同一组条件：未分组桶少三枚；当前工作区不给「打开文件夹」） | 一致 |
 | 未分组桶行 | `sessionsWebview.ts:2339-2363`（只有 ＋）、`2373`（**无**右键菜单） | `workspaceTree/rows.ts:415`（菜单里也有新建）、`572`（右键菜单无条件开） | 现在更好（未分组桶也能开菜单，多了整桶归档等项） |
 | 会话行结构（状态位 / 图钉 / 标题 / 时间 / ⋯） | `sessionsWebview.ts:2427-2461` | `workspaceTree/rows.ts:1197-1297` | 不同（状态位从**行尾**挪到**行首**，见 A4） |
@@ -97,9 +97,9 @@
 | 菜单项 | 旧（`文件:行`） | 现（`文件:行`） | 判断 |
 | --- | --- | --- | --- |
 | 标题行「会话: X」 | `sessionsWebview.ts:2868` | 无 | 缺（小：行本身就显示标题） |
-| 恢复 | `sessionsWebview.ts:2869-2877` | `recycleDrawer.ts:423`、`435` | 一致（另外现在行上有常驻「还原」按钮：`recycleDrawer.ts:396-416`） |
-| 归档（无法恢复） | `sessionsWebview.ts:2878-2886` | `recycleDrawer.ts:424-431`（危险色 + 「永久归档」文案） | 一致 |
-| 打开方式 | ⋯ 按钮 **与右键**：`sessionsWebview.ts:2848-2861` | 只有 ⋯ 按钮：`recycleDrawer.ts:368-381`（行上无 `onContextMenu`） | 缺（回收站行的右键入口没了） |
+| 恢复 | `sessionsWebview.ts:2869-2877` | `recycleDrawer.ts` 的 `RecycleRow`（`menuItems` 的 `restore`） | 一致（另外现在行尾有常驻「还原」按钮） |
+| 归档（无法恢复） | `sessionsWebview.ts:2878-2886` | `recycleDrawer.ts` 的 `RecycleRow`（`menuItems` 的 `archive`，危险色 + 「永久归档」文案） | 一致 |
+| 打开方式 | ⋯ 按钮 **与右键**（两者开同一份菜单）：`sessionsWebview.ts:2848-2861` | **只有右键**（拿到的是与行尾那两枚动作同一份项）：`recycleDrawer.ts` 的 `RecycleRow` 的 `onContextMenu`（**#154 补回**；行上不再有 ⋯ 按钮，点行本身是打开会话） | 不同（⋯ 按钮没了；右键入口 #154 起回来了） |
 
 ## A4. 状态显示
 
@@ -107,7 +107,7 @@
 | --- | --- | --- | --- |
 | 状态优先级（待交互 > 运行中 / 后代在跑 > 未读 / 完成） | `sessionsWebview.ts:2391-2406` | `pure/workspaceTreeView.ts:406-457` | 一致 |
 | 状态点位置 | **行尾**固定 16px 槽：`sessionsWebview.ts:472-480`、`2446-2449` | **行首** 16×20 的 slot：`styles.ts:298`、`rows.ts:1211-1215` | 不同 |
-| 状态点尺寸与动画 | 绿/黄点 6px、运行中自绘 10px 像素环：`sessionsView.ts:453-470` | 官方 `StateDot`（默认 10px，出处 `docs/dsh-web-workflow-run-card-research.md:76`；`rows.ts:211` 未传 size） | 不同（点从 6px 变 10px） |
+| 状态点尺寸与动画 | 绿/黄点 6px、运行中自绘 10px 像素环：`sessionsView.ts:453-470` | 官方 `StateDot`（默认 10px，出处是官方 primitives 包的 `StateDot.d.ts`；`rows.ts:211` 未传 size） | 不同（点从 6px 变 10px） |
 | 状态点与时间的关系 | 互斥（有标记就不显示时间）：`sessionsWebview.ts:2443-2449` | 同时显示，hover 时时间让位给 ⋯：`rows.ts:1224-1230`、`styles.ts:315` | 不同 |
 | 工作区行的计数 | **三项**（待交互 / 运行中 / 未读），10px 小字 + 点或环图标：`sessionsWebview.ts:1839-1855`、`sessionsView.ts:418-420` | **三项**（运行中 / 等待交互 / 未读），官方 `StateDot` + 数字，**跟在工作区标题文字之后**（#138 起；此前绝对定位在行尾），第三项由 #153 补回：`rows.ts` 的 `ProjectRow` / `ActivityBadge`、`pure/workspaceTreeView.ts:474-520` | 一致（三项的桶与互斥优先级同源：每个会话只进一个桶，待交互 > 运行中 > 未读；差别只在观感——官方点 + 数字，且我们的渲染顺序是运行中 → 等待交互 → 未读） |
 | 标签组折叠态计数（待交互 / 运行中 / 未读） | `sessionsWebview.ts:1956-1971` | `pure/sessionTagGroups.ts:381-390` + `tagGroups.ts:339-371` | 一致 |
@@ -172,7 +172,7 @@
 | 输入去抖 | 200ms：`sessionsWebview.ts:540-545` | 250ms：`search.ts:3`、`tree.ts:474-482` | 不同（几乎不可感知） |
 | 内容全文搜索（后端索引） | `sessionsStore.ts:1414-1440`（`session.search`，命中给 snippet） | `tree.ts:467-487`、`1161-1162`（官方 `sessions.search`，命中给 snippet） | 一致 |
 | 命中片段显示位置 | 会话行**下方**独立一块：`sessionsWebview.ts:1392-1402`、`2572-2582` | 搜索结果行的**第二行**：`rows.ts:1394-1403` | 不同 |
-| 命中的关键词高亮 | `sessionsWebview.ts:2588-2606`（标题 / 组名 / 片段三处包 `<mark class="dsh-mark">`，样式 `sessionsView.ts:569-575`） | 无（`grep -rn "dsh-mark\|highlight" packages/dsh-workspace-tree/src/workspaceTree/` 零命中） | 缺 |
+| 命中的关键词高亮 | `sessionsWebview.ts:2588-2606`（标题 / 组名 / 片段三处包 `<mark class="dsh-mark">`，样式 `sessionsView.ts:569-575`） | **已补回（#152 照旧侧栏那一版补，#166 起每一处都标）**：`rows.ts` 的 `highlightMatches` 把标题 / 工作区名 / 片段三处里每一处命中词各包一个 `<mark class="dshOneTree_searchMark">`（大小写不敏感、重叠只算一处、相邻都标），样式见 `styles.ts` 的搜索高亮那一段；常驻判据是装配实验室的 F-49 | 一致（官方搜索结果本身没有高亮，是照旧侧栏这一版补的；标几处按 #166 的用户口径） |
 | 搜索时的列表形态 | 仍是分组的树，只留下有命中的组与行：`pure/sessionTree.ts:254`、`sessionsWebview.ts:1229-1260` | 整块换成平铺的搜索结果行（官方 SearchResults 形态）：`tree.ts:1258-1288` | 不同 |
 | 无命中 / 加载中 / 索引不可用文案 | `sessionsWebview.ts:1251-1275` | `tree.ts:1282-1288`（`search.pending` / `search.noMatches` / `search.unavailable`） | 一致 |
 | 结果条数上限提示 | `sessionsWebview.ts:1261`（「换更精确的关键词」） | `tree.ts:1426-1436`（`search.hasMore`） | 一致 |
@@ -252,12 +252,12 @@
 | 文字行高 | 未显式声明（随 `--vscode-font-size`，约 1.4 倍） | 标题 `title-line-height`：20px / 20px；元信息 `meta-line-height`：20px / 18px（消费点同上） | 不同（现在显式取官方行高；元信息比官方原值紧一档） |
 | 行圆角 | 会话行 4px（`sessionsView.ts:436`）；工作区行没有圆角（`390-394`） | `row-radius`：8px / 8px（消费点 `styles.ts` 的两条行规则与溢出按钮 / 搜索结果行 / 入口行主区 / 抽屉块头） | 不同（两个行种统一取官方原值；这也是唯一进密度表的圆角） |
 | 行内边距 | 会话行 `0 6px 0 20px` + 外边距 `0 4px`（`sessionsView.ts:434`）；工作区行 `0 10px`（`391`） | `row-padding-inline`：8px / 8px（消费点 `styles.ts` 的行规则，同时是骨架件与行形件对齐的「行内容基准」）；行通栏出血，左内边距不再承担层级缩进 | 不同（行从「左右各留 4px + 左缩进 20px」改成通栏 + 官方 8px 内边距） |
-| 行间距 | 列表容器 `padding: 2px 0`，行之间无间距（`sessionsView.ts:81`） | `row-gap`：2px / 2px（`sidebarLayoutPlugin.ts:129`；消费点 `styles.ts:256`） | 一致（同为 2px 量级，#119 起这一项两边同值） |
-| 组间距 | 标签组块 `margin: 4px 0 2px`（`sessionsView.ts:581`） | `group-gap`：4px / 4px（`sidebarLayoutPlugin.ts:134`；消费点 `styles.ts:258`、`347`、`441`） | 一致（#119 定「纵向取官方节奏」） |
+| 行间距 | 列表容器 `padding: 2px 0`，**行与行之间没有间距**（`sessionsView.ts:81`） | `row-gap`：2px / 2px（`sidebarLayoutPlugin.ts:129`；消费点 `styles.ts:256`），行与行之间真的有 2px | **不同**（本文原先判「一致」，渲染实测推翻了它：旧侧栏那 2px 在列表容器上下、不在行与行之间，见 `legacy-vs-current-sidebar-render.md` 的 C-5） |
+| 组间距 | **工作区块之间没有间距**，`margin: 4px 0 2px` 只出现在标签组块上（`sessionsView.ts:581`） | `group-gap`：4px / 4px（`sidebarLayoutPlugin.ts:134`；消费点 `styles.ts:258`、`347`、`441`），块与块之间真的有 4px | **不同**（同 C-5：原先判「一致」，实测推翻） |
 | 分节头下边距 | 顶栏 / 分组栏 / 选择条的 1px 分隔线（`sessionsView.ts:44-47`、`92-95`、`84-87`） | `section-header-gap`：4px / 4px（`sidebarLayoutPlugin.ts:142`；消费点 `styles.ts:236`）；没有分隔线 | 不同（分隔线换成留白） |
-| 行内图标位 | 工作区文件夹 / 折叠三角 16×16（`sessionsView.ts:397-401`）；图钉 14×14（`447-452`） | `.dshOneTree_slot` 16×20（`styles.ts:298`，档位表记名 `styles.ts:145-146`）；图钉 14px（`styles.ts:417`） | 一致（都是官方 16 档图标位 + 14px 图钉） |
+| 行内图标位 | 工作区文件夹 / 折叠三角 16×16（`sessionsView.ts:397-401`）；图钉 14×14（`447-452`） | `.dshOneTree_slot` 16×20（`styles.ts:298`，档位表记名 `styles.ts:145-146`）；图钉 14px（`styles.ts:417`） | **不同**（原先判「一致」，渲染实测推翻了它：旧 16×16、现 16×20，高度差 4px，见 `legacy-vs-current-sidebar-render.md` 的 C-6）；图钉 14px 两侧同值 |
 | 行内动作按钮 | 20×20、圆角 3px（`sessionsView.ts:496-500`） | `.dshOneTree_rowIconButton` 16×16、圆角 4px（`styles.ts:318`；档位表记名 `styles.ts:147-148`） | 不同（按钮变小 4px） |
-| 状态点尺寸 | 绿 / 黄点 6px（`sessionsView.ts:464-466`）；运行中自绘 10px 像素环（`sessionsView.ts:453-461`；画法由共享模块承担，见 `sessionsWebview.ts:476-482`） | 官方 `StateDot`，默认 10px（出处 `docs/dsh-web-workflow-run-card-research.md:76`；`rows.ts:211` 未传 size） | 不同（6px → 10px） |
+| 状态点尺寸 | 绿 / 黄点 6px（`sessionsView.ts:464-466`）；运行中自绘 10px 像素环（`sessionsView.ts:453-461`；画法由共享模块承担，见 `sessionsWebview.ts:476-482`） | 官方 `StateDot`，默认 10px（出处是官方 primitives 包的 `StateDot.d.ts`；`rows.ts:211` 未传 size） | 不同（6px → 10px） |
 | 分组过滤胶囊尺寸 | 高约 23px（`padding: 3px 9px 3px 8px` + 12px 字，无显式行高）：`sessionsView.ts:96-103`；计数角标 11px / 16px 行高 / 圆角 999px（`116-120`） | `pill-height`：28px / 26px、`pill-font-size`：13px / 12px、`pill-padding-start`：8px / 7px、`pill-padding-end`：4px / 2px（`sidebarLayoutPlugin.ts:176-179`；消费点 `styles.ts:353`）；圆角 999px 取容器档（`styles.ts:188`） | 不同（高度显式化，两侧都比旧值高） |
 | 工作区行「宿主」小胶囊 | 10px 字、`padding: 0 7px`、圆角 999px（`sessionsView.ts:422-427`） | `.dshOneTree_workspaceBadge` 16px 高 / 圆角 10px / 11px 字 / 内边距 `0 4px`（`styles.ts` 的规则上方逐项写了取的哪一档：高取标准档行内图标按钮的 16px、圆角取容器档小胶囊、字号取标准档小胶囊、内边距取标准档胶囊触发器；#138 从 20px 高收紧一档） | 不同（旧是自定值，现取官方同形件的档） |
 | 抽屉尺寸 | 默认 50%、上拉 90%（`sessionsWebview.ts:2612-2613`）；提手 16px 高、把手 36×4 / 圆角 2px（`sessionsView.ts:314-322`） | 默认 50% / 90%（`recycleDrawer.ts:42-43`、`238`）；提手 12px、把手 32×3 / 圆角 2px（`styles.ts:462-464`）；过渡时长与缓动取官方 token（`styles.ts:453`） | 不同（提手与把手都缩小一档） |
@@ -279,21 +279,19 @@
 
 前面数字是这份清单的编号，方便逐条挑。
 
-1. **首次打开时的展开态**：旧侧栏打开时所有工作区都是展开的，现在只有当前会话所在的那一个自动展开，其余全折叠（`pure/workspaceTreePrefs.ts:55-64` + `tree.ts:446-453`）。这是进入侧栏第一眼就能看到的差别。→ **建议改**（改成默认全部展开，或按官方侧栏的默认值再核一次）。
+1. **首次打开时的展开态**：旧侧栏打开时所有工作区都是展开的，现在只有当前会话所在的那一个自动展开，其余全折叠（`pure/workspaceTreePrefs.ts` 的 `groupExpansion` 空记录 + `autoExpandGroup`）。这是进入侧栏第一眼就能看到的差别。→ **保持现状（#151 定了口径：跟官方一致）**：官方 `WorkspaceBrowser` 的展开记录初值是空的、只在没碰过当前组时展开它，所以「旧侧栏全展开」不是官方行为，没照旧改。常驻判据 = 装配实验室的 F-51。
 2. **会话行状态点的位置与大小**：旧的在行尾、固定 16px 槽、和相对时间互斥（有标记就不显示时间）；现在的在行首（`styles.ts:298`），点从 6px 变成官方 `StateDot` 的 10px，而且和相对时间同时显示（`rows.ts:1224-1230`）。→ **建议用户拍板**：位置跟官方（现状）还是跟旧侧栏（行尾互斥）。
-3. **搜索不再高亮命中的关键词**：旧侧栏在标题、工作区名、命中片段三处都会把关键词包成 `<mark>` 加粗变色（`sessionsWebview.ts:2588-2606`、`sessionsView.ts:569-575`），现在没有任何高亮。→ **建议改**（补回来，观感差别明显）。
+3. **搜索命中的关键词高亮**（原记「现在没有任何高亮」）：旧侧栏在标题、工作区名、命中片段三处把关键词包成 `<mark>` 加粗变色（`sessionsWebview.ts:2588-2606`、`sessionsView.ts:569-575`）。→ **已改（#152；标几处见 #166）**：现在三处里每一处命中词都包成 `<mark class="dshOneTree_searchMark">`，样式取官方业务色、无底色；官方搜索结果本身没有高亮（0.1.6-alpha.1 实测），所以这是照旧侧栏那一版补的，常驻判据是装配实验室的 F-49。
 4. **搜索时的列表形态**：旧的是「仍是分组树，只留下有命中的组」，现在是「整块换成平铺的结果行」（`tree.ts:1258-1288`，官方 SearchResults 的形态）。→ **保持现状**（这是对齐官方 web 的结果，也是 #98 的方向）；如果用户更习惯旧形态，可以另立条目。
 5. **手动刷新按钮没了**：旧顶栏有刷新（点击转圈 + 禁用 450ms，`sessionsWebview.ts:559-570`）；现在数据靠官方会话服务推送，没有任何手动刷新入口。→ **建议用户拍板**（正常推送下不需要；但用户想「强制拉一次」时没有入口）。
 6. **dsh 未安装 / 服务未启动的空态换了位置**：旧的在侧栏面板里（`sessionsWebview.ts:1726-1751`），现在是宿主侧的状态页（`sidebarStatusPage.ts:26-51`）；旧面板里那块「一键安装脚本」（平台下拉 + 命令条 + 复制）现在搬到安装指南页（`src/pure/installGuidePage.ts:333`、`292-315`）。→ **保持现状**（未安装时网关起不来，装配页组装不了，状态页必须在宿主侧渲染，理由写在 `sidebarStatus.ts:1-12`）。
 7. **整套菜单与行的密度收紧了**：菜单项 30px → 官方 compact 档 26px、圆角 8px → 5px、行内边距 10px → 7px；行家族（工作区行 / 会话行 / 抽屉会话行 / 搜索结果行）取官方侧栏原值——工作区行 34px、会话行 32px、圆角 8px、行内边距 8px、标题 14px/20px（#134 用户拍板：行参考官方侧栏自己的尺寸）。→ **保持现状**（这是 #113 定下、#134 收口的口径：要么官方标准档、要么官方紧凑档，不再有自造中间值；菜单一侧仍取紧凑档）。
 8. **重命名 / 删除的弹窗形态**：会话改名、工作区改名、标签组改名、删除工作区、删除标签组，旧的走 VS Code 原生 `showInputBox` / `showWarningMessage`，现在全在面板内用官方 Modal（`modals.ts` 全篇）。→ **保持现状**（可移植与两端一致的要求；如果用户更认原生框，可另立条目）。
-9. **工作区行的计数少了「未读」一项**：旧的是三项（待交互 / 运行中 / 未读，`sessionsWebview.ts:1839-1855`），装配版起初只有运行中与等待交互两项，跟在标题文字之后（`rows.ts` 的 `ProjectRow` / `ActivityBadge`）。→ **已改（#153）**：第三项补回来了，三枚逐项同形（同一枚官方 `StateDot`、同一档字号与间隙、同一个容器），桶与互斥优先级按旧的那一版（每个会话只进一个桶：待交互 > 运行中 > 未读），未读判定吃客户端那份手动未读集合（不是官方「跑完还没被打开」的提醒），位置仍在工作区标题文字之后（#138）。
-10. **回收站的抽屉头与行**：旧的抽屉头有「‹ 返回 / 清空 / 恢复全部」三样，现在只有标题 + 计数 + ✕（`recycleDrawer.ts:274-287`），清空与全部还原只剩底部入口行那两枚；旧的行的 ⋯ 只能在按钮或右键打开，现在按钮常显、右键入口没了（`recycleDrawer.ts:368-381`）；旧的回收站行有状态点与图钉，现在没有。→ **建议改**（至少把右键入口与状态点补回来）。
-9. **工作区行的计数少了「未读」一项**：旧的是三项（待交互 / 运行中 / 未读，`sessionsWebview.ts:1839-1855`），现在只有运行中与等待交互两项，跟在标题文字之后（`rows.ts` 的 `ProjectRow` / `ActivityBadge`）。→ **建议改**（补上未读计数，或明确说不要）。
-10. **回收站的抽屉头与行**（**#154 已改**）：旧的抽屉头有「‹ 返回 / 清空 / 恢复全部」三样，现在只有标题 + 计数 + ✕（`recycleDrawer.ts:274-287`），清空与全部还原只剩底部入口行那两枚；旧的行的 ⋯ 只能在按钮或右键打开，现在按钮常显、右键入口没了（`recycleDrawer.ts:368-381`）；旧的回收站行有状态点与图钉，现在没有。→ **建议改**（至少把右键入口与状态点补回来）。**#154 的落地形态**：抽屉头三样补齐（返回接手 ✕ 的位置与标记、清空与恢复全部沿用入口行那两枚同一形态与同一能力口）；行的右键菜单回来（与行尾两枚动作同一份项）；行上补状态点与图钉（与主树同一枚组件、同一口径）。由 `test/assembly-lab/` 的 F-49 钉住。
+9. **工作区行的计数少了「未读」一项**：旧的是三项（待交互 / 运行中 / 未读，`sessionsWebview.ts:1839-1855`），装配版起初只有运行中与等待交互两项，跟在标题文字之后（`rows.ts` 的 `ProjectRow` / `ActivityBadge`）。→ **已改（#153）**：第三项补回来了，三枚逐项同形（同一枚官方 `StateDot`、同一档字号与间隙、同一个容器），桶与互斥优先级按旧的那一版（每个会话只进一个桶：待交互 > 运行中 > 未读），未读判定吃客户端那份手动未读集合（不是官方「跑完还没被打开」的提醒），位置仍在工作区标题文字之后（#138）。常驻判据 = 装配实验室的 F-52。
+10. **回收站的抽屉头与行**：旧的抽屉头有「‹ 返回 / 清空 / 恢复全部」三样，装配版起初只有标题 + 计数 + ✕，清空与全部还原只剩底部入口行那两枚；旧的行的菜单由 ⋯ 按钮或右键打开，起初按钮常显、右键入口没了；旧的回收站行有状态点与图钉，起初两样都没有。→ **已改（#154）**：抽屉头三样补齐（返回接手 ✕ 的位置与标记，清空与恢复全部沿用入口行那两枚同一形态、同一能力口）；行的右键菜单回来（与行尾两枚动作同一份项）；行上补状态点与图钉（与主树同一枚组件、同一口径）。常驻判据 = 装配实验室的 F-53。
 11. **标签组 pill 的菜单**：旧的右键 pill 打开（`sessionsWebview.ts:2002-2010`），现在是组头右侧的 ⋯ 按钮（`tagGroups.ts:262-276`）；旧的「颜色」是二级子菜单（`2189-2224`），现在是同一菜单里的一节。→ **建议用户拍板**（颜色那一节现在一眼能看全，但右键盘多了一个按钮）。
 12. **排序少了「活跃会话前置」这一层**：旧的在每个工作区里先把运行中 / 有后代在跑 / 未读 / 待交互的会话提到前面（`pure/sessionTree.ts:337-380`），现在只有「置顶最前」，其余保持官方顺序（#131 起不再有「最近更新」那一档，`tree.ts:520-523`）。另外旧置顶项之间按置顶的先后排，现在按官方顺序排。→ **建议用户拍板**（旧行为更利于「先看有事要处理的」）。
-13. **空工作区也能展开**：旧的空组 hover 不换成折叠三角、点击没反应（`sessionsWebview.ts:2366-2369`），现在照样能展开收起（展开后仍是空的）。→ **建议改**（小改动，回归旧行为）。
+13. **空工作区也能展开**：旧的空组 hover 不换成折叠三角、点击没反应（`sessionsWebview.ts:2366-2369`），现在照样能展开收起（展开后仍是空的）。→ **保持现状（#151 定了口径：跟官方一致）**：官方空工作区行同样能收能展，F-51 的 ③ 把「悬停显形、`aria-expanded` 翻转、展开后仍零会话行、重载后态不丢」逐条钉住。
 14. **工作区分组的拖拽排序**（原「不能再拖拽排序」）：旧的管理视图里可以拖动组行改顺序（`sessionsWebview.ts:1107-1168`），装配树原先没有这个入口。→ **已改（#155）**：「管理分组…」第一层的每行前面有一枚抓手（旧侧栏那枚 6 点把手），拖到另一行的上/下半即插到它前/后（落点判定与标记画法与同页 pill 拖拽同一套，载荷是自定义 MIME `text/dsh-group`），松手即生效；顺序判定用纯层 `reorderGroups`，落盘仍只有 `writeGroups` 一条，拖回原位不产生写入。
 15. **给工作区打标的入口位置变了**：旧的在「管理分组…」视图里勾选工作区（`sessionsWebview.ts:1071-1106`），现在在工作区行的右键菜单「分组…」里勾（`rows.ts:426-432`）；现在的「管理分组…」只列组、能建 / 改名 / 删除（`modals.ts:514-618`）。→ **保持现状**（同名功能的入口从一处挪到另一处，功能没丢），但若用户习惯在管理视图里打标，可以补。
 16. **内置标签组（待办 / 进行中 / 已完成）**：旧侧栏每个工作区都预置这三组（`pure/sessionTags.ts` 的 `PRESET_TAGS`）。#98/#107 一度在迁入时丢弃它们，→ **已改（#213，2026-09-19，用户要求「加回来」）**：装配侧栏照旧侧栏那套恢复三个预设组——**恒存在**（任何工作区桶里都能看到，不靠该工作区存过标签桶；渲染用的视图桶由 `pure/sessionTagGroups.ts` 的 `withPresetTagGroups` 恒补，持久数据里不预写）、**不可删、不可改名**（菜单里不出现这两项，动作层 `deleteTagGroup` / `updateTagGroup` 再拒一道）、**颜色可改**（照旧侧栏 `setTagColor` 对预设组没有门槛）、**名字走 l10n**（`PRESET_TAG_L10N` 的三条键，名字不落数据）；旧文件里 `preset-*` 的定义与归属迁入时照常收下（原先归在这三组里的会话重新显示在组里）。常驻断言 = `npm run verify:lab` 的 F-64（另见 F-16 的迁入那一档）。
@@ -309,16 +307,17 @@
 
 **一致**（行为与观感都对上了）：
 
-- 工作区分组顺序（注册序 + 未分组桶收尾）、会话行结构、工作区行 hover 的四枚动作。
+- 会话行结构、工作区行 hover 的四枚动作。（工作区分组的**顺序**不一致：旧侧栏当前文件夹优先、其余按 `updatedAt` 降序，见 A1 第一行与 `legacy-vs-current-sidebar-render.md` 的 C-1。）
 - 状态优先级（待交互 > 运行中 / 后代在跑 > 未读 / 完成）、未读的绿点与加粗标题。
 - 置顶图钉、标签组的形态（pill + 贯穿竖线 + 组内缩进，逐字沿用旧值）、标签组折叠计数。
 - 拖会话入组 / 拖出、拖 pill 换组序（连自定义 MIME 名字 `text/dsh-session` / `text/dsh-tag` 都一样）、拖组行换分组顺序（#155 补，载荷 `text/dsh-group`）。
 - 回收站入口行的形态与「计数 0 灰态 + 两枚禁用」、抽屉的滑出 / 半高 / 上拉 90% / 点提手收起 / 点外面收起 / Esc、按工作区分块与块内倒序、归档前一律确认。
 - 「折叠全部 / 展开全部」的图标翻转与「搜索态恒按折叠全部显示」这条口径。
 - 键盘语义（Esc 关浮层、改名输入框的 Enter / Esc、IME 组合中的 Enter 不算提交）。
-- 搜索的输入上限 500、清空按钮、无命中 / 加载中 / 索引不可用的文案。
+- 搜索的输入上限 500、清空按钮、无命中 / 加载中 / 索引不可用的文案、命中的关键词高亮（三处每一处都标，`<mark>` + 官方业务色、无底色；#152 补、#166 定「每处都标」）。
 - 分组过滤胶囊（单胶囊 + 计数 + ▾ + 下拉里「全部 / 各组 / 新建分组… / 管理分组…」）、过滤计数 = 成员工作区数。
 - 空态（加载中、零工作区、分组无成员、搜索无命中）、会话行内改名、各处的资格判定（能不能勾、能不能移进回收站、能不能归档）。
+- 工作区行尾的三项活状态计数（待交互 / 运行中 / 未读，同一枚官方 `StateDot` + 数字；#153 补回第三项）、回收站抽屉的头三样与行上的状态点 / 图钉 / 右键菜单（#154 补齐）。
 
 **现在更好**（新增或修好的）：
 
@@ -336,11 +335,11 @@
 
 ## D1. 证据规则
 
-- 每条判断都写了 `文件:行`。写「缺」的条目都用搜索确认过在装配侧零命中（例：关键词高亮 `grep -rn "dsh-mark\|highlight" packages/dsh-workspace-tree/src/workspaceTree/` 零命中；刷新按钮 `grep -rn refresh packages/dsh-workspace-tree/src/workspaceTree/` 零命中）。
+- 每条判断都写了 `文件:行`。写「缺」的条目都用搜索确认过在装配侧零命中（例：刷新按钮 `grep -rn refresh packages/dsh-workspace-tree/src/workspaceTree/` 零命中；命中的只有回收站那两枚「还原 / 永久归档」按钮用的 `IconRefreshOutline16`）。本文写作之后补回来的条目（搜索高亮 #152 等）已在原位改标为「已改」，不再算「缺」。
 - **未核实的条目**（已在原位标注）：
   - 官方侧栏壳给内容区的**字体族与基准字号**：官方 css 不在本仓库，只能确认树自己没声明。
-  - 官方 `StateDot` 的 10px 取自 `docs/dsh-web-workflow-run-card-research.md:76`（从运行中的官方 bundle 抓的实现说明），不是本仓库的源码断言。
-- 行号都指向本文写作时的当次工作区代码（`develop/cordis-chat`，`d31fbdc`）。
+  - 官方 `StateDot` 的 10px 取自官方 primitives 包的 `StateDot.d.ts`（`size` 的默认值），不是本仓库的源码断言。
+- 行号都指向本文写作时的当次工作区代码（`develop/cordis-chat`，`d31fbdc`）——旧侧栏那几个文件此后也被动过（例如 #22 删过一批未使用符号），所以两侧的行号都可能与当前 `main` 对不上，看文首的说明。
 
 ## D2. 旧侧栏已退役的工程手段（机制不同，不构成功能缺口）
 

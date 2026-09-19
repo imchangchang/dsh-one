@@ -1,6 +1,8 @@
 # Backlog：GitHub Issues
 
-记录已知但未解决的问题、待做的改进和将来可能要做的事。**backlog 的唯一事实源是 GitHub Issues**，本目录只保留这份约定和 closed 历史归档。
+记录已知但未解决的问题、待做的改进和将来可能要做的事。**backlog 的唯一事实源是 GitHub Issues**，本目录只保留这份约定、迁移记录和 closed 历史归档。
+
+本目录 2026-09-07 之前是文件夹式 backlog（一条目一个 md 文件，状态靠目录位置表达）；当天起改用 GitHub Issues（issue #12）。下面这些是迁移前后的历史记录，现行走 issue。
 
 ## 约定：一条目一 issue，状态 = label
 
