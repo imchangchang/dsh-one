@@ -14,7 +14,8 @@
  *   没有门槛）；
  * - **自建组**只在用户建的那一刻出现，且那一刻必然同时把某个会话归进去；一个自建组
  *   如果连一个还活着的成员都没有了，{@link pruneTagGroups} 会把它连归属一起清掉。
- *   **预设组不参与这条清理**：没有成员也照样在场（那是用户往里拖会话的落点）；
+ *   **预设组不参与这条清理**：没有成员也照样在场（那是「移到分组…」里给用户往里移的
+ *   落点）；
  * - **组顺序由用户拖拽决定**（`tags` 数组的顺序就是渲染顺序；缺预设组时补在末尾，
  *   理由见 {@link withPresetTagGroups}）；
  * - 组内顺序与工作区内顺序**不归本模块管**：官方顺序 + 置顶项排前由渲染层用
@@ -38,11 +39,18 @@
  * `collapsed`（旧文件里记的折叠态）**不迁**：折叠是纯视图态，按 AGENTS.md 铁律第二类
  * 走客户端存储（`pure/workspaceTreePrefs.ts` 的 `tagCollapsed`），不进这份持久数据。
  *
- * ## 组只与成员一起出现（空组处理；预设组除外）
+ * ## 组只与成员一起出现（空组处理；预设组只是不落清理，不落渲染）
  * 建自建组的唯一入口是「把某个会话归进一个新建的组」，所以**不存在天生没成员的自建组**；
  * 反过来说，一个自建组如果连一个还活着的成员都没有了（组内会话被归档 / 从 dsh 侧消失），
  * 它留着就只是看不见也删不掉的垃圾——{@link pruneTagGroups} 会在基线就绪后把它连同
  * 归属一起清掉。**只进过回收站的会话仍算活着**：它还在 dsh 上，随时能还原回组里。
+ *
+ * ## 空的预设组不占位（#214）
+ * 三个预设组**恒在**（{@link withPresetTagGroups} 恒补、{@link deleteTagGroup} 拒删、
+ * 菜单恒列），但**没有成员时不出块**（{@link splitByTagGroups} 对空组一律跳过，与自建组
+ * 同一口径）——用户看到的是一行行会话，而不是三个空组头各占一行把人往下压。
+ * 由此带来一条取舍：**空预设组没有可拖入的落点**（落点是组块本身）。要往空组里放会话，
+ * 走会话行菜单的「移到分组…」（{@link withPresetTagGroups} 保证那一份清单里恒有它们）。
  */
 
 import { PRESET_TAGS, PRESET_TAG_L10N, TAG_COLORS, isPresetTagId, presetTagName, type TagColor } from './sessionTags.ts'
@@ -279,8 +287,8 @@ export function deleteTagGroup(bucket: TagGroupBucket, id: string): TagGroupBuck
  * 拖拽提交的整组新顺序：只接受与全集等长且无未知/重复 id 的顺序（相当于校验一个
  * 置换）；其余视为无效请求返回 null。与当前顺序一致也返回 null。
  *
- * 传进来的桶要**含预设组**（视图桶）：界面上三个预设组也占位，拖拽提交的是整份
- * 显示顺序，缺一个就不是置换。
+ * 传进来的桶要**含预设组**（视图桶）：拖拽提交的是整份显示顺序（含没有成员的预设组
+ * ——它们不渲染成块、但仍在组序里），缺一个就不是置换。
  */
 export function reorderTagGroups(bucket: TagGroupBucket, ids: readonly string[]): TagGroupBucket | null {
   if (ids.length !== bucket.tags.length) return null
@@ -383,8 +391,9 @@ export interface TagGroupBlock {
 
 /** 一个工作区切完块之后的样子。 */
 export interface TagGroupSplit {
-  /** 组块，顺序 = 组定义顺序。**预设组恒占位**（没有成员也出块，它是用户往里拖会话
-   *  的落点）；**自建组空着不出现**（组只与成员一起出现，见文件头）。 */
+  /** 组块，顺序 = 组定义顺序。**空组一律不出现**（预设组与自建组同一口径，#214）：
+   *  预设组仍然恒在（{@link withPresetTagGroups}，「移到分组…」的清单里恒列它们），
+   *  只是没有成员时不占位。 */
   readonly blocks: readonly TagGroupBlock[]
   /** 没归组的会话（渲染在组块之后，与旧侧栏「未归组殿后」一致）。 */
   readonly ungrouped: readonly SessionNode[]
@@ -398,6 +407,9 @@ export interface TagGroupSplit {
  * @param isPinned 这一项是否置顶——**组内置顶 = 在该组内靠前**（#98 定稿），
  *   所以每个组（以及未归组那一段）各调一次 `pinnedFirst`，组与组之间的相对位置
  *   不受置顶影响（置顶是「在它所在的那一层排最前」，组这一层不参与）。
+ *
+ * 出块的组就是渲染出来的组，也是拖拽的落点：**空组不在其中**（#214），所以空预设组
+ * 只能从「移到分组…」菜单移入，拖不进去（见文件头「空的预设组不占位」）。
  */
 export function splitByTagGroups(
   sessions: readonly SessionNode[],
@@ -419,11 +431,10 @@ export function splitByTagGroups(
   const blocks: TagGroupBlock[] = []
   for (const def of bucket.tags) {
     const members = byGroup.get(def.id)
-    if (members === undefined || members.length === 0) {
-      // 预设组恒出块（空块也是落点）；自建组空着不占位。
-      if (isPresetTagId(def.id)) blocks.push({ def, sessions: [] })
-      continue
-    }
+    // 空组一律不出块（预设组与自建组同一口径，见 {@link TagGroupSplit.blocks}）：
+    // 这一条只影响**渲染**，不影响「恒在」——预设组照旧恒在视图桶里（
+    // {@link withPresetTagGroups}），「移到分组…」的清单照旧恒列它们。
+    if (members === undefined || members.length === 0) continue
     blocks.push({ def, sessions: pinnedFirst(members, isPinned) })
   }
   return { blocks, ungrouped: pinnedFirst(ungrouped, isPinned) }

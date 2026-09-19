@@ -3602,7 +3602,7 @@ export const TAG_GROUPS_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '会话标签组（#107）：迁入 / 拖入拖出 / 组间拖拽换位 / 组内置顶 / 折叠计数 / 组菜单（TAG-GROUPS 套件）',
   expect:
-    '#107 定的标签组语义在真实装配页上成立（真网关**只读** + 假宿主）：① **迁入**——把旧侧栏那份 `tags.json`（v2 形状，含内置组 `preset-todo` 与一个从没成员的空气组）注进假宿主状态存储后，自建组与它的归属原样迁入，**预设组也照常收下**（#213 把 #98/#107 那条「旧内置组不再算组」反过来：原先归在 `preset-todo` 里的会话仍在那个组里，另外两个预设组由视图侧恒补出来），空气组被清掉，写回的 `tags` 里**不再有 `collapsed` 字段**（折叠是纯视图态，走客户端存储）；② **拖入/拖出**——把一条会话拖到组块上就归进该组、拖到组外（工作区层）就移出分组，两次都只改我们自己的 `tags` 状态；③ **组间拖拽换位**——拖 pill 到另一个 pill 的上半 = 插到它前面，新顺序落回状态（提交的是含三个预设组的整份显示顺序）；④ **组内置顶**——菜单里置顶一条组内会话后，它排到**该组内**最前（组与组之间的相对位置不受影响）；⑤ **折叠 + 折叠计数**——点 pill 右侧三角收起组内行，组头右侧出现组内「待交互/运行中/未读」计数（每会话只进一个桶），折叠态落 `dsh.workspaceTree.view` 而不是 `tags.json`；⑥ **pill 菜单八项**（标题行 + 组内新建会话 / 整组归档 / 整组移入回收站 / 移出标签组 / 改名 / 颜色 / 删除组）全在——这是**自建组**的菜单，预设组的菜单少「改名」与「删除组」两项，由 F-64 判；其中**两项危险动作走确认弹窗**（整组归档开 #103 那个归档确认弹窗并写明跳过数、删除组开删除确认弹窗），弹窗取消则什么都不发生；⑦ **整组移入回收站**是本地可逆那一层（立即执行 + 飘提示，不动 dsh 侧）；⑧ **空组处理**——**自建**组内成员走了、清了之后，组定义与归属一起被清掉（组只与成员一起出现，不留看不见也删不掉的空壳）；预设组不参与这条清理，恒在场。全程零 pageerror。',
+    '#107 定的标签组语义在真实装配页上成立（真网关**只读** + 假宿主）：① **迁入**——把旧侧栏那份 `tags.json`（v2 形状，含内置组 `preset-todo` 与一个从没成员的空气组）注进假宿主状态存储后，自建组与它的归属原样迁入，**预设组也照常收下**（#213 把 #98/#107 那条「旧内置组不再算组」反过来：原先归在 `preset-todo` 里的会话仍在那个组里，另外两个预设组由视图侧恒补出来；#214 起它们没有成员时**不渲染成块**，只在这一档的行菜单清单里恒列），空气组被清掉，写回的 `tags` 里**不再有 `collapsed` 字段**（折叠是纯视图态，走客户端存储）；② **拖入/拖出**——把一条会话拖到组块上就归进该组、拖到组外（工作区层）就移出分组，两次都只改我们自己的 `tags` 状态（**落点是组块**，空组没有块也就没有落点，这是 #214 的取舍）；③ **组间拖拽换位**——拖 pill 到另一个 pill 的上半 = 插到它前面，新顺序落回状态（提交的是含三个预设组的整份显示顺序；页面上只有有成员的组有 pill）；④ **组内置顶**——菜单里置顶一条组内会话后，它排到**该组内**最前（组与组之间的相对位置不受影响）；⑤ **折叠 + 折叠计数**——点 pill 右侧三角收起组内行，组头右侧出现组内「待交互/运行中/未读」计数（每会话只进一个桶），折叠态落 `dsh.workspaceTree.view` 而不是 `tags.json`；⑥ **pill 菜单八项**（标题行 + 组内新建会话 / 整组归档 / 整组移入回收站 / 移出标签组 / 改名 / 颜色 / 删除组）全在——这是**自建组**的菜单，预设组的菜单少「改名」与「删除组」两项，由 F-64 判；其中**两项危险动作走确认弹窗**（整组归档开 #103 那个归档确认弹窗并写明跳过数、删除组开删除确认弹窗），弹窗取消则什么都不发生；⑦ **整组移入回收站**是本地可逆那一层（立即执行 + 飘提示，不动 dsh 侧）；⑧ **空组处理**——**自建**组内成员走了、清了之后，组定义与归属一起被清掉（组只与成员一起出现，不留看不见也删不掉的空壳）；预设组不参与这条清理、恒在场，但 #214 起空着不占位。全程零 pageerror。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const opened = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 380, height: 900 })
@@ -3678,10 +3678,13 @@ export const TAG_GROUPS_SUITE: LabSuite = {
         fixtureBlocks.find((block) => block.tag === 'preset-todo')?.rows.includes(inPreset) === true,
         JSON.stringify(fixtureBlocks),
       )
-      check.ok(
-        '另外两个预设组由视图侧补出来（旧文件里没存过它们，也照样在场）',
-        ['preset-doing', 'preset-done'].every((id) => fixtureBlocks.some((block) => block.tag === id)),
-        JSON.stringify(fixtureBlocks.map((block) => block.tag)),
+      // #214：另外两个预设组由视图侧补出来（旧文件里没存过它们）——它们没有成员，所以
+      // **不渲染成块**（改前这里会各出一个空块、各占一行）；「仍然恒在」这一条改由行菜单
+      // 「移到分组…」证明（下面 ③ 那一档，F-64 也按同一口径判）。
+      check.eq(
+        '#214 空预设组不占位：这个区块里只有有成员的两个块',
+        fixtureBlocks.map((block) => block.tag),
+        ['preset-todo', 't-lab'],
       )
       check.eq('从没成员的空气组被清掉（空组处理；预设组不参与这条清理）', migratedBlocks.filter((block) => block.tag === 't-empty').length, 0)
       await page.waitForTimeout(1_200)
@@ -3729,6 +3732,13 @@ export const TAG_GROUPS_SUITE: LabSuite = {
       check.fact(`行菜单「移到分组…」里的项：${JSON.stringify(rowTagSection)}`)
       check.ok('会话行菜单里有「新建标签组…」与「不归入标签组」', hasAnyText(rowTagSection, '新建标签组') && hasAnyText(rowTagSection, '不归入标签组'))
       check.ok('菜单里列出了本工作区已有的组', hasAnyText(rowTagSection, '实验室组'))
+      // #213 的「三个预设组恒在」+ #214 的「空着不占位」：空预设组不渲染成块之后，行菜单是它们
+      // 唯一的入口，所以「恒在」在这一档按菜单判（改前这一条是按页面上的空块判的）。
+      check.ok(
+        '空预设组不渲染成块，但在行菜单「移到分组…」里恒列（待办 / 进行中 / 已完成三项都在）',
+        hasAnyText(rowTagSection, '待办') && hasAnyText(rowTagSection, '进行中') && hasAnyText(rowTagSection, '已完成'),
+        JSON.stringify(rowTagSection),
+      )
       await page.click('[data-dshone-tree-item="tag:__new"]')
       await page.waitForTimeout(300)
       check.eq('「新建标签组…」开出新建弹窗（名字 + 6 色）', await contentCount(page, '[data-dshone-tree="tag-name-input"]'), 1)
@@ -3744,19 +3754,20 @@ export const TAG_GROUPS_SUITE: LabSuite = {
       screenshots.push(await shot(ctx, page, 'tag-groups-created'))
 
       // ---- ④ 组间拖拽换位：把新组拖到「实验室组」pill 的上半 = 插到它前面 ----
-      // #213 起这一层的 pill 里还有三个预设组（preset-todo 是旧文件里存过的，
-      // preset-doing / preset-done 是视图侧补在末尾的），拖拽提交的是整份显示顺序。
+      // #213 起这一层的组序里有三个预设组（preset-todo 是旧文件里存过的，preset-doing /
+      // preset-done 是视图侧补在末尾的），拖拽提交的是**整份显示顺序**。两个空的预设组
+      // 没有成员、不出块（#214），所以 DOM 里读到的只有有成员的那几个块；整份顺序看落盘值。
       const createdId = createdTag?.id ?? ''
       const orderBefore = (await tagBlockFacts(page)).filter((block) => block.key === fixture.key).map((block) => block.tag)
-      check.fact(`换位前组顺序=${JSON.stringify(orderBefore)}`)
-      check.eq('换位前的组序就是「旧文件里那份顺序 + 视图侧补的两个预设组」', orderBefore, ['preset-todo', 't-lab', createdId, 'preset-doing', 'preset-done'])
+      check.fact(`换位前组顺序（DOM）=${JSON.stringify(orderBefore)}`)
+      check.eq('换位前 DOM 里的组块 = 有成员的那三个（两个空预设组不占位）', orderBefore, ['preset-todo', 't-lab', createdId])
       await labDrag(page, `[data-dshone-tree-tag-pill="${createdId}"]`, '[data-dshone-tree-tag-pill="t-lab"]', 'text/dsh-tag', createdId, 'top')
       const orderAfter = (await tagBlockFacts(page)).filter((block) => block.key === fixture.key).map((block) => block.tag)
-      check.fact(`换位后组顺序=${JSON.stringify(orderAfter)}`)
+      check.fact(`换位后组顺序（DOM）=${JSON.stringify(orderAfter)}`)
       check.eq(
-        '拖 pill 到另一个 pill 的上半 = 插到它前面（预设组的位置不受影响）',
+        '拖 pill 到另一个 pill 的上半 = 插到它前面（预设组是空的、不渲染，谈不上「受影响」）',
         orderAfter,
-        ['preset-todo', createdId, 't-lab', 'preset-doing', 'preset-done'],
+        ['preset-todo', createdId, 't-lab'],
       )
       check.eq(
         '新顺序落回宿主状态存储（含三个预设组——拖过之后它们的顺序就听数据的了）',
@@ -3766,9 +3777,16 @@ export const TAG_GROUPS_SUITE: LabSuite = {
       screenshots.push(await shot(ctx, page, 'tag-groups-reorder'))
 
       // ---- ⑤ 组内置顶：把一条会话拖回实验室组，再置顶组内另一条 ----
+      // #214：这一拖把 preset-todo 里唯一那条会话搬走了 → 那个预设组空了、当场不占位
+      //（改前它会留一个空块在 DOM 里），所以下面两条读到的块少它一个。
       await labDrag(page, `[data-dshone-tree-session="${inPreset}"]`, `[data-dshone-tree-tag="t-lab"]`, 'text/dsh-session', inPreset)
       const labBefore = (await tagBlockFacts(page)).find((block) => block.tag === 't-lab')
       check.eq('实验室组里现在有两条会话', labBefore?.rows.length, 2)
+      check.eq(
+        '#214 preset-todo 的成员被拖走之后那个块当场消失（空预设组不占位）',
+        (await tagBlockFacts(page)).filter((block) => block.key === fixture.key).map((block) => block.tag),
+        [createdId, 't-lab'],
+      )
       const second = labBefore?.rows[1] ?? ''
       check.fact(`置顶前实验室组内顺序=${JSON.stringify(labBefore?.rows)}`)
       await openRowMenu(page, second)
@@ -3777,8 +3795,13 @@ export const TAG_GROUPS_SUITE: LabSuite = {
       const labAfter = (await tagBlockFacts(page)).find((block) => block.tag === 't-lab')
       check.eq('组内置顶：被置顶的那条排到该组最前（其余保持官方顺序）', labAfter?.rows ?? [], [second, labBefore?.rows[0] ?? ''])
       check.eq(
-        '组与组之间的相对位置不受组内置顶影响',
+        '组与组之间的相对位置不受组内置顶影响（DOM 里那两个有成员的块的先后照旧）',
         (await tagBlockFacts(page)).filter((block) => block.key === fixture.key).map((block) => block.tag),
+        [createdId, 't-lab'],
+      )
+      check.eq(
+        '组内置顶不写标签组顺序：状态表里那份整份组序（含没有成员的预设组）一个字节没动',
+        (await bucketOf(fixture.key)).tags?.map((tag) => tag.id) ?? [],
         ['preset-todo', createdId, 't-lab', 'preset-doing', 'preset-done'],
       )
       screenshots.push(await shot(ctx, page, 'tag-groups-pin'))

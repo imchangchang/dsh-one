@@ -139,6 +139,48 @@ async function openTagMenu(page: OpenedPage['page'], tagId: string): Promise<voi
   await page.waitForTimeout(250)
 }
 
+/**
+ * 每个工作区块里第一条带行菜单的会话 id（空串 = 这一块没有可操作的会话）。
+ * 「移到分组…」那一条判据要按区块逐个开菜单，入口就是这些会话行。
+ */
+async function sectionRowIds(page: OpenedPage['page']): Promise<Array<{ key: string; id: string }>> {
+  return page.evaluate(() =>
+    Array.from(document.querySelectorAll('[data-dshone-group-key]')).map((section) => ({
+      key: section.getAttribute('data-dshone-group-key') ?? '',
+      id:
+        Array.from(section.querySelectorAll('[data-dshone-tree-row="session"]'))
+          .find((row) => row.querySelector('[data-dshone-tree-action="session-menu"]') !== null)
+          ?.getAttribute('data-dshone-tree-session') ?? '',
+    })),
+  )
+}
+
+/**
+ * 某条会话的行菜单里「移到分组…」那一节有哪些项（marker + 文字）。
+ *
+ * 判据钉在**视图桶**上就是这么钉的：空预设组不渲染成块之后，行菜单是它们唯一的入口，
+ * 所以「三个预设组恒在」由这份清单证明，而不是由页面上的 pill 证明（#214）。
+ */
+async function rowTagMenuItems(page: OpenedPage['page'], sessionId: string): Promise<Array<{ marker: string; name: string }>> {
+  await openRowMenu(page, sessionId)
+  await page.click('[data-dshone-tree-item="moveToGroup"]')
+  await page.waitForTimeout(250)
+  const items = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('[data-dshone-tree-item^="tag:"]')).map((el) => ({
+      marker: el.getAttribute('data-dshone-tree-item') ?? '',
+      name: (el.textContent ?? '').trim(),
+    })),
+  )
+  await page.keyboard.press('Escape')
+  await page.waitForTimeout(250)
+  return items
+}
+
+/** 清单里「自定义组」的项（预设组、不归入、新建都不算）。 */
+function customMarkers(markers: readonly string[]): string[] {
+  return markers.filter((marker) => !PRESET_IDS.some((id) => marker === `tag:${id}`) && marker !== 'tag:__none' && marker !== 'tag:__new')
+}
+
 /** 打开的菜单里有哪些项（按 `data-dshone-tree-item` 认我们那一份）+ 整份文本。 */
 async function tagMenuFacts(page: OpenedPage['page']): Promise<{ open: boolean; ids: string[]; text: string }> {
   return page.evaluate(() => {
@@ -194,9 +236,9 @@ async function rowsInBlock(page: OpenedPage['page'], tagId: string): Promise<str
 export const TAG_PRESETS_SUITE: LabSuite = {
   id: 'F-64',
   phase: 'new-feature',
-  name: '标签组的三个预设组（#213）：恒在场 / 不可删改 / 可归组 / 历史数据照常显示（TAG-PRESETS 套件）',
+  name: '标签组的三个预设组（#213 恒在场 / 不可删改 / 可归组 + #214 空着不占位、空组的入口是菜单）（TAG-PRESETS 套件）',
   expect:
-    '三个预设组（Todo / Doing / Done）在装配侧栏上真的回来了，语义与旧侧栏一致（隔离实例 + 假宿主 + 真装配页；网关只读，状态表就是 `~/.dsh/dsh-one/tags.json` 的替身）：① **恒在场**——**每个**工作区块里都有这三个组 pill（含一个自定义组都没有的 workspace），名字等于词典里那三条（zh / en 两份都认），三者的相对顺序就是模型里的 Todo → Doing → Done；把旧形状的 `tags`（含 `preset-todo` 的定义与归属）注进状态表再重开页面，**历史数据照常显示**（原先归在预设组里的那条会话仍在组里、旧文件里的自定义组也原样还在）；② **菜单里没有删除项**——预设组的 pill 菜单里 `tag-delete` 与 `tag-rename` 都不出现，而同一页面上自建组的菜单里这两项都在（正面对照，证明②不是「菜单压根没开」）；颜色那 6 项在（预设组可换色，照旧侧栏的口径）；③ **动作层真的拒**——直接对预设组发删除请求：按树里那两行真代码（`withPresetTagGroups` → `deleteTagGroup` → 非 null 才 `withTagBucket` 落盘）打，删除返回 `null`（= 调用方跳过落盘），状态表一个字节不变，重开页面三个预设组与组内会话照旧；**正面对照**是同一条代码路径对自建组**能删**（返回的新桶里没有那一组），把它写回状态表再重开页面，那个组块真的消失——证明③不是「什么都没测到」；④ **拖进/移进预设组能落盘、重开还在**——行菜单「移到分组…」里点一个预设组、以及把会话行拖到预设组块上，两条路都只写状态表；重开页面（把页面自己写下的那一份读回来）后两条会话仍在各自的预设组块里；⑤ **自定义组的删除行为不受影响**——行菜单新建一个自建组（会话同时归进去）→ 它的菜单里改名/删除都在 → 走确认弹窗删掉它 → 状态表里没有那一组、页面上那个块也没了、会话回落未归组，而三个预设组与此前归进预设组的那条会话一个字没动；⑥ **预设组换色**——菜单里点红色后状态表里那一组变成红色，重开页面 pill 上的色点就是那个颜色。全程零 pageerror。',
+    '三个预设组（Todo / Doing / Done）在装配侧栏上真的回来了，语义与旧侧栏一致（隔离实例 + 假宿主 + 真装配页；网关只读，状态表就是 `~/.dsh/dsh-one/tags.json` 的替身）：① **空着不占位（#214）**——一个空预设组既不渲染组块也不渲染 pill（pill 住在组块里）：把旧形状的 `tags`（只归了 `preset-todo`）注进状态表再重开页面，那个区块里有成员的两个组（`preset-todo` / 旧文件里的自定义组）各出一个块，另两个空的预设组一个块都没有；一个自定义组都没有的 workspace 区块里**一个组块都没有**（三个空预设组也没把会话行往下压）；全页扫一遍，没有任何零成员的组块；② **有成员的预设组照常出块**——历史数据照常显示（原先归在预设组里的那条会话仍在组里、旧文件里的自定义组也原样还在）；再从行菜单把一条会话移进当时还空着的 `preset-doing`，它立刻出块、块里就那一条（有成员才出块 ≠ 预设组出不了块）；③ **恒在的落点：行菜单「移到分组…」里三个预设组恒列**——空组不渲染之后这是它们唯一的入口，所以判据钉在这里：**每个**工作区块的行菜单里都有这三项（含一个自定义组都没有的 workspace，它的清单就是三条预设 + 不归入 + 新建），名字等于词典里那三条（zh / en 两份都认），三者的相对顺序就是模型里的 Todo → Doing → Done，整份清单的顺序 = 视图桶的顺序（旧文件那份顺序之后才补预设组）；④ **菜单里没有删除项**——有成员的预设组的 pill 菜单里 `tag-delete` 与 `tag-rename` 都不出现，而同一页面上自建组的菜单里这两项都在（正面对照，证明④不是「菜单压根没开」）；颜色那 6 项在（预设组可换色，照旧侧栏的口径）；⑤ **动作层真的拒**——直接对预设组发删除请求：按树里那两行真代码（`withPresetTagGroups` → `deleteTagGroup` → 非 null 才 `withTagBucket` 落盘）打，删除返回 `null`（= 调用方跳过落盘），状态表一个字节不变，重开页面预设组与组内会话照旧；**正面对照**是同一条代码路径对自建组**能删**（返回的新桶里没有那一组），把它写回状态表再重开页面，那个组块真的消失——证明⑤不是「什么都没测到」；⑥ **移进 / 拖进能落盘、重开还在**——行菜单「移到分组…」里点一个预设组、以及把会话行拖到**已经有成员的**预设组块上，两条路都只写状态表；重开页面（把页面自己写下的那一份读回来）后两条会话仍在各自的预设组块里；**空预设组没有拖入落点**这一条如实钉住：落点是组块，空组不渲染成块，所以 `preset-done` 既没有块、也拖不进去（它的入口只有菜单）；⑦ **自定义组的删除行为不受影响**——行菜单新建一个自建组（会话同时归进去）→ 它的菜单里改名/删除都在 → 走确认弹窗删掉它 → 状态表里没有那一组、页面上那个块也没了、会话回落未归组；再把预设组里最后一条会话移出去，那个组的块与 pill 当场消失（#214 的另一半：从有到无也立刻不占位），而此前归进预设组的那条会话一个字没动；⑧ **预设组换色**——菜单里点红色后状态表里那一组变成红色，重开页面 pill 上的色点就是那个颜色。全程零 pageerror。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const shot = async (page: OpenedPage['page'], name: string): Promise<string> => {
@@ -257,76 +299,115 @@ export const TAG_PRESETS_SUITE: LabSuite = {
 
       const sections = await sectionFacts(page)
       check.fact(
-        `各区块的组 pill：${JSON.stringify(sections.map((section) => ({ key: section.key, pills: section.pills.map((pill) => pill.id) })))}`,
+        `各区块的组块与组 pill：${JSON.stringify(sections.map((section) => ({ key: section.key, pills: section.pills.map((pill) => pill.id), blocks: section.blocks.map((block) => block.tag) })))}`,
       )
-      check.ok('页面上有工作区块可判（恒在场那条要有区块才谈得上）', sections.length > 0, String(sections.length))
+      check.ok('页面上有工作区块可判（恒在 / 不占位两条都要有区块才谈得上）', sections.length > 0, String(sections.length))
 
-      // ① 之一：每个区块里三个预设组都在。
-      const missing = sections
-        .filter((section) => !PRESET_IDS.every((id) => section.pills.some((pill) => pill.id === id)))
-        .map((section) => ({ key: section.key, pills: section.pills.map((pill) => pill.id) }))
-      check.ok('每个工作区块里都有 Todo / Doing / Done 三个预设组（任何 workspace 桶）', missing.length === 0, JSON.stringify(missing))
-
-      // ① 之二：含「一个自定义组都没有的 workspace」——这正是 #213 要的那一档（方案 A：不靠桶里存过预设组）。
-      const bare = sections.filter((section) => !section.pills.some((pill) => !(PRESET_IDS as readonly string[]).includes(pill.id)))
+      // ---- ① #214：空的预设组不占位（渲染层面）----
+      // pill 住在组块里（`TagGroupBlock` 的组头），所以「没有块」就等于「没有那几个空 pill」。
+      const fixtureSection = sections.find((section) => section.key === fixture.key)
+      check.eq(
+        '① 空的预设组不渲染：这个区块里只有有成员的两个组出块（preset-doing / preset-done 一个块都没有）',
+        fixtureSection?.blocks.map((block) => block.tag) ?? [],
+        ['preset-todo', 't-lab'],
+      )
+      check.eq(
+        '① 页面上也就没有那三个空 pill：这一块渲染出来的组头只有有成员的那两个',
+        fixtureSection?.pills.map((pill) => pill.id) ?? [],
+        ['preset-todo', 't-lab'],
+      )
       check.ok(
-        '有「没有任何自定义组」的工作区块，且它里面照样是这三个预设组',
-        bare.length > 0 && bare.every((section) => PRESET_IDS.every((id) => section.pills.some((pill) => pill.id === id))),
-        JSON.stringify(bare.map((section) => ({ key: section.key, pills: section.pills.map((pill) => pill.id) }))),
+        '① 全页扫一遍：preset-doing / preset-done 一个块都没有，也没有任何零成员的组块（改前这里有三个空块各占一行）',
+        !sections.some((section) =>
+          section.blocks.some(
+            (block) => block.rows.length === 0 || block.tag === 'preset-doing' || block.tag === 'preset-done',
+          ),
+        ),
+        JSON.stringify(sections.map((section) => section.blocks.map((block) => ({ tag: block.tag, rows: block.rows.length })))),
+      )
+      // 一个自定义组都没有的 workspace（只给 fixture.key 注了桶，别的区块都是空桶）：
+      // 三个空预设组也不该把那里的会话行往下压 → 那一个组块都没有。
+      const bareSections = sections.filter((section) => section.key !== fixture.key)
+      check.ok(
+        '① 一个自定义组都没有的工作区块里，一个组块都没有（三个空预设组也没占位）',
+        bareSections.length > 0 && bareSections.every((section) => section.blocks.length === 0 && section.pills.length === 0),
+        JSON.stringify(bareSections.map((section) => ({ key: section.key, pills: section.pills.map((pill) => pill.id), blocks: section.blocks.map((block) => block.tag) }))),
       )
       // 未分组那个虚拟桶（分组键 = 空串）：播种数据里每条会话都属某个工作区，页面上不会
       // 出现这个区块——按事实记下来，不拿它当断言（它走的是同一条渲染路径：`orderedGroups`
       // 里每个分组都用同一个 `tagViewBucket(group.key)`）。
       check.fact(
         sections.some((section) => section.key === '')
-          ? '页面上有「未分组」区块，它的预设组也按上面那条一起判了'
+          ? '页面上有「未分组」区块，它的空预设组也按上面那条一起判了'
           : '页面上没有「未分组」区块（播种数据里每条会话都属某个工作区）——那一桶与工作区桶走同一条渲染路径',
       )
 
-      // ① 之三：名字对词典（zh / en 两份），相对顺序照模型。
-      const namesOf = (section: SectionFact): string[] =>
-        PRESET_IDS.map((id) => section.pills.find((pill) => pill.id === id)?.name ?? '')
-      const named = sections.find((section) => section.key === fixture.key) ?? sections[0]
-      const presetNames = namesOf(named as SectionFact)
-      check.fact(`预设组的名字（区块 ${named?.key ?? '?'}）：${JSON.stringify(presetNames)}`)
-      check.ok(
-        '三个预设组的名字就是词典里那三条（zh / en 两份都认）',
-        presetNames.every((name, index) => texts(PRESET_ZH_NAMES[index] ?? '').includes(name)),
-        JSON.stringify(presetNames),
-      )
-      const orderIn = (section: SectionFact): string[] =>
-        section.pills.map((pill) => pill.id).filter((id) => (PRESET_IDS as readonly string[]).includes(id))
-      check.ok(
-        '三个预设组的先后顺序 = 模型里的 Todo → Doing → Done',
-        sections.every((section) => JSON.stringify(orderIn(section)) === JSON.stringify([...PRESET_IDS])),
-        JSON.stringify(sections.map((section) => orderIn(section))),
-      )
-      // 旧文件里的自定义组保住了它相对预设组的位置（补预设组不强行打乱已有顺序）。
-      const fixtureSection = sections.find((section) => section.key === fixture.key)
+      // ---- ② 有成员的预设组照常出块：历史数据照常显示 ----
       check.eq(
-        '旧文件里存过的自定义组原样还在（照旧是一个块、成员也在）',
-        fixtureSection?.blocks.find((block) => block.tag === 't-lab')?.rows ?? [],
-        [inCustom],
-      )
-      check.eq(
-        '历史数据：原先归在 preset-todo 里的那条会话照常显示在预设组里（会话没丢）',
+        '② 有成员的预设组照常出块，块里就是原先归在那组的那条（历史数据照常显示）',
         fixtureSection?.blocks.find((block) => block.tag === 'preset-todo')?.rows ?? [],
         [inPreset],
       )
+      check.eq(
+        '② 旧文件里存过的自定义组原样还在（照旧是一个块、成员也在）',
+        fixtureSection?.blocks.find((block) => block.tag === 't-lab')?.rows ?? [],
+        [inCustom],
+      )
+      screenshots.push(await shot(page, 'tag-presets-empty-hidden'))
+
+      // ---- ③ 恒在的落点：行菜单「移到分组…」里三个预设组恒列 ----
+      // #214 起空预设组不渲染成块，菜单就是它们**唯一**的入口，所以「恒在」的判据钉在这里
+      //（改前这一条钉在页面上的 pill 上；那个判据在新口径下必须换成这一份清单，否则就是把
+      //「不占位」悄悄做成「没了」）。
+      const rowIds = await sectionRowIds(page)
       check.ok(
-        '预设组的块与旧文件里的自定义组块都渲染出来了（不是只在 pill 上）',
-        fixtureSection?.blocks.some((block) => block.tag === 'preset-todo') === true &&
-          fixtureSection?.blocks.some((block) => block.tag === 't-lab') === true,
-        JSON.stringify(fixtureSection?.blocks.map((block) => block.tag)),
+        '每个工作区块都有可开行菜单的会话（恒在那条要有入口才谈得上）',
+        rowIds.length === sections.length && rowIds.every((item) => item.id !== ''),
+        JSON.stringify(rowIds),
+      )
+      const menus: Array<{ key: string; markers: string[]; names: string[] }> = []
+      for (const item of rowIds) {
+        if (item.id === '') continue
+        const items = await rowTagMenuItems(page, item.id)
+        menus.push({ key: item.key, markers: items.map((entry) => entry.marker), names: items.map((entry) => entry.name) })
+      }
+      check.fact(`各区块行菜单「移到分组…」的项：${JSON.stringify(menus.map((menu) => ({ key: menu.key, markers: menu.markers })))}`)
+      const menuGap = menus.filter((menu) => !PRESET_IDS.every((id) => menu.markers.includes(`tag:${id}`)))
+      check.ok(
+        '③ 每个工作区块的行菜单里都有 Todo / Doing / Done 三个预设组（空的也照样恒列）',
+        menuGap.length === 0,
+        JSON.stringify(menuGap),
+      )
+      // 「一个自定义组都没有的 workspace」：它的清单就是三条预设 + 不归入 + 新建。
+      const bareMenus = menus.filter((menu) => customMarkers(menu.markers).length === 0)
+      check.ok(
+        '③ 有「一个自定义组都没有」的工作区块，它的清单照样是这三个预设组（恒在不靠桶里有东西）',
+        bareMenus.length > 0 &&
+          bareMenus.every((menu) => PRESET_IDS.every((id) => menu.markers.includes(`tag:${id}`))),
+        JSON.stringify(bareMenus),
+      )
+      const named = menus.find((menu) => menu.key === fixture.key) ?? menus[0]
+      const presetNames = PRESET_IDS.map((id) => named?.names[named.markers.indexOf(`tag:${id}`)] ?? '')
+      check.fact(`预设组的名字（区块 ${named?.key ?? '?'} 的菜单）：${JSON.stringify(presetNames)}`)
+      check.ok(
+        '③ 三个预设组的名字就是词典里那三条（zh / en 两份都认）',
+        presetNames.every((name, index) => texts(PRESET_ZH_NAMES[index] ?? '').includes(name)),
+        JSON.stringify(presetNames),
+      )
+      const presetOrderIn = (menu: { markers: string[] }): string[] =>
+        menu.markers.filter((marker) => (PRESET_IDS as readonly string[]).some((id) => marker === `tag:${id}`))
+      check.ok(
+        '③ 三个预设组的先后顺序 = 模型里的 Todo → Doing → Done',
+        menus.every((menu) => JSON.stringify(presetOrderIn(menu)) === JSON.stringify(PRESET_IDS.map((id) => `tag:${id}`))),
+        JSON.stringify(menus.map((menu) => presetOrderIn(menu))),
       )
       check.eq(
-        '补出来的两个预设组排在旧文件那份顺序之后（不强行打乱已有顺序）',
-        fixtureSection?.pills.map((pill) => pill.id) ?? [],
-        ['preset-todo', 't-lab', ...PRESET_IDS.filter((id) => id !== 'preset-todo')],
+        '③ 整份清单的顺序 = 视图桶的顺序：旧文件那份顺序之后才补预设组（不强行打乱已有顺序）',
+        named?.markers.filter((marker) => marker !== 'tag:__none' && marker !== 'tag:__new') ?? [],
+        ['tag:preset-todo', 'tag:t-lab', ...PRESET_IDS.filter((id) => id !== 'preset-todo').map((id) => `tag:${id}`)],
       )
-      screenshots.push(await shot(page, 'tag-presets-blocks'))
 
-      // ---- ② 预设组的菜单：没有删除项、没有改名项；颜色那 6 项在 ----
+      // ---- ④ 预设组的菜单：没有删除项、没有改名项；颜色那 6 项在 ----
       await openTagMenu(page, 'preset-todo')
       const presetMenu = await tagMenuFacts(page)
       check.fact(`预设组（Todo）的菜单：${JSON.stringify(presetMenu)}`)
@@ -342,7 +423,7 @@ export const TAG_PRESETS_SUITE: LabSuite = {
       await page.keyboard.press('Escape')
       await page.waitForTimeout(250)
 
-      // ② 的正面对照：同一页面上自建组的菜单里这两项都在。
+      // ④ 的正面对照：同一页面上自建组的菜单里这两项都在。
       await openTagMenu(page, 't-lab')
       const customMenu = await tagMenuFacts(page)
       check.fact(`自建组（实验室组）的菜单：${JSON.stringify(customMenu)}`)
@@ -381,15 +462,22 @@ export const TAG_PRESETS_SUITE: LabSuite = {
         afterSection?.blocks.some((block) => block.tag === 't-lab') !== true,
         JSON.stringify(afterSection?.blocks.map((block) => block.tag)),
       )
+      const keepMenu = await rowTagMenuItems(page, inPreset)
       check.ok(
         '预设组在删除请求与正面对照之后照旧在、组内会话照旧在（恒存在没被这两下动摇）',
-        PRESET_IDS.every((id) => afterSection?.pills.some((pill) => pill.id === id) === true) &&
+        PRESET_IDS.every((id) => keepMenu.some((item) => item.marker === `tag:${id}`)) &&
           (await rowsInBlock(page, 'preset-todo')).includes(inPreset),
-        JSON.stringify({ pills: afterSection?.pills.map((pill) => pill.id), rows: await rowsInBlock(page, 'preset-todo') }),
+        JSON.stringify({ markers: keepMenu.map((item) => item.marker), rows: await rowsInBlock(page, 'preset-todo') }),
       )
 
-      // ---- ④ 移进 / 拖进预设组：落盘 + 重开还在 ----
-      // 菜单路径：把刚被解散的那个自建组的成员移进 Doing。
+      // ---- ④ 移进 / 拖进预设组：落盘 + 重开还在；空预设组没有拖入落点（如实钉住）----
+      // 菜单路径：把刚被解散的那个自建组的成员移进**当时还空着的** Doing——空组不渲染成块，
+      // 所以这一条同时证明「空组唯一的入口 = 菜单」，以及「移进去之后它立刻出块」。
+      check.ok(
+        '移进之前 preset-doing 是空的（这一档才是 #214 的口径：空组不渲染）',
+        !(await sectionFacts(page)).some((section) => section.blocks.some((block) => block.tag === 'preset-doing')),
+        JSON.stringify((await sectionFacts(page)).find((section) => section.key === fixture.key)?.blocks.map((block) => block.tag)),
+      )
       await openRowMenu(page, inCustom)
       await page.click('[data-dshone-tree-item="moveToGroup"]')
       await page.waitForTimeout(250)
@@ -401,23 +489,46 @@ export const TAG_PRESETS_SUITE: LabSuite = {
         afterMenuMove?.workspaces?.[fixture.key]?.sessionTags?.[inCustom],
         'preset-doing',
       )
-      check.eq('那一行渲染在预设组的块里（渲染与状态同源）', await rowsInBlock(page, 'preset-doing'), [inCustom])
-      // 拖拽路径：把 spare 拖到 Done 的块上。
-      await labDrag(page, `[data-dshone-tree-session="${spare}"]`, '[data-dshone-tree-tag="preset-done"]', 'text/dsh-session', spare)
+      check.eq('② 那一行渲染在预设组的块里（渲染与状态同源）', await rowsInBlock(page, 'preset-doing'), [inCustom])
+      check.ok(
+        '② 移进去之后 preset-doing 出块了，块里就那一条（成员数对）',
+        (await sectionFacts(page))
+          .find((section) => section.key === fixture.key)
+          ?.blocks.some((block) => block.tag === 'preset-doing' && block.rows.length === 1) === true,
+        JSON.stringify((await sectionFacts(page)).find((section) => section.key === fixture.key)?.blocks),
+      )
+      // 空预设组没有拖入落点：落点就是组块，块不在就没有可拖的地方（`preset-done` 此刻就是这种）。
+      check.eq(
+        '② 空预设组没有块、也就没有拖入落点（preset-done 此刻是空的）',
+        await page.locator('[data-dshone-tree-tag="preset-done"]').count(),
+        0,
+      )
+      screenshots.push(await shot(page, 'tag-presets-empty-block-drag-target'))
+      // 拖拽路径：把 spare 拖到**已经有成员的** Doing 块上（非空组的拖入照旧有效）。
+      await labDrag(page, `[data-dshone-tree-session="${spare}"]`, '[data-dshone-tree-tag="preset-doing"]', 'text/dsh-session', spare)
       const afterDrag = await hostTags(page)
-      check.eq('把会话行拖到预设组块上 = 归属写进状态表', afterDrag?.workspaces?.[fixture.key]?.sessionTags?.[spare], 'preset-done')
-      check.eq('拖进去的那一行渲染在预设组的块里', await rowsInBlock(page, 'preset-done'), [spare])
+      check.eq('把会话行拖到预设组块上 = 归属写进状态表', afterDrag?.workspaces?.[fixture.key]?.sessionTags?.[spare], 'preset-doing')
+      const doingRows = await rowsInBlock(page, 'preset-doing')
+      check.ok(
+        '② 拖进去的那一行也在那个块里（两条都在，非空组的拖入照旧有效）',
+        doingRows.length === 2 && doingRows.includes(inCustom) && doingRows.includes(spare),
+        JSON.stringify(doingRows),
+      )
       screenshots.push(await shot(page, 'tag-presets-moved'))
       // 重开页面：把页面自己写下的那一份读回来（见文件头）。
       await keepTagsAcrossReload(page, afterDrag)
       await reopen(page)
-      check.eq('重开页面后：菜单移进去的那条还在预设组里', await rowsInBlock(page, 'preset-doing'), [inCustom])
-      check.eq('重开页面后：拖进去的那条还在预设组里', await rowsInBlock(page, 'preset-done'), [spare])
-      check.eq('重开页面后：原先归在 Todo 里的那条也还在（历史数据贯穿重开）', await rowsInBlock(page, 'preset-todo'), [inPreset])
+      const reopenedDoing = await rowsInBlock(page, 'preset-doing')
       check.ok(
-        '三条会话都没有回到「未归组」（预设组的归属真的落盘了）',
-        (await sectionFacts(page)).find((section) => section.key === fixture.key)?.blocks.length === 3,
-        JSON.stringify((await sectionFacts(page)).find((section) => section.key === fixture.key)?.blocks),
+        '重开页面后：菜单与拖拽进去的那两条都还在预设组里',
+        reopenedDoing.length === 2 && reopenedDoing.includes(inCustom) && reopenedDoing.includes(spare),
+        JSON.stringify(reopenedDoing),
+      )
+      check.eq('重开页面后：原先归在 Todo 里的那条也还在（历史数据贯穿重开）', await rowsInBlock(page, 'preset-todo'), [inPreset])
+      check.eq(
+        '三条会话都在组里（空的 preset-done 照旧一个块都没有）',
+        (await sectionFacts(page)).find((section) => section.key === fixture.key)?.blocks.map((block) => block.tag) ?? [],
+        ['preset-todo', 'preset-doing'],
       )
 
       // ---- ⑤ 自定义组的删除行为不受影响（回归）----
@@ -452,14 +563,52 @@ export const TAG_PRESETS_SUITE: LabSuite = {
         JSON.stringify(afterDelete?.workspaces?.[fixture.key]),
       )
       check.ok('删掉的自建组块也没了', !(await sectionFacts(page)).some((section) => section.blocks.some((block) => block.tag === createdId)))
-      check.eq('预设组一个字没动：那条会话回到「未归组」而不是被挪进预设组', await rowsInBlock(page, 'preset-doing'), [])
-      const afterCustomPills = (await sectionFacts(page)).find((section) => section.key === fixture.key)?.pills.map((pill) => pill.id) ?? []
+      // 会话回落未归组：它渲染在组块之外，而不是被挪进了某个预设组。
+      const ungroupedRows = await page.evaluate((key: string) => {
+        const section = Array.from(document.querySelectorAll('[data-dshone-group-key]')).find(
+          (candidate) => candidate.getAttribute('data-dshone-group-key') === key,
+        )
+        const inBlock = new Set<string>()
+        for (const block of Array.from(section?.querySelectorAll('[data-dshone-tree="tag-block"]') ?? [])) {
+          for (const row of Array.from(block.querySelectorAll('[data-dshone-tree-row="session"]'))) {
+            inBlock.add(row.getAttribute('data-dshone-tree-session') ?? '')
+          }
+        }
+        return Array.from(section?.querySelectorAll('[data-dshone-tree-row="session"]') ?? [])
+          .map((row) => row.getAttribute('data-dshone-tree-session') ?? '')
+          .filter((id) => !inBlock.has(id))
+      }, fixture.key)
       check.ok(
-        '预设组照旧三个都在（自建组的存在与删除都不动摇它们）',
-        PRESET_IDS.every((id) => afterCustomPills.includes(id)),
-        JSON.stringify(afterCustomPills),
+        '⑤ 预设组一个字没动：那条会话回到「未归组」（渲染在组块之外，而不是被挪进预设组）',
+        ungroupedRows.includes(inCustom) && !(await rowsInBlock(page, 'preset-doing')).includes(inCustom),
+        JSON.stringify({ ungroupedRows, doing: await rowsInBlock(page, 'preset-doing') }),
+      )
+      const afterDeleteMenu = await rowTagMenuItems(page, inCustom)
+      check.ok(
+        '③ 预设组照旧三个都在「移到分组…」的清单里（自建组的存在与删除都不动摇它们）',
+        PRESET_IDS.every((id) => afterDeleteMenu.some((item) => item.marker === `tag:${id}`)) &&
+          !afterDeleteMenu.some((item) => item.marker === `tag:${createdId}`),
+        JSON.stringify(afterDeleteMenu.map((item) => item.marker)),
       )
       screenshots.push(await shot(page, 'tag-presets-custom-group-gone'))
+
+      // #214 的另一半：从有到无也立刻不占位——把 preset-doing 里最后一条移出去，块与 pill 当场消失。
+      await openRowMenu(page, spare)
+      await page.click('[data-dshone-tree-item="moveToGroup"]')
+      await page.waitForTimeout(250)
+      await page.click('[data-dshone-tree-item="tag:__none"]')
+      await page.waitForTimeout(600)
+      const afterEmptySection = (await sectionFacts(page)).find((section) => section.key === fixture.key)
+      check.eq(
+        '① 组里最后一条移走之后，那个预设组的块当场消失（空组不占位：从无到有、从有到无都成立）',
+        afterEmptySection?.blocks.map((block) => block.tag) ?? [],
+        ['preset-todo'],
+      )
+      check.eq(
+        '① 同时它也没了 pill（组头住在块里，块没了 pill 就没了）',
+        afterEmptySection?.pills.map((pill) => pill.id) ?? [],
+        ['preset-todo'],
+      )
 
       // ---- ⑥ 预设组换色（照旧侧栏：预设组可换色）----
       await openTagMenu(page, 'preset-todo')
