@@ -1,5 +1,5 @@
 {
-  "extension.description": "dsh 与 VSCode 的桥接插件：定位本机已安装的 dsh，从 VSCode 直接启动或复用 dsh web 服务，并内嵌界面、同步 workspace。",
+  "extension.description": "dsh 与 VS Code 的桥接插件：定位本机已安装的 dsh，从 VS Code 直接启动或复用 dsh web 服务，把 dsh 界面嵌进 VS Code，并以你正在工作的文件夹作为 dsh 的工作目录。",
   "icon.dshFish.description": "dsh 像素鱼图标",
   "dshOne.openExternal.title": "在浏览器中打开 dsh 页面",
   "dshOne.start.title": "启动服务",
@@ -8,7 +8,7 @@
   "dshOne.assembledSettings.title": "dsh 设置（装配）",
   "dshOne.restart.title": "重启服务",
   "dshOne.stop.title": "停止服务",
-  "dshOne.external.pasteToken.title": "粘贴 dsh 启动 Token",
+  "dshOne.external.pasteToken.title": "粘贴 dsh 启动 token",
   "dshOne.external.copyTokenTemplate.title": "复制 dsh 启动 URL 模板",
   "dshOne.external.stop.title": "停止外部实例",
   "dshOne.external.restart.title": "重启外部实例",
@@ -20,11 +20,11 @@
   "dshOne.checkUpdate.title": "检查 dsh 更新",
   "dshOne.upgrade.title": "升级 dsh",
   "dshOne.session.new.title": "新建会话",
-  "dshOne.workspace.add.title": "新建 workspace",
+  "dshOne.workspace.add.title": "新建工作区",
   "dshOne.workspace.create.title": "创建工作区",
   "dshOne.openInstallPage.title": "查看 dsh 安装指南",
   "dshOne.dshPath.description": "dsh 可执行文件路径。留空则从 PATH 查找。",
   "dshOne.autoStart.description": "激活扩展时自动启动（或复用）dsh web 服务。",
-  "dshOne.port.description": "dsh web 服务端口。0 表示由操作系统分配；非 0 时会先探测该端口上是否已有 dsh 实例并复用之。注意 0 会让 dsh UI 的会话恢复失效（localStorage 按 origin 隔离）。",
-  "dshOne.lanAccess.description": "把 dsh 网页服务暴露到局域网（重启 dsh 服务后生效）。dsh 本身始终只监听 127.0.0.1；开启后 dsh One 会在你的局域网地址上启动转发器，并以 --trusted-host 启动 dsh，局域网设备即可打开带 token 的链接。注意：同一网络内拿到链接的人都能使用 dsh。平时用状态栏动作面板切换即可，不必手改这一项。"
+  "dshOne.port.description": "dsh web 服务端口。0 表示由操作系统分配，此时 dsh UI 会丢掉上次选中的会话：浏览器存储按 origin 隔离。非 0 时会先探测该端口上是否已有 dsh 实例并复用之。",
+  "dshOne.lanAccess.description": "把 dsh 网页服务暴露到局域网（重启 dsh 服务后生效）。dsh 本身始终只监听 127.0.0.1；开启后 DSH One 会在你的局域网地址上启动转发器，并以 --trusted-host 启动 dsh，局域网设备即可打开带 token 的链接。同一网络内拿到链接的人都能使用 dsh——请只在可信网络开启。需要 dsh 0.1.5-rc.1 或更新（这是实测过的最老版本）；dsh 更旧时这一项会被忽略（会给出提示），服务保持仅本机可达。平时用状态栏动作面板切换即可，不必手改这一项。"
 }

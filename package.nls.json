@@ -1,5 +1,5 @@
 {
-  "extension.description": "A bridge between dsh and VS Code: locates your locally installed dsh, starts or reuses the dsh web service from VS Code, embeds its UI, and syncs the workspace.",
+  "extension.description": "A bridge between dsh and VS Code: locates your locally installed dsh, starts or reuses the dsh web service from VS Code, embeds the dsh UI, and uses the folder you have open as dsh's working directory.",
   "icon.dshFish.description": "dsh pixel fish icon",
   "dshOne.openExternal.title": "Open dsh Page in Browser",
   "dshOne.start.title": "Start Service",
@@ -25,6 +25,6 @@
   "dshOne.openInstallPage.title": "View dsh Installation Guide",
   "dshOne.dshPath.description": "Path to the dsh executable. Leave empty to look it up from PATH.",
   "dshOne.autoStart.description": "Automatically start (or reuse) the dsh web service when the extension activates.",
-  "dshOne.port.description": "Port for the dsh web service. 0 lets the OS pick one; a non-zero value first probes whether a dsh instance is already running on that port and reuses it. Note that 0 breaks session restore in the dsh UI (localStorage is isolated per origin).",
-  "dshOne.lanAccess.description": "Expose the dsh web service to the local network (takes effect after the dsh service restarts). dsh itself always listens on 127.0.0.1; when enabled, dsh One starts a forwarder on your LAN address and launches dsh with --trusted-host so LAN devices can open the tokenized link. Anyone on the network with the link can use dsh. Use the status bar action panel to switch it on or off without editing this setting."
+  "dshOne.port.description": "Port for the dsh web service. 0 lets the OS pick one, and the dsh UI then opens without its remembered session: browser storage is keyed per origin. A non-zero value first probes whether a dsh instance is already running on that port and reuses it.",
+  "dshOne.lanAccess.description": "Expose the dsh web service to the local network (takes effect after the dsh service restarts). dsh itself always listens on 127.0.0.1; when enabled, DSH One starts a forwarder on your LAN address and launches dsh with --trusted-host so LAN devices can open the tokenized link. Anyone on the network with the link can use dsh. Needs dsh 0.1.5-rc.1 or newer — the oldest release this was verified against; on an older dsh the setting is ignored (with a warning) and the service stays local-only. Use the status bar action panel to switch it on or off without editing this setting."
 }
