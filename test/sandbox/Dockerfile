@@ -8,6 +8,7 @@
 #     这里跟 npm 的 latest —— 用户 `npm i -g @deepseek-ai/dsh` 实际装到的那一版，沙盒才有代表性。
 #     旧的 pin 0.1.1-rc.2 在区间之外（缺 browser-session 认证与 loader 协议），装配页会带版本提示；
 #     当年「升到 0.1.2 会因为 token 认证起不来」的判断已随扩展补上认证支持作废（src/server/serverAuth.ts）。
+#     上游发新版后回头复核这一行是否仍在区间内（升 pin 时同步改 test/sandbox/README.md 的实测段落）。
 #   * VSIX 由构建脚本先拷进构建上下文（test/sandbox/dsh-one.vsix），用 --build-arg VSIX=<绝对主机路径>
 #     传入才安装；不带 --vsix（VSIX 为空）时跳过安装，镜像仍可用（后续 mock dsh 场景基本用不到真扩展）。
 #     docker build 的上下文路径只能是 test/sandbox/，所以 vsix 必须由脚本拷进来而不是 COPY 外部路径。

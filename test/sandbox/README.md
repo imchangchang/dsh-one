@@ -5,7 +5,8 @@
 
 它是**浏览器工作台**，不是本机原生 VS Code 窗口：交互与截图都走浏览器，宿主层的东西（真剪贴板、
 原生菜单、主题刷新时机）在这里照不出来，那部分由人跑 `scripts/dev-ui-test.sh` 起隔离 VS Code 窗口
-验（最终准绳，见「已知边界」与「验收口径」）。
+验（最终准绳，见「已知边界」与「验收口径」）。**另外，装配页的取数源在 code-server 里够不到，
+页面会留白**（原因与实测见「已知边界」）——按现在的跑法，沙盒核的是扩展与网关之间那一层。
 
 - 镜像名：`dsh-sandbox:latest`
 - 容器名：`dsh-sandbox`（固定，重建前会被强制删除）
@@ -85,11 +86,32 @@ test/sandbox/run-sandbox.sh start --mock-llm
 | 凭证 | 真实 API key | `MOCK_LLM_KEY=mock-key-1`（仅容器内有效） |
 | 用途 | 宣发截图、人工核对观感（宿主层准绳是 `scripts/dev-ui-test.sh`） | 无凭证/离线跑真 dsh 全逻辑、喂边界态 |
 
-镜像里 pin 的是 `@deepseek-ai/dsh@0.1.1-rc.2`（见 `test/sandbox/Dockerfile`）。注意这一版**在扩展的支持
-区间之外**：装配页的版本门要求 dsh 落在 `[0.1.2-rc.1, 0.2.0)`，更老的版本缺 browser-session 认证与
-loader 协议（出处见 `src/server/serverAuth.ts` 的文件头与 `README.md` 的「Tested versions」表），
-所以沙盒里装配出来的对话区会带一条版本提示。要不要把这一版升上去待定——升级要同步改
-`test/sandbox/Dockerfile` 与 `run-sandbox.sh`。
+镜像里 pin 的是 `@deepseek-ai/dsh@0.1.5-rc.2`（见 `test/sandbox/Dockerfile`）：这是 npm 上 `latest`
+指向的版本，也落在扩展的支持区间 `[0.1.2-rc.1, 0.2.0)` 内（版本门出处 `src/ui/assemblyView.ts`）。
+旧 pin `0.1.1-rc.2` 在区间之外（缺 browser-session 认证与 loader 协议），升级的实测记录见 #220。
+
+2026-09-20 的实测读数（`--instance dshpin`，跑完容器与镜像都已删除）：
+
+```bash
+test/sandbox/run-sandbox.sh build --instance dshpin --vsix "$(pwd)/dsh-one-2.0.0.vsix" --mock-llm
+#   → 镜像 dsh-sandbox-dshpin:latest 构建成功（npm 装 dsh 那一层 18.6s），vsix 安装成功
+test/sandbox/run-sandbox.sh start --instance dshpin --mock-llm --port 8188
+docker run --rm --entrypoint bash dsh-sandbox-dshpin:latest -lc 'dsh --version'   # → 0.1.5-rc.2
+npm run verify:lab-version 0.1.5-rc.2   # → PASS F-01 底座契约完备性：四棵树零崩溃、零缺失契约（断言 43/43，16.9s）
+```
+
+容器里扩展的日志（`~/.local/share/code-server/logs/<stamp>/exthost*/output_logging_*/1-DSH One.log`）：
+
+```
+[info] located dsh: dsh (version=0.1.5-rc.2)
+[info] spawning: dsh web --host 127.0.0.1 --port 3080 --no-open (cwd=/home/coder/workspace)
+[info] dsh auth exchanged at http://127.0.0.1:3080
+[info] dsh is ready at http://127.0.0.1:3080
+[info] assembly mirror: filtered combo ready (1 application batch(es), kept 41 segments, dropped …)
+```
+
+也就是说，扩展在这一版上能发现 dsh、起网关、换票（0.1.2-rc.1 起的 browser-session 认证）、拉 wire
+并过滤整包——**扩展与网关之间这一层在新 pin 上跑通**。页面那一边取不到资源，原因见「已知边界」。
 
 **schema 核对**：mock 模式的 `settings.yaml` 字段对照 `@deepseek-ai/dsh-llm-pi-ai/lib/index.js` 的
 `profile`/`modelProfile` 定义核对过：
@@ -161,11 +183,12 @@ test/sandbox/run-sandbox.sh --help   # 全部参数
 
 - **code-server 是浏览器工作台，没有原生窗口外壳**：插件 UI 以 webview 形式嵌在浏览器页面里，交互/截图都通过浏览器进行，与本机 VS Code 存在渲染差异（字体、主题刷新时机等）。这是设计内取舍——沙盒只保证环境一致与可重现，不追求像素级等同本机 VS Code。
 - 容器内跑真 dsh 需要模型凭证与联网；审批、流式、错误态等真 dsh 喂不出来的边界态，靠 mock dsh 场景（`test/mock-dsh/`）喂，与沙盒无关。**但用 `--mock-llm` 模式可以在不联网、无凭证的前提下把真 dsh 的整套逻辑跑起来**——LLM 走容器内假端点，边界态由该端点的 scenario 编排（见上文「Mock-LLM 模式」）。
+- **code-server 里装配页起得来、取不到资源，侧栏与对话区留白**：装配页的 base 是扩展的 loopback mirror（`http://127.0.0.1:<随机端口>/`，只绑扩展宿主那台机器的 127.0.0.1，出处 `src/server/assemblyMirror.ts`），而跑页面的浏览器在宿主上——容器里的 127.0.0.1 不是宿主的 127.0.0.1，于是页面自己的 `/assets/*`、`/plugins/*` 请求失败。实测（2026-09-20，Playwright 打 `http://127.0.0.1:8188`）：扩展日志 `assembly mirror: http://127.0.0.1:39195/` ↔ 浏览器里同一轮的失败请求 `net::ERR_FAILED http://127.0.0.1:39195/assets/index-BKQ_L1z6.js`（连同两份 vendor css/js 与一条 `/plugins/??…` 共 5 条）。本机 VS Code 窗口与 SSH 远程由 VS Code 的端口转发接住，code-server 没有这一层。与 dsh 版本无关——换回旧 pin `0.1.1-rc.2` 的镜像跑同一套驱动同样取不到。所以沙盒目前能核的是**扩展与网关之间那一层**（发现 dsh、起网关、换票、拉 wire、过滤整包），页面观感走浏览器验证（`npm run verify:lab`）或 VS Code 验证。
 
 ## 验收口径（#68 起）
 
 - **对话区/装配验收 = 浏览器验证**：对话区、侧栏树、设置页都是官方组件装配页。验收用仓库常驻的 Playwright harness（`test/assembly-lab/`，一条命令 `npm run verify:lab`）直开装配页跑断言 + 截图，快且确定性高；**底座契约完备性**（四棵树零 `slot entry crashed`、零缺失服务/钩子）是其中 **F-01 CONTRACT** 套件的常驻断言。这是第一道验收，跑法与套件清单见 `test/assembly-lab/README.md`。
-- **宿主行为验收 = VS Code 验证**：本沙盒（code-server + 真 dsh + 插件 vsix）配 Kimi WebBridge 截图与语义核对，或由人跑 `scripts/dev-ui-test.sh` 起隔离 VS Code 窗口实测（最终准绳）。
+- **宿主行为验收 = VS Code 验证**：本沙盒（code-server + 真 dsh + 插件 vsix）配 Kimi WebBridge 截图与语义核对——**注意装配页的取数源是扩展的 loopback mirror，code-server 里够不到，页面会留白，见「已知边界」**；或由人跑 `scripts/dev-ui-test.sh` 起隔离 VS Code 窗口实测（最终准绳）。
 - 旧的 Playwright 自动驱动（`verify-driver.mjs`）只驱动旧聊天 webview 的 composer（`textarea#input` + `.send-button`），旧聊天区下线后没有可驱动对象，已随 #68 移除；仓库里的验收基线 `verify.ledger.json` 随之收缩为两项侧栏/宿主回归项（`R-02` 侧边栏无宿主残留、`R-03` 扩展接管 dsh）。
 
 ## 远程驱动配方（WebBridge 实测记录，2026-09-04）
