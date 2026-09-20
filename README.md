@@ -74,12 +74,12 @@ flowchart LR
 ## Using DSH One
 
 - **Sidebar (default)** — click the DSH One activity-bar icon: the sidebar opens with the sessions list, and the assembled chat area opens next to it (once per window; if you close it, it stays closed). Pick a session in the sidebar to focus the chat area on it, or start a new session from a workspace row (its hover buttons, or its right-click menu); the toolbar `+` adds a workspace instead.
-- **Assembled chat** — `DSH One: Open Assembled Chat` opens the chat area explicitly (this is the same command the default-open path uses).
+- **Chat area** — `DSH One: Open Chat` opens the chat area explicitly (this is the same command the default-open path uses).
 - **Common commands** (`Ctrl/Cmd+Shift+P`):
 
   | Command | Description |
   | --- | --- |
-  | `DSH One: Open Assembled Chat` | Open the assembled chat area |
+  | `DSH One: Open Chat` | Open the chat area |
   | `DSH One: Restart Service` / `DSH One: Stop Service` | Restart / stop the dsh service |
   | `DSH One: Show Status Panel` | Open the status-bar action panel (same as clicking the status-bar item) |
   | `DSH One: Show Logs` | Show the extension log |
