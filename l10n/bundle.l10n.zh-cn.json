@@ -259,10 +259,10 @@
   "Move to group…": "移到分组…",
   "dsh full-text search is opt-in by default: the session-query index has openAt: \"never\" (disabled), so session.search is unavailable.\\nTo enable: edit ~/.dsh/profiles/web/cordis.patch.yml, append the following config, then restart the dsh service:\\n- id: session-query-sqlite\\n  config:\\n    path: !!js dshHomePath(\"session-query.sqlite\")\\n    openAt: first-search": "dsh 全文搜索默认 opt-in：session-query 索引 openAt: \"never\"（未启用），session.search 被禁用。\n启用：编辑 ~/.dsh/profiles/web/cordis.patch.yml，追加以下配置后重启 dsh 服务：\n- id: session-query-sqlite\n  config:\n    path: !!js dshHomePath('session-query.sqlite')\n    openAt: first-search",
   "Chat": "对话",
-  "Failed to load the assembly wire from the dsh gateway: {0}": "从 dsh 网关加载装配清单失败：{0}",
-  "Failed to start the assembly mirror: {0}": "装配 mirror 启动失败：{0}",
-  "The dsh version is unknown; this chat assembly expects {0}.": "无法确定 dsh 版本；本装配对话区要求 {0}。",
-  "The connected dsh is {0}, which may not match this chat assembly (expects {1}).": "当前连接的 dsh 是 {0}，可能与本装配对话区不匹配（要求 {1}）。",
+  "Failed to load the assembly wire from the dsh gateway: {0}": "从 dsh 网关加载界面清单失败：{0}",
+  "Failed to start the assembly mirror: {0}": "对话界面加载失败：{0}",
+  "The dsh version is unknown; this chat assembly expects {0}.": "无法确定 dsh 版本；对话区要求 {0}。",
+  "The connected dsh is {0}, which may not match this chat assembly (expects {1}).": "当前连接的 dsh 是 {0}，可能与对话区不匹配（要求 {1}）。",
   "DSH sidebar failed to load: {0}": "DSH 侧栏加载失败：{0}",
   "Retry": "重试",
   "Settings": "设置",
@@ -281,7 +281,7 @@
   "You can also use the official dsh web interface in a browser.": "也可以在浏览器里使用官方 dsh web 界面。",
   "Open dsh web": "打开 dsh web",
   "Copy command": "复制命令",
-  "DSH chat panel failed to load: {0}": "DSH 对话面板装配失败：{0}",
+  "DSH chat panel failed to load: {0}": "DSH 对话面板加载失败：{0}",
   "The dsh service is not running. Start it to load this chat panel.": "dsh 服务没在运行。启动服务后这个对话面板才会加载。",
   "The session this chat panel was showing no longer exists; the panel opens without it.": "这个对话面板原来打开的会话已经不在了，面板会不带它打开。"
 }

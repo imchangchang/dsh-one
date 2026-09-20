@@ -69,6 +69,6 @@
     <rect x="15" y="29" width="2" height="1"/>
   </g>
   <text x="222" y="142" fill="#FFFFFF" font-family="system-ui, -apple-system, sans-serif" font-size="52" font-weight="700">DSH One</text>
-  <text x="222" y="182" fill="#93C5FD" font-family="system-ui, -apple-system, sans-serif" font-size="21">dsh inside VSCode — the DeepSeek Harness bridge</text>
-  <text x="222" y="214" fill="#60A5FA" font-family="system-ui, -apple-system, sans-serif" font-size="15">Locate · Start or reuse · Embed · Workspace sync</text>
+  <text x="222" y="182" fill="#93C5FD" font-family="system-ui, -apple-system, sans-serif" font-size="21">dsh inside VS Code — the DeepSeek Harness bridge</text>
+  <text x="222" y="214" fill="#60A5FA" font-family="system-ui, -apple-system, sans-serif" font-size="15">Locate · Start or reuse · Embed the dsh UI · Sessions sidebar</text>
 </svg>
