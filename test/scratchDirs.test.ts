@@ -47,6 +47,16 @@ function eachTestSourceFile(visit: (file: string, source: string) => void): void
   walk(TEST_DIR)
 }
 
+/**
+ * 子进程汇总行里的通过数：`--test-reporter=tap` 的 `# pass N` 是主判据，spec 的 `ℹ pass N`
+ * 只作兜底（旧版本 Node 或将来默认变了也不至于读到 -1）。读不到给 -1，让断言红而非静默通过。
+ */
+function passedCount(stdout: string): number {
+  const tap = /^# pass (\d+)$/m.exec(stdout)?.[1]
+  if (tap !== undefined) return Number(tap)
+  return Number(/^ℹ pass (\d+)$/m.exec(stdout)?.[1] ?? -1)
+}
+
 test('scratchDir / scratchDirSync：进程退出时删干净（子进程实测）', () => {
   const root = scratchDirSync('dsh-scratch-guard-')
   const code = `
@@ -108,7 +118,9 @@ test('跑完自检：隔离 $TMPDIR 里跑一遍建 scratch 的单测文件，�
   const env: Record<string, string | undefined> = { ...process.env, TMPDIR: root }
   for (const key of Object.keys(env)) if (key.startsWith('NODE_TEST_')) delete env[key]
   const started = Date.now()
-  const r = spawnSync(process.execPath, ['--test', ...scratchUsers], {
+  // reporter 显式钉成 tap：stdout 是管道不是 TTY，不钉的话 Node 22 给 tap、Node 24 给 spec
+  // （汇总行分别是 `# pass N` 与 `ℹ pass N`），汇总行漂移会让下面的解析读不到数（#221）。
+  const r = spawnSync(process.execPath, ['--test', '--test-reporter=tap', ...scratchUsers], {
     cwd: ROOT,
     encoding: 'utf8',
     timeout: 900_000,
@@ -117,7 +129,7 @@ test('跑完自检：隔离 $TMPDIR 里跑一遍建 scratch 的单测文件，�
   const elapsed = Date.now() - started
   const left = scratchEntriesIn(root)
   const others = readdirSync(root).filter((name) => !left.includes(name))
-  const passed = Number(/^ℹ pass (\d+)$/m.exec(r.stdout)?.[1] ?? -1)
+  const passed = passedCount(r.stdout)
   // 先看那轮跑成没：没跑成时残留数没有意义（子进程可能在建目录之前就死了）。
   assert.equal(r.status, 0, `子进程那轮没跑成（同样的文件在 npm test 里也会红）：\n${r.stdout}\n${r.stderr}`)
   assert.ok(passed > 100, `子进程那轮只跑了 ${String(passed)} 个用例（${String(elapsed)}ms），像是没真跑起来`)
