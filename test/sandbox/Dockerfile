@@ -4,9 +4,11 @@
 #   * 基础镜像 codercom/code-server:latest 是 debian 系但**不带系统 node/npm**，
 #     dsh（@deepseek-ai/dsh）需要 node 运行时，所以从官方 node 镜像多阶段拷入
 #     /usr/local/bin 与 /usr/local/lib/node_modules（code-server 官方镜像既无 node 也无 npm）。
-#   * dsh 必须 pin 到 @deepseek-ai/dsh@0.1.1-rc.2：升到 @next（0.1.2-rc.1）会新增 token 认证，
-#     扩展侧没有任何 token 概念（probe/RPC 都不带凭证），/api/* 直接回 401，扩展 90s 启动超时起不来。
-#     根因与方案见条目 dsh-next-token-auth-incompatible（docs/backlog/closed-archive-2026Q3.md）。
+#   * dsh pin 在装配页的支持区间 [0.1.2-rc.1, 0.2.0) 内（版本门出处 src/ui/assemblyView.ts）：
+#     这里跟 npm 的 latest —— 用户 `npm i -g @deepseek-ai/dsh` 实际装到的那一版，沙盒才有代表性。
+#     旧的 pin 0.1.1-rc.2 在区间之外（缺 browser-session 认证与 loader 协议），装配页会带版本提示；
+#     当年「升到 0.1.2 会因为 token 认证起不来」的判断已随扩展补上认证支持作废（src/server/serverAuth.ts）。
+#     上游发新版后回头复核这一行是否仍在区间内（升 pin 时同步改 test/sandbox/README.md 的实测段落）。
 #   * VSIX 由构建脚本先拷进构建上下文（test/sandbox/dsh-one.vsix），用 --build-arg VSIX=<绝对主机路径>
 #     传入才安装；不带 --vsix（VSIX 为空）时跳过安装，镜像仍可用（后续 mock dsh 场景基本用不到真扩展）。
 #     docker build 的上下文路径只能是 test/sandbox/，所以 vsix 必须由脚本拷进来而不是 COPY 外部路径。
@@ -35,9 +37,9 @@ ENV LOCALE=$LOCALE \
     MOCK_LLM=$MOCK_LLM
 
 USER root
-# pin 0.1.1-rc.2 而不是 @next：0.1.2-rc.1 起 /api/* 带 token 认证，扩展不支持会 90s 启动超时。
+# pin 到支持区间内的具体版本（理由见文件头设计要点）。
 # 装完清 npm 缓存（不加 --no-cache 也行，这里显式清理，镜像层更薄）。
-RUN npm install -g @deepseek-ai/dsh@0.1.1-rc.2 && npm cache clean --force
+RUN npm install -g @deepseek-ai/dsh@0.1.5-rc.2 && npm cache clean --force
 
 USER coder
 # 预置用户设置：关 workspace trust（否则 Restricted Mode 限制扩展）+ 关欢迎页。

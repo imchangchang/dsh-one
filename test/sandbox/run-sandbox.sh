@@ -59,14 +59,14 @@ run-sandbox.sh —— 构建并驱动 DSH One 的 docker 沙盒（code-server + 
   sh      进入容器（当前实例）shell（/bin/bash）
   --help / -h  显示本帮助
 
-并行示例（两个 session 各用各的实例）:
-  test/sandbox/run-sandbox.sh build --instance a --vsix "$(pwd)/dsh-one-1.0.0.vsix" --mock-llm
+并行示例（两个 session 各用各的实例；vsix 路径里的版本号 = package.json 的 version，随发布线变）:
+  test/sandbox/run-sandbox.sh build --instance a --vsix "$(pwd)/dsh-one-2.0.0.vsix" --mock-llm
   test/sandbox/run-sandbox.sh start --instance a --mock-llm --port 8081
-  test/sandbox/run-sandbox.sh build --instance b --vsix "$(pwd)/dsh-one-1.0.0.vsix" --mock-llm
+  test/sandbox/run-sandbox.sh build --instance b --vsix "$(pwd)/dsh-one-2.0.0.vsix" --mock-llm
   test/sandbox/run-sandbox.sh start --instance b --mock-llm --port 8082
 
 示例（默认实例，同原来）:
-  test/sandbox/run-sandbox.sh build --vsix "$(pwd)/dsh-one-1.0.0.vsix"
+  test/sandbox/run-sandbox.sh build --vsix "$(pwd)/dsh-one-2.0.0.vsix"
   test/sandbox/run-sandbox.sh start --locale zh-cn --theme light --port 9000
   test/sandbox/run-sandbox.sh build --mock-llm        # mock-llm 模式需 build+start 配套
   test/sandbox/run-sandbox.sh start --mock-llm
