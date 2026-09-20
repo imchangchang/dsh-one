@@ -196,7 +196,8 @@ export function probeDshVersionFromCommandLine(
 
 /**
  * 命令行含 dsh 特征才允许杀（降低「pid/端口被复用」的误杀窗口；理论竞态
- * 消不掉——与 owned pidfile 误杀窗同类，architecture.md 决策 1 已接受）。
+ * 消不掉——与 owned pidfile 误杀窗同类，见 `docs/architecture.md` 里
+ * 「一条已知并接受的竞态」那一段）。
  * 特征：安装在 `@deepseek-ai/dsh` 包路径（npm 全局/本地），或路径段名为
  * dsh / dsh.js / dsh.cmd / dsh.exe（本地 checkout）。
  */

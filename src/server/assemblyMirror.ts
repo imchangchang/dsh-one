@@ -156,7 +156,7 @@ export function startAssemblyMirror(
     server.listen(0, '127.0.0.1', () => {
       const addr = server.address()
       if (addr === null || typeof addr !== 'object') {
-        reject(new Error('assembly mirror: no loopback address'))
+        reject(new Error('local UI proxy: no loopback address'))
         return
       }
       logger.info(`assembly mirror: http://127.0.0.1:${addr.port}/`)
@@ -189,17 +189,17 @@ async function fetchFilteredGatewayCombo(
   logger: LogSink,
 ): Promise<{ text: string; ids: ReadonlySet<string> }> {
   const gateway = target()
-  if (gateway === undefined) throw new Error('assembly mirror: dsh service is not running')
+  if (gateway === undefined) throw new Error('local UI proxy: dsh service is not running')
   const cookie = cookieHeader(gateway)
   const headers: Record<string, string> = cookie !== undefined ? { cookie } : {}
   const indexRes = await fetch(`${gateway}/`, { headers })
-  if (!indexRes.ok) throw new Error(`assembly mirror: GET / HTTP ${indexRes.status}`)
+  if (!indexRes.ok) throw new Error(`local UI proxy: GET / HTTP ${indexRes.status}`)
   const wire = extractBootWire(await indexRes.text())
   // 官方按 combo URL 的长度上限把 application 阶段切成若干批（#165：干净 profile 上
   // directory-picker-native 独占第二批）。过滤后的 combo 必须覆盖**每一批**的保留段，
   // 否则第二批的官方插件会被当成不存在的「本地插件」而被 404 掉。
   const appBatches = wire.batches.filter((b) => b.phase === 'application')
-  if (appBatches.length === 0) throw new Error('assembly mirror: gateway wire has no application batch')
+  if (appBatches.length === 0) throw new Error('local UI proxy: gateway wire has no application batch')
   const segmentRe = /window\.__ModuleLoader__\.load\(\{/g
   const kept: string[] = []
   const dropped: string[] = []
@@ -211,7 +211,7 @@ async function fetchFilteredGatewayCombo(
   let segmentCount = 0
   for (const app of appBatches) {
     const comboRes = await fetch(`${gateway}${app.url}`, { headers })
-    if (!comboRes.ok) throw new Error(`assembly mirror: official combo HTTP ${comboRes.status}`)
+    if (!comboRes.ok) throw new Error(`local UI proxy: official combo HTTP ${comboRes.status}`)
     const text = await comboRes.text()
     const marks = [...text.matchAll(segmentRe)]
     segmentCount += marks.length

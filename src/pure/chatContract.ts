@@ -7,7 +7,6 @@
 import type { WorkspaceNodeModel } from './sessionTree.ts'
 import type { ActivityJob } from './activityTree.ts'
 import type { FileRefCandidate } from './fileReference.ts'
-import type { WorkflowRunView } from './workflowRun.ts'
 import type { HostOs } from './installScript.ts'
 import type { TagColor } from './sessionTags.ts'
 import type { AnswerDraftEntry, ComposerDraftEntry } from './dshStateFile.ts'
@@ -671,12 +670,6 @@ export interface ChatState {
    * GoalBar / input.dock order 10，含暂停/恢复/编辑/清除操作）。
    */
   goal?: ChatGoal | null
-  /**
-   * 会话日志里的 workflow 运行卡片（tool-workflow/* 事件按 runId 折叠，见
-   * src/pure/workflowRun.ts）：webview 按 anchorSeq 插进消息流渲染成
-   * run→phase→member 三层可展开卡片（对齐官方 WorkflowRunPanel）。无则缺省。
-   */
-  workflowRuns?: WorkflowRunView[]
   /**
    * Context-occupancy meter data (dsh `contextPressure` + `contextBreakdown`
    * projections). Absent until the provider reports both a pressure sample

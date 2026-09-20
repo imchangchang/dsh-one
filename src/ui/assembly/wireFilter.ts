@@ -413,7 +413,7 @@ export const WORKSPACE_TREE_PLUGIN_ID = '@dsh-one/dsh-workspace-tree'
  */
 export function bootstrapUrlOf(wire: BootWire): string {
   const bootstrap = wire.batches.find((b) => b.phase === 'bootstrap')
-  if (bootstrap === undefined) throw new Error('assembly wire: no bootstrap batch')
+  if (bootstrap === undefined) throw new Error('UI manifest: no bootstrap batch')
   return bootstrap.url
 }
 
@@ -462,22 +462,22 @@ export function projectGraphFrame(frame: string, project: (graph: BootWire) => B
 /** 从网关 `/` 注入 HTML 提取 __DSH_BOOT__ JSON（官方把 `<` 转义成 \u003c，JSON.parse 直接还原)。 */
 export function extractBootWire(html: string): BootWire {
   const m = /globalThis\["__DSH_BOOT__"\] = (\{[\s\S]*?\})<\/script>/.exec(html)
-  if (m === null) throw new Error('assembly wire: gateway HTML has no __DSH_BOOT__ injection')
+  if (m === null) throw new Error('UI manifest: gateway HTML has no __DSH_BOOT__ injection')
   try {
     return JSON.parse(m[1]) as BootWire
   } catch (err) {
-    throw new Error(`assembly wire: __DSH_BOOT__ JSON parse failed: ${err instanceof Error ? err.message : String(err)}`)
+    throw new Error(`UI manifest: __DSH_BOOT__ JSON parse failed: ${err instanceof Error ? err.message : String(err)}`)
   }
 }
 
 /** 从网关 `/` 注入 HTML 解析前端资产名（module js / modulepreload / css，全部相对路径)。 */
 export function extractFrontendAssets(html: string): GatewayAssets {
   const moduleJs = /type="module"[^>]*src="\.\/(assets\/[^"]+)"/.exec(html)?.[1]
-  if (moduleJs === undefined) throw new Error('assembly wire: gateway HTML has no module script asset')
+  if (moduleJs === undefined) throw new Error('UI manifest: gateway HTML has no module script asset')
   const preloadJs = [...html.matchAll(/modulepreload"[^>]*href="\.\/(assets\/[^"]+)"/g)].map((m) => m[1])
   const css = [...html.matchAll(/stylesheet"[^>]*href="\.\/(assets\/[^"]+)"/g)].map((m) => m[1])
   if (preloadJs.length === 0 || css.length === 0) {
-    throw new Error('assembly wire: gateway HTML has no modulepreload/stylesheet assets')
+    throw new Error('UI manifest: gateway HTML has no modulepreload/stylesheet assets')
   }
   return { moduleJs, preloadJs, css }
 }
@@ -518,7 +518,7 @@ export function filterWire(
   // 误判成「清单对不上」而抛错（#165 干净 profile 上整页打不开的根因）。
   const appBatches = wire.batches.filter((b) => b.phase === 'application')
   if (appBatches.length === 0 || bootstrap === undefined) {
-    throw new Error('assembly wire: missing bootstrap/application batch')
+    throw new Error('UI manifest: missing bootstrap/application batch')
   }
   const appEntries = appBatches.flatMap((b) => b.entries)
   const keptIds = appEntries.filter((id) => !blocked.has(id))
@@ -539,13 +539,13 @@ export function filterWire(
   const unfilterable = [...blockedInWire].filter((id) => !blockedInApp.has(id))
   if (unfilterable.length > 0) {
     throw new Error(
-      `assembly wire: blocklist entries are in the gateway wire but in no application batch, so the filter cannot strip them: ${unfilterable.join(', ')}`,
+      `UI manifest: blocklist entries are in the gateway wire but in no application batch, so the filter cannot strip them: ${unfilterable.join(', ')}`,
     )
   }
   const phantom = [...blockedInApp].filter((id) => !blockedInWire.has(id))
   if (phantom.length > 0) {
     throw new Error(
-      `assembly wire: blocklist entries are in an application batch but absent from the gateway wire entries: ${phantom.join(', ')}`,
+      `UI manifest: blocklist entries are in an application batch but absent from the gateway wire entries: ${phantom.join(', ')}`,
     )
   }
   const absent = blockedIds.filter((id) => !blockedInWire.has(id))
