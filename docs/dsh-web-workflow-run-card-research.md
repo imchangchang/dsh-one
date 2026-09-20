@@ -212,7 +212,8 @@ status 推导（client.js:494-511, 535, 545）：
 
 - 引擎是 `dsh-client-ui-conversation` 的 `ConversationEventRegistry`（`ctx.uiConversation.events`）：对每个事件跑 definition 的 `match`，命中后按 start/update 增量维护每个 Context 的状态；definition 还可选声明 `buildLocationData` / `buildViewNode`，由引擎把值物化成 `ConversationViewNode { key, kind, id, target, data }`。撰写时这段记在 `dsh-client-runtime`，且当时提到的节点字段 `anchorSeq` / `visibility` 在 0.1.6-alpha.1 的契约里已经没有。
 - 折叠出的节点进 chat 流，由 `conversation.chat.node` 的 keyed slot 渲染：`key: "workflow-run"`，`dsh-client-ui-workflow-run` 在 `apply()` 里注册（同时注册 definition、zh/en 字典、以及这个 keyed renderer，并注入 `openSession`）。未知 key 时的兜底是 `JsonBlock`（未知 kind 显示 JSON）。
-- 事件经 `dsh-tool-workflow`（模型侧 tool）写入父 Session 的日志，前端回放/追加（README"持久状态与回放"一节：update 历史尾页 pending，直到更早页面补入唯一 start；此后 prepend、完整回放、实时 append 得同一状态）。
+- 事件经 `dsh-tool-workflow`（模型侧 tool）写入父 Session 的日志，前端回放/追加（README"持久状态与回放"一节：update 历史尾页 pending，直到更早页面补入唯一 start；此后 prepend、完整回放、实时 append 得同一状态）。写入点是 `dsh-tool-workflow/lib/index.js` 的 `createWorkflowRecorder`：`start` 写 `run-start`、监听 `workflow/agent-start` / `workflow/agent-end` 写对应的成员事件、`finish` 写 `run-end`（某次 append 失败就停掉这一条的记录并打一条 warn，不影响工具本身继续执行）；上游 `workflow/*` 事件由 `dsh-workflow-ptc/lib/index.js` 的 `emitWorkflowEvent` 发出。
+- envelope 是 `{type, seq, time, data}`（`dsh-session` 的类型定义；事件本身不带 sessionId，由线帧携带），这四个事件名在 `dsh-session/lib/types/known-event-types.js` 里也列着。
 
 ---
 
@@ -263,6 +264,7 @@ status 推导（client.js:494-511, 535, 545）：
 - 形态：按钮（live 时带 ongoing 点 + `"{count} 个后台任务运行中"` 计数 + 旋转 chevron）→ 点击弹出 336px 宽的浮层列表（`_menu`：max-height `min(420px, 100vh - 140px)`、`--dsw-specific-menu` 底色、`--dsw-elevation-prominent` 阴影、radius 20px）。
 - 每行：StateDot（job 状态：running→ongoing、stopping/killed→warning、completed→done、failed→error，client.js:52-62）+ kind 小标签 + label + detail/status + 持续时长（`formatDuration`，client.js:81，运行中每秒 tick 刷新，client.js:126-135）。
 - **与 workflow-run 的区别**：jobs 是"这个会话的后台任务清单"（一维列表，含时长，不进聊天流）；workflow-run 是"聊天流里的一个 durable 工作流记录卡"（两层折叠分组，按 phase 组织成员）。两者共用 primitives 的 StateDot 徽标和计数文案风格（`count.live.*` 与 `statusCount.*` 都叫"运行中 N"），但结构完全不同。截图里的卡片（3 成员/phase 分组/运行中计数）对应的是 **workflow-run** 形态，不是 jobs。
+- **workflow 运行不进 jobs**：`dsh-tool-workflow` 全文没有 jobs 引用；workflow 的成员由引擎直接启动（`dsh-workflow-ptc/lib/index.js` 的 `this.subagents.start(...)`），不走 `dsh-tool-subagent` 那条注册 job 的路径。所以父会话的 `session/jobs` 帧在 workflow 运行期间是空的（除非父代理同时跑了别的后台工具）；成员子会话自己的后台任务记在各自 sessionId 下（jobs 按 owner 作用域）。
 
 ---
 

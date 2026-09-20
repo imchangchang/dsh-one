@@ -391,3 +391,6 @@ dsh 上游出于安全只监听 `127.0.0.1`（拒绝 `--host 0.0.0.0`），所�
 | 开发流程、脚本、日志取证、人工验收步骤、发版 | `docs/development.md` |
 | 浏览器验证的套件清单与判据 | `test/assembly-lab/README.md` |
 | 旧自研侧栏与当前侧栏的逐项对照（历史材料） | `docs/legacy-vs-current-sidebar-compare.md` |
+| dsh web 的组件与卡片实现（查官方怎么写的：可展开组件、任务卡与 todo 行、workflow 卡） | `docs/dsh-web-expandable-ui-research.md`、`docs/dsh-web-task-card-and-todo-row-research.md`、`docs/dsh-web-workflow-run-card-research.md` |
+| host 侧的 todos 数据来源（投影链路，我们目前没接） | `docs/dsh-one-todos-data-source.md` |
+| 会话工作区模型（session ↔ branch / worktree，未实现的设计草图） | `docs/session-model.md` |

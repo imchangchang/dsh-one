@@ -39,3 +39,4 @@
 | Remote 实测 | 增强 | 在 SSH / WSL / devcontainer 三种环境各过一遍发版点验清单（见 `docs/development.md`），根据结果决定改代码还是改 README 的限制声明。 |
 | 心跳看门狗防孤儿 | 增强 | 目前 VS Code 崩溃（非 deactivate 路径）会留下孤儿 dsh 进程。可以加周期性心跳文件，dsh 侧或扩展重启时发现陈旧实例做提示/回收（回收必须沿用复用语义，只动自己 spawn 过的）。 |
 | Copilot LM Provider | 增强 | 把 dsh 的模型能力注册为 VS Code Language Model Provider（`vscode.lm`），让 Copilot Chat 等消费。属于新能力探索，优先级最低。 |
+| Session 工作区模型（session ↔ branch / worktree） | 增强 | 未实现的设计草图：session 是核心实体，branch 是它的持久化形态，worktree 是运行时形态，另有一个常驻主分支的集成 session 串行处理合入队列。仓库里目前没有任何相关实现（`src/` 与 `packages/` 只有 git 的只读查询）。草图与开放问题见 `docs/session-model.md`。 |

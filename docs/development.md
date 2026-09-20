@@ -185,7 +185,11 @@ COMPAT_BASE=<集成线分支> scripts/check-platform-compat.sh agent/my-task   #
 - 只有 `chat panel replaced`、没有 `deactivating` → 是**我们**换了单例（例如侧栏点了另一个会话），不是宿主；
 - 有 `disposed … reason=other` 但整份文件里没有 `deactivating` → 用户点了关闭，或者宿主是崩的（崩了不会调 deactivate）。
 
-## 人工验收：实验室的默认跑法不碰你的机器（#177）
+## 历史验收清单（来自已关闭的 issue）
+
+下面三节是三条**已关闭** issue 的一次性人工验收清单（#177 实验室隔离、#169 面板重载后还在、#173 插件产物的缓存键）。内容今天仍可复跑——照步骤走一遍就能看出对错——但**不是待办**，不要当待做项清点。
+
+### 实验室的默认跑法不碰你的机器（#177）
 
 `npm run verify:lab` 零参数现在**自己起一台隔离实例**（临时 `DSH_HOME` + 随机端口 + 播种真数据），
 跑完按 PID 收掉。它不许碰你的 `~/.dsh`、不许碰你日常那台实例（缺省 3080）。要人工确认这一条：
@@ -238,7 +242,7 @@ scripts/lab-doctor.sh --kill   # 确认无误后真收
 都收得掉），但**进程吃 `SIGKILL` 是收不了的物理事实**——信号根本没有机会进我们的收尾代码，
 父进程一退它就归 init 收养（PPID 变 1）。这类残局只能事后发现、事后收，这条脚本就是那对眼睛。
 
-## 人工验收：面板在重载 / 切窗口之后还在（#169）
+### 面板在重载 / 切窗口之后还在（#169）
 
 这条只能靠 **VS Code 验证**（人开窗口实测，宿主行为，浏览器验证到不了）。扩展自己不能起窗口，所以由人跑：
 
@@ -246,12 +250,12 @@ scripts/lab-doctor.sh --kill   # 确认无误后真收
 2. 命令面板跑 **Developer: Reload Window**，等窗口起来：
    - 期望：对话面板 tab **还在**，内容回到**同一个会话**（历史/composer 都在）；
    - 期望：多开的标签页（会话行菜单「在新标签页打开」开的那些）也各自回来，落在各自的会话；
-   - 期望：日志（见上一节）里能看到 `chat panel restoring` → `chat panel restored`；
+   - 期望：日志（见「日志与事后取证」一节）里能看到 `chat panel restoring` → `chat panel restored`；
 3. 再验一次「切走窗口再回来」：切到别的应用（或别的 VS Code 窗口）几十秒再切回来，面板应原样还在（VS Code 不会因为焦点变化重载窗口，这条用于排除「我们自己把面板关掉」的可能）；
 4. 降级分支（可选，验「不静默空白」）：把 dsh 服务停掉（命令 `DSH One: Stop Service`，`dshOne.stop`）后再 Reload Window——面板 tab 应当还在，里面是「dsh 服务没在运行 / 启动服务」的状态页，点「Start the dsh service」应把面板装起来；
 5. 会话已经删掉的情况：把某个会话归档/删掉，再 Reload Window——面板应弹一句「这个对话面板原来打开的会话已经不在了」，并且**不带那个会话**打开（不是一片空白）。
 
-## 人工验收：改了自己的插件重建之后，Reload Window 就能看到新界面（#173）
+### 改了自己的插件重建之后，Reload Window 就能看到新界面（#173）
 
 **这条为什么必须人验**：整包（`/plugins-local/??…`）的 URL 就是 webview 的缓存键，缓存头是
 `max-age=86400, immutable`（源稳定时跨 tab 命中 HTTP 缓存，见 `src/server/assemblyMirror.ts`）。
