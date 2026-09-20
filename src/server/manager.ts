@@ -21,7 +21,7 @@ import {
 } from './ownedRecord.ts'
 import { findListenerPid, processCommandLine, isDshCommandLine, stopExternalPid, drainPort, pidAlive, probeDshVersionFromCommandLine } from './externalDsh.ts'
 import { LanForwarder } from './lanForwarder.ts'
-import { pickLanIPv4, supportsTrustedHost } from '../pure/lanAccess.ts'
+import { pickLanIPv4, supportsTrustedHost, TRUSTED_HOST_MIN_VERSION } from '../pure/lanAccess.ts'
 import type { OwnedRecord } from './ownedRecord.ts'
 import type { Logger } from '../log.ts'
 
@@ -624,12 +624,12 @@ export class ServerManager implements vscode.Disposable {
     if (this.lanSettingOn()) {
       if (!supportsTrustedHost(dsh.version)) {
         this.logger.warn(
-          `lan access requested but dsh ${dsh.version} lacks --trusted-host (needs ${'0.1.6-alpha.1'}+); staying local-only`,
+          `lan access requested but dsh ${dsh.version} lacks --trusted-host (needs ${TRUSTED_HOST_MIN_VERSION}+); staying local-only`,
         )
         void vscode.window.showWarningMessage(
           vscode.l10n.t(
             'LAN access needs dsh {0} or newer; this dsh is {1}, staying local-only.',
-            '0.1.6-alpha.1',
+            TRUSTED_HOST_MIN_VERSION,
             dsh.version,
           ),
         )

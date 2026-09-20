@@ -70,7 +70,7 @@ export interface PageFailureText {
 export const PAGE_FAILURE_TEXT: PageFailureText = {
   zh: {
     // 页面装配失败，内容已被清空
-    failedTitle: '\u9875\u9762\u88c5\u914d\u5931\u8d25\uff0c\u5185\u5bb9\u5df2\u88ab\u6e05\u7a7a',
+    failedTitle: '\u9875\u9762\u52a0\u8f7d\u5931\u8d25\uff0c\u5185\u5bb9\u5df2\u88ab\u6e05\u7a7a',
     // 页面内容已消失
     blankTitle: '\u9875\u9762\u5185\u5bb9\u5df2\u6d88\u5931',
     // 原因：
@@ -79,7 +79,7 @@ export const PAGE_FAILURE_TEXT: PageFailureText = {
     reload: '\u91cd\u65b0\u52a0\u8f7d',
   },
   en: {
-    failedTitle: 'Page assembly failed; the page content is gone',
+    failedTitle: 'The page failed to load; its content is gone',
     blankTitle: 'The page content is gone',
     reasonPrefix: 'Reason: ',
     reload: 'Reload',

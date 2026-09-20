@@ -155,8 +155,8 @@ function versionBanner(version: string | undefined): string | undefined {
   if (version !== undefined && inRange(version)) return undefined
   const range = `${PREREQ_MIN} ≤ version < ${PREREQ_MAX}`
   return version === undefined
-    ? vscode.l10n.t('The dsh version is unknown; this chat assembly expects {0}.', range)
-    : vscode.l10n.t('The connected dsh is {0}, which may not match this chat assembly (expects {1}).', version, range)
+    ? vscode.l10n.t('The dsh version is unknown; this chat UI expects {0}.', range)
+    : vscode.l10n.t('The connected dsh is {0}, which may not match this chat UI (expects {1}).', version, range)
 }
 
 /** 跟随 VS Code 当前主题（装配页起来后由官方 ThemePresenter 接管）。 */
@@ -466,7 +466,7 @@ async function prepareChatPanel(
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err)
     void vscode.window.showErrorMessage(
-      vscode.l10n.t('Failed to load the assembly wire from the dsh gateway: {0}', reason),
+      vscode.l10n.t('Failed to load the UI manifest from the dsh gateway: {0}', reason),
     )
     return { ok: false, view: assemblyFailureView(manager.getStatus(), reason) }
   }
@@ -476,7 +476,7 @@ async function prepareChatPanel(
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err)
     void vscode.window.showErrorMessage(
-      vscode.l10n.t('Failed to start the assembly mirror: {0}', reason),
+      vscode.l10n.t('Failed to start the local UI proxy: {0}', reason),
     )
     return { ok: false, view: assemblyFailureView(manager.getStatus(), reason) }
   }
@@ -1199,7 +1199,7 @@ export function registerAssembledSettings(
       assembly = await loadGatewayAssembly(context, status.url, SETTINGS_TREE, logger)
     } catch (err) {
       void vscode.window.showErrorMessage(
-        vscode.l10n.t('Failed to load the assembly wire from the dsh gateway: {0}', err instanceof Error ? err.message : String(err)),
+        vscode.l10n.t('Failed to load the UI manifest from the dsh gateway: {0}', err instanceof Error ? err.message : String(err)),
       )
       return
     }
@@ -1208,7 +1208,7 @@ export function registerAssembledSettings(
       mirror = await acquireSharedMirror(context, manager, logger)
     } catch (err) {
       void vscode.window.showErrorMessage(
-        vscode.l10n.t('Failed to start the assembly mirror: {0}', err instanceof Error ? err.message : String(err)),
+        vscode.l10n.t('Failed to start the local UI proxy: {0}', err instanceof Error ? err.message : String(err)),
       )
       return
     }
