@@ -33,7 +33,7 @@
 
 ## Screenshots
 
-> Every image under `docs/screenshot/` was captured before 2.0.0 and shows the 1.x UI: the sidebar, the status bar card and the chat area all look different now (the chat area is the official dsh web UI, the sidebar is the sessions tree described above). They are kept only for the part that did not change — how DSH One sits in the VS Code window. Fresh screenshots are pending.
+> Every image under `docs/screenshot/` was captured before 2.0.0 and shows the 1.x UI: the sidebar, the status bar card and the chat area all look different now (the chat area is the official dsh web UI, the sidebar is the sessions tree described above). They are kept only for the part that did not change — how DSH One sits in the VS Code window.
 
 | Sidebar with dsh missing (1.x) | Status bar hover (1.x) |
 | --- | --- |
