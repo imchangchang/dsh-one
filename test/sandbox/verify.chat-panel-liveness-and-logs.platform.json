@@ -1,0 +1,53 @@
+{
+  "branch": "agent/chat-panel-liveness-and-logs",
+  "slug": "chat-panel-liveness-and-logs",
+  "platformCoverage": [
+    {
+      "file": "src/extension.ts",
+      "rule": "platform-branch",
+      "path": "activating 那条日志里的 platform=${process.platform}/${process.arch}（#224 往这行加了 boot 标识）",
+      "verifiedBy": "not-a-platform-path",
+      "reason": "这一行只是把 process.platform / process.arch 的当前值**写进日志文本**（纯字符串插值），没有任何按平台分叉的行为：本次改动只往它前面插了一个 boot 标识，平台部分的取值与分支一个字都没动。本任务改的其它代码（src/ui/assemblyView.ts / test/chatPanelLiveness/**）不含任何平台相关调用。",
+      "evidence": "代码审查（该行无 if / switch / 平台判断）；本机 darwin/arm64 上 `npm test` 与 `npm run verify:lab` 各跑一轮，日志首行照写 `platform=darwin/arm64`；CI（GitHub Actions 的 ci 工作流，ubuntu runner）跑同一个 `npm test`，同一行同样只是文本。"
+    }
+  ],
+  "branchMatrix": {
+    "trigger": "platform + probe-result-branch",
+    "note": [
+      "本任务新增/改动的代码里只有两处按状态变量分叉：a) activating 那行日志把平台写进文本（上面已声明 not-a-platform-path，没有分支可走）；b) src/ui/assemblyView.ts 的 openSessionInNewTab 里 `const openTab = sessionTabOf(sessionTabPanels, sessionId)` 之后按 `openTab !== undefined` 分叉（多开面板存不存在），以及同文件 pickChatPanel / drainPendingSession 里按「面板还在不在」分叉。",
+      "面板存在性与存活判定**不是平台探测**，是宿主进程内的状态（`sessionTabPanels` 映射 + `disposedPanels` 存活标志）。全部读数来自本轮新增的宿主侧 harness（test/chatPanelLiveness.test.ts，假 vscode + 假网关真跑 src/ui/assemblyView.ts），跑法 `node --test test/chatPanelLiveness.test.ts`，8 条判据全绿；逐条去掉守卫的负向对照读数在任务报告里。"
+    ],
+    "rows": [
+      {
+        "condition": "activating 那行日志（命中 platform-branch）：`process.platform` / `process.arch` 取任何值",
+        "expected": "日志照原样写出平台与架构（例如 `platform=darwin/arm64`），不做任何按平台分叉的动作",
+        "verification": "代码审查（这行是纯字符串插值，无 if / switch / 平台判断）；本机 darwin/arm64 跑 `npm test` 与 `npm run verify:lab` 各一轮，日志首行平台值如实；CI 的 ubuntu runner 跑同一个 `npm test`。"
+      },
+      {
+        "condition": "多开那条路：`sessionTabOf(sessionTabPanels, sessionId)` 返回 undefined（这个会话没有多开面板）",
+        "expected": "不聚焦、直接走新建：为该会话建一个新的多开面板",
+        "verification": "test/chatPanelLiveness.test.ts 的 ④「多开标签页不增生」第一跳：首次 `openSessionInNewTab('session-tab')` → 面板数 1、装配页写进 webview。"
+      },
+      {
+        "condition": "多开那条路：返回一个**还活着**的面板",
+        "expected": "只聚焦（`reveal()`），绝不新建第二个面板",
+        "verification": "test/chatPanelLiveness.test.ts 的 ④ 第二跳：同一个会话再点一次 → 面板数仍为 1、`revealed` 计 1。"
+      },
+      {
+        "condition": "多开那条路：返回一个已经没了的（webview 已 dispose、dispose 事件还没送到扩展这边）面板",
+        "expected": "按「没开」处理：清掉那一格映射、落一条带现场的 warn，并新建一个面板（不把 `Webview is disposed` 抛给调用方）",
+        "verification": "test/chatPanelLiveness.test.ts 的 ④ 第三跳：`__killWebview()` 之后再点 → 面板数 2、日志里有 `chat open: panel is already gone …`。负向对照：去掉这一处守卫 → 该条判据红（报告里有读数）。"
+      },
+      {
+        "condition": "单例那条路：`pickChatPanel()` 的存活标志为假（面板还在、或引用为空）",
+        "expected": "按选中的面板走 reveal / switch（还活着时），或没有面板时走创建",
+        "verification": "test/chatPanelLiveness.test.ts 的 ①（正常关闭后点会话 → 新建）、③（`revealAssembledChat` 已开则聚焦且不新开）、⑤（单例 + 多开共享一个 loopback mirror）。"
+      },
+      {
+        "condition": "单例那条路：`pickChatPanel()` 的存活标志为真（引用指向已 dispose 的面板）",
+        "expected": "死面板一律当没有：清掉坏引用，直接走建新面板那条路",
+        "verification": "test/chatPanelLiveness.test.ts 的 ① 两条：正常关闭（dispose 事件已到、引用已清）与宿主收摊形状（webview 已死、引用还在）都建出了新面板；后者带 `branch=retry`。"
+      }
+    ]
+  }
+}
