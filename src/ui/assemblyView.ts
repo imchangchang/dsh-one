@@ -14,7 +14,7 @@ import { createGatewayWorkspaceRoots } from './assembly/hostWorkspaceRoots.ts'
 import { panelOpenSessionIds, panelSessionsMessage, routeSelection } from '../pure/sessionPanelRouting.ts'
 import { chatPanelTabTitle, panelTabTitle } from '../pure/panelTab.ts'
 import { panelTabIconPath } from './panelIcon.ts'
-import { assignSessionTab, hasSessionTab, releaseSessionTab, sessionTabOf } from '../pure/sessionTabs.ts'
+import { assignSessionTab, releaseSessionTab, sessionTabOf } from '../pure/sessionTabs.ts'
 import { listSessions } from '../server/dshRpc.ts'
 import { workspaceRootsOfSessionRows } from '../pure/workspaceRoots.ts'
 import {
@@ -78,11 +78,24 @@ let closedByUser = false
 /** 「后开替换先开」dispose 旧面板期间置 true，屏蔽其 dispose 产生的用户关闭信号。 */
 let replacing = false
 
-/** 已开则聚焦并返回 true：侧栏点开会话/新建/fork/默认打开复用，避免整页重复装配。 */
+/**
+ * 已开则聚焦并返回 true：侧栏点开会话/新建/fork/默认打开复用，避免整页重复装配。
+ *
+ * 死面板当没有（#223）：引用指向已 dispose 的面板时返回 false，调用方接着走「开一个
+ * 新面板」那条路——不能把 `Webview is disposed` 抛给命令调用方（那一路用户侧同样是
+ * 「点了没反应」）。这里**不在成功路径上落日志**：侧栏每次变可见都会调它，刷屏。
+ */
 export function revealAssembledChat(): boolean {
-  if (!active) return false
-  active.panel.reveal()
-  return true
+  const panel = pickChatPanel().panel
+  if (panel === undefined) return false
+  try {
+    panel.reveal()
+    return true
+  } catch (err) {
+    if (!isDeadWebviewError(err)) throw err
+    noteDeadPanel(panel, err, undefined)
+    return false
+  }
 }
 
 /** 装配面板当前是否打开（默认打开成功后落 workspaceState 标记前判定用）。 */
@@ -316,9 +329,146 @@ let chatDeps: { context: vscode.ExtensionContext; manager: ServerManager; logger
  * 两个创建互相顶替是「启动后第一次点击不生效」的宿主根因。这里把创建串行化：
  * 后来的请求**等前一个建完**，再按路由判定落到既有面板上（切换/去重），不再重复建。
  */
-let creatingPanel: Promise<void> | undefined
+let creatingPanel: Promise<ChatPanelCreateResult> | undefined
 /** 创建期间（或服务未就绪时）累积的待开会话；后来者覆盖先来者。 */
 let pendingSessionOpen: string | undefined
+
+/**
+ * 已 dispose 的面板（#223 存活标志）。
+ *
+ * 为什么不能只看引用在不在：面板被关掉之后 `chatSingleton` / `active` 有可能还指着它
+ * （宿主收摊时不逐个 dispose 面板，关闭事件与点击赛跑），这时 `reveal()` /
+ * `postMessage` 抛 `Webview is disposed`——用户看到的就是「点了没反应」；而且坏引用
+ * 不清，之后每一次点都撞同一堵墙（用户日志实证：7 秒内连撞 4 次）。置位点 =
+ * `mountChatPanel` 的 `onDidDispose`（面板生命周期的唯一出口），以及真撞上那个异常时
+ * （`noteDeadPanel`）。
+ *
+ * 实测说明：dispose 处理器在同一个同步 tick 里也把引用清了，所以「标志已置位、引用还在」
+ * 这一刻在现有代码里到不了（去掉这条判定的负向对照是 0 条红，见本轮报告 N-11）。它是按
+ * #223 第 1 条要求加的防御，也是日志里 `panel=singleton:disposed` 那一格的来源；把用户
+ * 现场真正修好的是下面那条「捕获死面板 → 清引用 + 只重试一次」。
+ */
+const disposedPanels = new WeakSet<vscode.WebviewPanel>()
+
+/** 面板 dispose 的时刻（#224 现场取证：失败行要写得出这个面板什么时候没的）。 */
+const panelDisposedAt = new WeakMap<vscode.WebviewPanel, number>()
+
+/** 面板装配起来的时刻（#224：dispose 行报存活时长）。 */
+const panelMountedAt = new WeakMap<vscode.WebviewPanel, number>()
+
+/**
+ * 扩展宿主是否已开始收摊（#224 取证）：`deactivate` 调 {@link markHostDeactivating}
+ * 置位。`chat panel disposed` 那行带上它，才分得清「用户点关闭」与「宿主把面板带走」
+ * ——后者要跟同一 boot 的 `dsh-one deactivating` 那条日志对照着读。
+ */
+let hostDeactivating = false
+
+/** 宿主开始收摊（`deactivate` 调用）：此后 dispose / 失败的面板按「宿主带走的」留痕。 */
+export function markHostDeactivating(): void {
+  hostDeactivating = true
+}
+
+/** 错误文字（日志字段用）。 */
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
+}
+
+/**
+ * 面板占的那份共享 mirror 引用的释放动作（装配时登记，见 `mountChatPanel`）。
+ * 释放必须**幂等**（#223）：正常 dispose 与「发现面板已经死了」是两条路，都可能走到，
+ * 而 `releaseSharedMirror` 只是减一——减两次会把别人正用着的 mirror 关掉。
+ */
+const panelRelease = new WeakMap<vscode.WebviewPanel, () => void>()
+
+/** 释放这个面板占的资源（只生效一次）：dispose 与「发现已死」两条路共用。 */
+function releasePanelResources(panel: vscode.WebviewPanel): void {
+  const release = panelRelease.get(panel)
+  if (release === undefined) return
+  panelRelease.delete(panel)
+  release()
+}
+
+/** #224 日志里「选中的面板」那一格：形态 + 它当时是不是已经没了。 */
+type PanelField = 'none' | 'singleton:alive' | 'singleton:disposed'
+
+/** 这次请求选中的单例面板 + 给日志的形态字段（#223 的存活判定入口）。 */
+interface PickedChatPanel {
+  /** 还活着的面板；没有、或引用指向已 dispose 的面板时为 undefined。 */
+  panel: vscode.WebviewPanel | undefined
+  found: PanelField
+}
+
+/**
+ * 取这次请求该用的单例面板（#223）：**死面板一律当没有**——引用指向已 dispose 的
+ * 面板时当场把坏引用清掉，返回 undefined，调用方随后走「建新面板」那条路。
+ */
+function pickChatPanel(): PickedChatPanel {
+  const panel = chatSingleton?.panel ?? active?.panel
+  if (panel === undefined) return { panel: undefined, found: 'none' }
+  if (disposedPanels.has(panel)) {
+    clearPanelRefs(panel)
+    return { panel: undefined, found: 'singleton:disposed' }
+  }
+  return { panel, found: 'singleton:alive' }
+}
+
+/** 清掉指向这个面板的引用（只清它自己占着的那一格）。 */
+function clearPanelRefs(panel: vscode.WebviewPanel): void {
+  if (active?.panel === panel) active = undefined
+  if (chatSingleton?.panel === panel) chatSingleton = undefined
+}
+
+/** 「面板 / webview 已经没了」这一类错误（#223）：VS Code 对已 dispose 的 webview 抛它。 */
+function isDeadWebviewError(err: unknown): boolean {
+  return /webview is disposed/i.test(errorText(err))
+}
+
+/**
+ * #224 失败现场（一次请求没成功时能读出来的那几件事）：请求的会话、面板当时挂的会话、
+ * 这个面板什么时候没的（`unobserved` = 宿主没把它的 dispose 送到我们这里）、还有没有
+ * 待开请求、创建在不在途、宿主是不是已经开始收摊。
+ */
+function failureScene(panel: vscode.WebviewPanel | undefined, sessionId: string | undefined): string {
+  const died = panel === undefined ? undefined : panelDisposedAt.get(panel)
+  return [
+    `requested=${shortSession(sessionId)}`,
+    `panelSession=${shortSession(panel === undefined ? undefined : panelSessionId.get(panel))}`,
+    `panelDisposedAt=${died === undefined ? 'unobserved' : new Date(died).toISOString()}`,
+    `pending=${shortSession(pendingSessionOpen)}`,
+    `creating=${creatingPanel !== undefined ? 'yes' : 'no'}`,
+    `hostTeardown=${hostDeactivating ? 'yes' : 'no'}`,
+  ].join(' ')
+}
+
+/**
+ * #223：发现「引用还在、面板已经没了」——置存活标志、清坏引用、落一条带现场的 warn。
+ * 坏引用清掉之后，之后每一次点都不会再撞同一堵墙；本次请求由调用方重走创建路径。
+ */
+function noteDeadPanel(panel: vscode.WebviewPanel, err: unknown, sessionId: string | undefined): void {
+  const scene = failureScene(panel, sessionId)
+  disposedPanels.add(panel)
+  clearPanelRefs(panel)
+  // 面板没了 = 它占的共享 mirror 引用可以还了（幂等：宿主后来补发 dispose 也不会减两次）。
+  releasePanelResources(panel)
+  chatDeps?.logger.warn(`chat open: panel is already gone (${scene}): ${errorText(err)}`)
+}
+
+/**
+ * #224：这条通路（点会话 / 新会话要开面板）的每次请求落一行——一次点击一行，别刷屏。
+ * 字段定长好 grep：
+ *
+ * `chat open: session=<短 id> panel=<none|singleton:alive|singleton:disposed> branch=<reveal|switch|create|retry|pending> result=<ok|failed:…>`
+ */
+function logChatOpen(fields: {
+  sessionId: string | undefined
+  panel: PanelField
+  branch: string
+  result: string
+}): void {
+  chatDeps?.logger.info(
+    `chat open: session=${shortSession(fields.sessionId)} panel=${fields.panel} branch=${fields.branch} result=${fields.result}`,
+  )
+}
 
 /**
  * 宿主的面板里现在开着哪些会话（#121 的单条查询与 #147 的整份下发共用这一份事实）。
@@ -331,7 +481,9 @@ let pendingSessionOpen: string | undefined
  * 服务的状态（启动时可能是官方恢复的上次会话），与宿主真的开了哪个面板是两件事。
  */
 function panelOpenSessions(): ReadonlySet<string> {
-  const panel = chatSingleton?.panel ?? active?.panel
+  // 死面板不算「开着」（#223）：这一份事实喂给侧栏树渲染绿点，指着死面板会让它
+  // 认为某条会话正开在屏幕上（`pickChatPanel` 顺手把坏引用清掉）。
+  const panel = pickChatPanel().panel
   return panelOpenSessionIds(
     panel === undefined ? undefined : panelSessionId.get(panel),
     sessionTabPanels.keys(),
@@ -366,37 +518,73 @@ function sessionInPanel(sessionId: string): boolean {
  */
 function broadcastPanelSessions(): void {
   const message = panelSessionsMessage(panelOpenSessions())
-  for (const target of assemblyWebviews) void target.postMessage(message)
+  // 尽力而为的下发：登记在册的 webview 里可能已经有一条没了（宿主收摊、与关闭赛跑，
+  // 见 #223），那一条的 postMessage 会拒绝——**别让它变成没人处理的 rejection**
+  // （实现在真宿主里会记一条 unhandled rejection，谁也读不出当时发生了什么）。
+  for (const target of assemblyWebviews) void target.postMessage(message).then(undefined, () => undefined)
 }
 
 /**
  * 把对话面板亮到这个会话（#121）：与侧栏 `dshOne.sessionSelected` 那条通路
  * （下面的 `openSessionChat`）同一个函数——创建 / 聚焦 / 就地切换三种处置完全一致。
  *
- * 失败只落日志：这是页面送出「打开」之后的异步动作（开面板要等网关与页面起来，
- * 秒级），界面那一侧没有可回执的落点，prepareChatPanel 已经在失败时弹过错误。
+ * 兜底不再静默（#223）：日志带现场，界面给用户一行反馈——此前这里只落一条 warn，
+ * 用户侧零反应，「点了没反应」就是这么来的。（prepareChatPanel 那几种失败另有自己的
+ * 弹窗与状态页，能落到这里的是创建路径上的意外错误。）
  */
 function showSessionInPanel(sessionId: string, logger: Logger): void {
   void openSessionChat(sessionId).catch((err: unknown) => {
-    logger.warn(`assembled chat: opening ${sessionId.slice(0, 13)} failed: ${err instanceof Error ? err.message : String(err)}`)
+    const reason = errorText(err)
+    logger.warn(`assembled chat: opening ${shortSession(sessionId)} failed (${failureScene(undefined, sessionId)}): ${reason}`)
+    void vscode.window.showErrorMessage(vscode.l10n.t('Failed to open the chat panel: {0}', reason))
   })
 }
 
-/** 把待开会话兑现到既有面板：同 id 只 reveal（宿主去重），不同才就地切换。 */
-function drainPendingSession(logger: Logger): void {
+/**
+ * 把待开会话兑现到既有面板：同 id 只 reveal（宿主去重），不同才就地切换。
+ *
+ * 返回值（#223/#224）：`served` = 已兑现、`none` = 没有待开请求、`unserved` = 有请求
+ * 但没兑现（没有可用面板，或面板在兑现的这一刻没了）——请求仍留在 `pendingSessionOpen`，
+ * 调用方据此再走一次创建（同一次点击只这一跳，不是循环）。
+ */
+async function drainPendingSession(): Promise<'none' | 'served' | 'unserved'> {
+  const logger = chatDeps?.logger
   const requested = pendingSessionOpen
-  if (requested === undefined) return
-  const panel = chatSingleton?.panel ?? active?.panel
-  if (panel === undefined) return
-  pendingSessionOpen = undefined
-  if (routeSelection({ hasPanel: true, panelSessionId: panelSessionId.get(panel) }, requested) === 'reveal') {
-    panel.reveal()
-    return
+  if (requested === undefined) return 'none'
+  const picked = pickChatPanel()
+  if (picked.panel === undefined) {
+    // 没有可用面板（含引用指向死面板）：死面板的坏引用已由 pickChatPanel 清掉，请求
+    // 留在 pending 等下一次创建兑现。这是一次「记下了但没兑现」（正常路径不会走到：
+    // 兑现成功时 pending 已被创建那一步清掉），如实留一条带现场的 warn（#224）。
+    logger?.warn(
+      `chat open: pending request not served panel=${picked.found} (${failureScene(undefined, requested)})`,
+    )
+    return 'unserved'
   }
-  panel.reveal()
-  logger.info(`assembled chat: switching to ${requested.slice(0, 13)} (pending request)`)
-  void panel.webview.postMessage({ type: 'dshOne.switchSession', sessionId: requested })
+  const panel = picked.panel
+  const route = routeSelection({ hasPanel: true, panelSessionId: panelSessionId.get(panel) }, requested)
+  pendingSessionOpen = undefined
+  try {
+    panel.reveal()
+    if (route === 'switch') {
+      logger?.info(`assembled chat: switching to ${shortSession(requested)} (pending request)`)
+      await panel.webview.postMessage({ type: 'dshOne.switchSession', sessionId: requested })
+    }
+  } catch (err) {
+    if (!isDeadWebviewError(err)) throw err
+    // 兑现的这一刻面板没了：请求放回 pending，调用方会再走一次创建。
+    pendingSessionOpen = requested
+    noteDeadPanel(panel, err, requested)
+    return 'unserved'
+  }
+  logChatOpen({ sessionId: requested, panel: picked.found, branch: 'pending', result: 'ok' })
+  return 'served'
 }
+
+/**
+ * 建面板的结果（#224：失败要写得出失败在哪一步）。
+ */
+type ChatPanelCreateResult = { ok: true } | { ok: false; step: 'service' | 'manifest' | 'mirror' }
 
 /** 会话 tab 的装配（命令路径的复用体）：opts.sessionId 有值 = 会话 tab（注入启动）。 */
 async function openChatPanel(
@@ -404,23 +592,24 @@ async function openChatPanel(
   manager: ServerManager,
   logger: Logger,
   options: { sessionId?: string } = {},
-): Promise<void> {
+): Promise<ChatPanelCreateResult> {
   // 已有在途创建：等它建完，再按路由把这次请求落到那个面板上（不重复建）
   if (creatingPanel !== undefined) {
-    await creatingPanel
+    const result = await creatingPanel
     if (options.sessionId !== undefined) {
       pendingSessionOpen = options.sessionId
-      drainPendingSession(logger)
+      await drainPendingSession()
     }
-    return
+    return result
   }
-  creatingPanel = createChatPanel(context, manager, logger, options)
+  const creating = createChatPanel(context, manager, logger, options)
+  creatingPanel = creating
   try {
-    await creatingPanel
+    return await creating
   } finally {
     creatingPanel = undefined
     // 创建期间来的请求（例如用户在建默认面板时点了会话）：建完立即兑现
-    drainPendingSession(logger)
+    await drainPendingSession()
   }
 }
 
@@ -439,7 +628,10 @@ interface ChatPanelSetup {
  */
 type ChatPanelPrep =
   | { ok: true; setup: ChatPanelSetup }
-  | { ok: false; view: SidebarStatusView }
+  | { ok: false; view: SidebarStatusView; step: ChatPanelFailStep }
+
+/** 前置失败在哪一步（#224：请求留痕里 `result=failed:<这一步>`）。 */
+type ChatPanelFailStep = 'service' | 'manifest' | 'mirror'
 
 /**
  * 服务状态 → 状态页视图（`assemble` 这一态不该走到这里；真出现了按「服务没在跑」
@@ -458,27 +650,27 @@ async function prepareChatPanel(
   const status = await manager.ensureStarted()
   if (status.state !== 'running' || !status.url) {
     void vscode.window.showErrorMessage(vscode.l10n.t('DSH service is not running'))
-    return { ok: false, view: statusViewOf(status) }
+    return { ok: false, view: statusViewOf(status), step: 'service' }
   }
   let assembly: GatewayAssembly
   try {
     assembly = await loadGatewayAssembly(context, status.url, CHAT_TREE, logger)
   } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err)
+    const reason = errorText(err)
     void vscode.window.showErrorMessage(
       vscode.l10n.t('Failed to load the UI manifest from the dsh gateway: {0}', reason),
     )
-    return { ok: false, view: assemblyFailureView(manager.getStatus(), reason) }
+    return { ok: false, view: assemblyFailureView(manager.getStatus(), reason), step: 'manifest' }
   }
   let mirror: AssemblyMirror
   try {
     mirror = await acquireSharedMirror(context, manager, logger)
   } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err)
+    const reason = errorText(err)
     void vscode.window.showErrorMessage(
       vscode.l10n.t('Failed to start the local UI proxy: {0}', reason),
     )
-    return { ok: false, view: assemblyFailureView(manager.getStatus(), reason) }
+    return { ok: false, view: assemblyFailureView(manager.getStatus(), reason), step: 'mirror' }
   }
   return { ok: true, setup: { mirror, assembly, banner: versionBanner(dshVersion(status.url) ?? status.version) } }
 }
@@ -524,6 +716,11 @@ function mountChatPanel(params: {
 }): void {
   const { context, manager, logger, panel, setup, sessionId, tab } = params
   const { mirror, assembly, banner } = setup
+  // 存活时长从这里起算（#224 的 dispose 行要用它）。
+  panelMountedAt.set(panel, Date.now())
+  // 这份 mirror 引用由这个面板持有：dispose 与「发现面板已经死了」两条路共用这一条
+  // 释放动作（幂等，见 releasePanelResources）。
+  panelRelease.set(panel, () => releaseSharedMirror(mirror))
   if (sessionId !== undefined) panelSessionId.set(panel, sessionId)
   if (tab && sessionId !== undefined) assignSessionTab(sessionTabPanels, panel, sessionId)
   // 地图变了就下发一次（#147）：新面板注入的会话当场就是「面板里开着它」。
@@ -554,12 +751,20 @@ function mountChatPanel(params: {
   const hostSub = subscribeHostCalls(panel.webview, logger, hostBridgeDeps(manager, logger, () => mirror.origin))
   trackAssemblyWebview(context, panel.webview)
   panel.onDidDispose(() => {
-    // 面板生命周期的留痕（#169）：dispose 只可能是「我们自己替换单例」或
-    // 「用户/宿主关掉的」两种；后者分不出是用户点关闭还是扩展宿主收摊
-    // （重载时 VS Code 不逐个 dispose 面板，那一路只有 deactivate 那条日志，
-    // 见 extension.ts），所以这里如实写 `other`，由 deactivate 那条对齐。
+    // 存活标志（#223）：取面板的地方据此把死面板当没有；坏引用也在这里清掉。
+    disposedPanels.add(panel)
+    panelDisposedAt.set(panel, Date.now())
+    // 面板生命周期的留痕（#169；#224 补齐现场）：dispose 只可能是「我们自己替换单例」
+    // 或「用户/宿主关掉的」两种；后者的两档靠 `hostTeardown` 分开——`reason=other` +
+    // `hostTeardown=yes` = 扩展宿主正在收摊（跟同一 boot 的 `dsh-one deactivating`
+    // 配对），`hostTeardown=no` 才是用户点关闭。`age` 是面板存活时长，
+    // `pending` / `creating` 是关掉这一刻还在飞的两件事。
+    const born = panelMountedAt.get(panel)
     logger.info(
-      `chat panel disposed: kind=${tab ? 'tab' : 'singleton'} session=${shortSession(panelSessionId.get(panel))} reason=${replacing ? 'replace' : 'other'}`,
+      `chat panel disposed: kind=${tab ? 'tab' : 'singleton'} session=${shortSession(panelSessionId.get(panel))}` +
+        ` reason=${replacing ? 'replace' : 'other'} age=${born === undefined ? 'unknown' : `${Date.now() - born}ms`}` +
+        ` pending=${shortSession(pendingSessionOpen)} creating=${creatingPanel !== undefined ? 'yes' : 'no'}` +
+        ` hostTeardown=${hostDeactivating ? 'yes' : 'no'}`,
     )
     probeSub.dispose()
     metaSub.dispose()
@@ -573,7 +778,7 @@ function mountChatPanel(params: {
     broadcastPanelSessions()
     // 「用户关过」只记单例：关掉一个多开面板不该改变默认打开（#68）的行为。
     if (!tab && !replacing) closedByUser = true
-    releaseSharedMirror(mirror)
+    releasePanelResources(panel)
   })
   panel.webview.html = assemblyPageHtml({
     mirrorOrigin: mirror.origin,
@@ -596,15 +801,30 @@ function shortSession(sessionId: string | undefined): string {
   return sessionId === undefined ? 'none' : sessionId.slice(0, 13)
 }
 
+/**
+ * 建面板 / 装页中途失败时的收尾（#223）：撤掉刚登记的引用与那份 mirror 引用——
+ * 不能留下指向死面板的单例（之后每次点都撞同一堵墙），也不能漏掉没人释放的
+ * loopback 代理（引用计数只减不增，那次创建之后这个端口就一直开着）。
+ */
+function discardFailedPanel(panel: vscode.WebviewPanel | undefined, mirror: AssemblyMirror): void {
+  if (panel === undefined) {
+    releaseSharedMirror(mirror)
+    return
+  }
+  disposedPanels.add(panel)
+  clearPanelRefs(panel)
+  releasePanelResources(panel)
+}
+
 /** 真正的建面板流程（由 openChatPanel 串行化调用）：单例语义，任何创建都顶替旧单例。 */
 async function createChatPanel(
   context: vscode.ExtensionContext,
   manager: ServerManager,
   logger: Logger,
   options: { sessionId?: string },
-): Promise<void> {
+): Promise<ChatPanelCreateResult> {
   const prepared = await prepareChatPanel(context, manager, logger)
-  if (!prepared.ok) return
+  if (!prepared.ok) return { ok: false, step: prepared.step }
   const setup = prepared.setup
   const sessionId = options.sessionId
   // 单例语义（#71 终态）：任何创建都顶替旧单例（replace 期间的 dispose
@@ -621,19 +841,29 @@ async function createChatPanel(
   } finally {
     replacing = false
   }
-  const panel = vscode.window.createWebviewPanel(
-    ASSEMBLED_CHAT_VIEW_TYPE,
-    chatTitle(),
-    vscode.ViewColumn.Active,
-    { enableScripts: true, retainContextWhenHidden: true },
-  )
-  panel.iconPath = panelTabIconPath(context.extensionUri)
-  active = { panel, mirror: setup.mirror }
-  chatSingleton = { panel }
-  if (sessionId !== undefined && pendingSessionOpen === sessionId) pendingSessionOpen = undefined
-  logger.info(`assembled chat: ${setup.mirror.origin}${sessionId === undefined ? '' : ` session=${sessionId.slice(0, 13)}`}`)
-  logger.info(`chat panel created: kind=singleton session=${shortSession(sessionId)}`)
-  mountChatPanel({ context, manager, logger, panel, setup, sessionId, tab: false })
+  let panel: vscode.WebviewPanel | undefined
+  try {
+    panel = vscode.window.createWebviewPanel(
+      ASSEMBLED_CHAT_VIEW_TYPE,
+      chatTitle(),
+      vscode.ViewColumn.Active,
+      { enableScripts: true, retainContextWhenHidden: true },
+    )
+    panel.iconPath = panelTabIconPath(context.extensionUri)
+    active = { panel, mirror: setup.mirror }
+    chatSingleton = { panel }
+    if (sessionId !== undefined && pendingSessionOpen === sessionId) pendingSessionOpen = undefined
+    logger.info(`assembled chat: ${setup.mirror.origin}${sessionId === undefined ? '' : ` session=${sessionId.slice(0, 13)}`}`)
+    logger.info(`chat panel created: kind=singleton session=${shortSession(sessionId)}`)
+    mountChatPanel({ context, manager, logger, panel, setup, sessionId, tab: false })
+  } catch (err) {
+    // 建面板 / 装页中途失败（例：面板刚建出来就被宿主收走）：撤掉刚登记的引用与
+    // mirror 引用，再把错误抛出去（用户侧由调用方给一行可见反馈）。
+    discardFailedPanel(panel, setup.mirror)
+    if (pendingSessionOpen === sessionId) pendingSessionOpen = undefined
+    throw err
+  }
+  return { ok: true }
 }
 
 /**
@@ -642,9 +872,21 @@ async function createChatPanel(
  * 全程不碰单例（`chatSingleton`/`active`）：多开与单 tab 各走各的，互不干扰。
  */
 export async function openSessionInNewTab(sessionId: string): Promise<void> {
-  // 已开（或在途创建，见 pure/sessionTabs.ts 的「已有」判定）：等创建落地再聚焦，
-  // 绝不新建第二个面板。
-  if (hasSessionTab(sessionTabPanels, creatingSessionTabs, sessionId)) {
+  // 死面板不算「已开」（#223）：它那一格先清掉，再按「没开」走下面新建——否则
+  // `reveal()` 抛 Webview is disposed，用户看到的同样是「点了没反应」。
+  const openTab = sessionTabOf(sessionTabPanels, sessionId)
+  if (openTab !== undefined) {
+    try {
+      openTab.reveal()
+      return
+    } catch (err) {
+      if (!isDeadWebviewError(err)) throw err
+      noteDeadPanel(openTab, err, sessionId)
+      releaseSessionTab(sessionTabPanels, openTab)
+    }
+  }
+  // 在途创建（#72 的「已有」判定）：等创建落地再聚焦，绝不新建第二个面板。
+  if (creatingSessionTabs.has(sessionId)) {
     await creatingSessionTabs.get(sessionId)
     sessionTabOf(sessionTabPanels, sessionId)?.reveal()
     return
@@ -655,24 +897,30 @@ export async function openSessionInNewTab(sessionId: string): Promise<void> {
     const prepared = await prepareChatPanel(deps.context, deps.manager, deps.logger)
     if (!prepared.ok) return
     const setup = prepared.setup
-    const panel = vscode.window.createWebviewPanel(
-      ASSEMBLED_CHAT_VIEW_TYPE,
-      chatTitle(),
-      vscode.ViewColumn.Active,
-      { enableScripts: true, retainContextWhenHidden: true },
-    )
-    panel.iconPath = panelTabIconPath(deps.context.extensionUri)
-    deps.logger.info(`assembled chat tab: ${setup.mirror.origin} session=${sessionId.slice(0, 13)}`)
-    deps.logger.info(`chat panel created: kind=tab session=${shortSession(sessionId)}`)
-    mountChatPanel({
-      context: deps.context,
-      manager: deps.manager,
-      logger: deps.logger,
-      panel,
-      setup,
-      sessionId,
-      tab: true,
-    })
+    let panel: vscode.WebviewPanel | undefined
+    try {
+      panel = vscode.window.createWebviewPanel(
+        ASSEMBLED_CHAT_VIEW_TYPE,
+        chatTitle(),
+        vscode.ViewColumn.Active,
+        { enableScripts: true, retainContextWhenHidden: true },
+      )
+      panel.iconPath = panelTabIconPath(deps.context.extensionUri)
+      deps.logger.info(`assembled chat tab: ${setup.mirror.origin} session=${sessionId.slice(0, 13)}`)
+      deps.logger.info(`chat panel created: kind=tab session=${shortSession(sessionId)}`)
+      mountChatPanel({
+        context: deps.context,
+        manager: deps.manager,
+        logger: deps.logger,
+        panel,
+        setup,
+        sessionId,
+        tab: true,
+      })
+    } catch (err) {
+      discardFailedPanel(panel, setup.mirror)
+      throw err
+    }
   })()
   creatingSessionTabs.set(sessionId, created)
   try {
@@ -709,8 +957,9 @@ function restoreChatPanel(
     // 序列化回来），下面的状态页与装配页都靠它。
     panel.webview.options = { enableScripts: true }
   } catch (err) {
-    // 面板已经被关掉（恢复与用户关闭赛跑）：没什么可恢复的，如实留一条。
-    logger.warn(`chat panel restore skipped: ${err instanceof Error ? err.message : String(err)}`)
+    // 面板已经被关掉（恢复与用户关闭赛跑）：没什么可恢复的，如实留一条（带现场：
+    // #224 里这一条要能读出「这个面板当时什么状态」）。
+    logger.warn(`chat panel restore skipped (${failureScene(panel, target.sessionId)}): ${errorText(err)}`)
     return Promise.resolve()
   }
   let attempt: Promise<void> | undefined
@@ -755,12 +1004,12 @@ async function mountRestoredChatPanel(
   // 首帧：服务不在跑时先落「正在启动 / 未运行」页（同侧栏，别让用户对着空白等）；
   // 在跑就别闪一下状态页——装配是秒级的事。
   const initial = decideSidebarStatus(manager.getStatus())
-  if (initial.kind !== 'assemble') renderChatStatusPage(panel, initial)
+  if (initial.kind !== 'assemble') renderChatStatusPage(panel, initial, logger)
   try {
     const prepared = await prepareChatPanel(context, manager, logger)
     if (!prepared.ok) {
-      logger.warn(`chat panel restore failed: ${prepared.view.kind}`)
-      renderChatStatusPage(panel, prepared.view)
+      logger.warn(`chat panel restore failed: ${prepared.view.kind} (step=${prepared.step})`)
+      renderChatStatusPage(panel, prepared.view, logger)
       return
     }
     const setup = prepared.setup
@@ -768,8 +1017,9 @@ async function mountRestoredChatPanel(
     const placement = placeRestoredChatPanel(
       { sessionId, tab: target.tab },
       // 单例槽位已被占（它恢复得晚，或别处已经开着/正开着一个单例）：这个面板降级
-      // 成普通标签页，不顶掉已经在的那一个。
-      { singletonOpen: chatSingleton !== undefined || active !== undefined || creatingPanel !== undefined },
+      // 成普通标签页，不顶掉已经在的那一个。**死面板不算占着**（#223）：引用指向
+      // 已 dispose 的面板时按空处理，恢复出来的面板照常接单例槽位。
+      { singletonOpen: pickChatPanel().panel !== undefined || creatingPanel !== undefined },
     )
     panel.title = chatTitle()
     if (placement === 'singleton') {
@@ -784,13 +1034,13 @@ async function mountRestoredChatPanel(
       // 撤掉，别留一个指向死面板的单例。
       if (active?.panel === panel) active = undefined
       if (chatSingleton?.panel === panel) chatSingleton = undefined
-      releaseSharedMirror(setup.mirror)
-      logger.warn(`chat panel restore aborted: ${err instanceof Error ? err.message : String(err)}`)
+      releasePanelResources(panel)
+      logger.warn(`chat panel restore aborted (${failureScene(panel, sessionId)}): ${errorText(err)}`)
     }
   } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err)
+    const reason = errorText(err)
     logger.warn(`chat panel restore failed: ${reason}`)
-    renderChatStatusPage(panel, assemblyFailureView(manager.getStatus(), reason))
+    renderChatStatusPage(panel, assemblyFailureView(manager.getStatus(), reason), logger)
   }
 }
 
@@ -831,42 +1081,83 @@ async function restoredSession(
  * 面板已经被关掉（恢复与用户关窗赛跑）就没地方画了，也不再抛——那一路由
  * dispose 的日志留痕，不必在这里制造一个错误。
  */
-function renderChatStatusPage(panel: vscode.WebviewPanel, view: SidebarStatusView): void {
+function renderChatStatusPage(panel: vscode.WebviewPanel, view: SidebarStatusView, logger?: Logger): void {
   try {
     panel.webview.html = sidebarStatusHtml(view, { surface: 'chatPanel' })
-  } catch {
+  } catch (err) {
     /* 面板已 dispose */
+    // 静默的 catch 事后查不出来（#224）：面板已经被关掉（恢复与关窗赛跑）时没地方
+    // 画了，如实留一条。
+    logger?.warn(`chat panel status page skipped in a disposed panel: ${errorText(err)}`)
   }
 }
 
 /**
- * 侧栏桥消息落点（单例路由）：有单例 → 揭示 + 转发就地切换消息（不 reload、
- * 不遮罩——运行时切换走官方打开会话的入口，加载态官方自带）；无单例 → 创建
+ * 侧栏桥消息落点（单例路由）：有活面板 → 揭示 + 转发就地切换消息（不 reload、
+ * 不遮罩——运行时切换走官方打开会话的入口，加载态官方自带）；没有 → 创建
  * （冷启动注入 bootSessionId，防闪帧遮罩此刻生效一次）。
+ *
+ * #223 的两条守卫都在这里：**死面板当没有**（引用指向已 dispose 的面板时清掉坏引用
+ * 直接建新的），以及真撞上 `Webview is disposed` 时**重试一次**走创建路径（只一次，
+ * 绝不循环）。#224 的请求留痕也在这里落（一次点击一行）。
  */
 async function openSessionChat(sessionId: string): Promise<void> {
-  const panel = chatSingleton?.panel ?? active?.panel
-  if (panel !== undefined) {
-    // 有面板：同 id 只聚焦（宿主去重），不同才就地切换
-    if (routeSelection({ hasPanel: true, panelSessionId: panelSessionId.get(panel) }, sessionId) === 'reveal') {
-      panel.reveal()
+  const picked = pickChatPanel()
+  // 「找到的是死面板」= 本次请求要走的就是重试那条路（坏引用已被 pickChatPanel 清掉）。
+  let branch: 'create' | 'retry' | 'reveal' | 'switch' = picked.found === 'singleton:disposed' ? 'retry' : 'create'
+  if (picked.panel !== undefined) {
+    // 有活面板：同 id 只聚焦（宿主去重），不同才就地切换
+    try {
+      branch = await serveFromPanel(picked.panel, sessionId)
+      logChatOpen({ sessionId, panel: picked.found, branch, result: 'ok' })
       return
+    } catch (err) {
+      if (!isDeadWebviewError(err)) throw err
+      // 引用还在、webview 已经没了：清坏引用并落到下面走创建路径（这一次「重试」
+      // 就是为它准备的）。
+      noteDeadPanel(picked.panel, err, sessionId)
+      branch = 'retry'
     }
-    panel.reveal()
-    void panel.webview.postMessage({ type: 'dshOne.switchSession', sessionId })
-    return
   }
-  // 没面板：记下请求，冷启动以该会话创建（创建在途时等它建完再兑现，不重复建面板）
+  // 没可用面板：记下请求，冷启动以该会话创建（创建在途时等它建完再兑现，不重复建面板）
   pendingSessionOpen = sessionId
+  // 这一格里已经发现的死面板要如实报出去（`found` 那一刻我们还不知道它死了）。
+  const panelField: PanelField = branch === 'retry' ? 'singleton:disposed' : 'none'
   if (creatingPanel !== undefined) {
-    const deps = chatDeps
     await creatingPanel
-    if (deps !== undefined) drainPendingSession(deps.logger)
-    return
+    // 在途创建建完后由 drain 兑现这次请求（它自己落那行日志）
+    if ((await drainPendingSession()) !== 'unserved') return
+    // 建完的面板在这期间没了：落到下面自己再走一次创建（同一次点击只这一跳）
+    if (creatingPanel !== undefined) return
   }
   const deps = chatDeps
-  if (deps === undefined) return // 注册还没发生：留在 pending，注册后由 attemptPendingSession 兜
-  await openChatPanel(deps.context, deps.manager, deps.logger, { sessionId })
+  if (deps === undefined) {
+    logChatOpen({ sessionId, panel: panelField, branch, result: 'failed:not-registered' })
+    return // 注册还没发生：留在 pending，注册后由 registerAssembledChat 兜
+  }
+  try {
+    const created = await openChatPanel(deps.context, deps.manager, deps.logger, { sessionId })
+    logChatOpen({ sessionId, panel: panelField, branch, result: created.ok ? 'ok' : `failed:${created.step}` })
+  } catch (err) {
+    // 创建路径自己抛了（不是「准备步骤失败」那种有回执的失败）：留痕后原样上抛，
+    // 由调用方（宿主能力口那条路）给用户一行可见反馈。
+    logChatOpen({ sessionId, panel: panelField, branch, result: `failed:${errorText(err)}` })
+    throw err
+  }
+}
+
+/**
+ * 把请求送到既有面板（#223）：同 id 只聚焦（宿主去重），不同才就地切换。
+ *
+ * 失败（面板已死）**原样抛给调用方**——统一在那里「清坏引用 + 重试一次」；其它错误
+ * 照旧上抛，不吞。`postMessage` 的拒绝也要能被那次重试接住，所以这里等它，不 `void`。
+ */
+async function serveFromPanel(panel: vscode.WebviewPanel, sessionId: string): Promise<'reveal' | 'switch'> {
+  const route = routeSelection({ hasPanel: true, panelSessionId: panelSessionId.get(panel) }, sessionId)
+  panel.reveal()
+  if (route === 'reveal') return 'reveal'
+  await panel.webview.postMessage({ type: 'dshOne.switchSession', sessionId })
+  return 'switch'
 }
 
 /**
@@ -950,7 +1241,18 @@ export function registerAssembledChat(
   // 注册之前到达的点击（理论上不该有，防御）：注册后立刻兑现
   if (pendingSessionOpen !== undefined) void openSessionChat(pendingSessionOpen)
   return vscode.Disposable.from(
-    vscode.commands.registerCommand('dshOne.assembledChat', () => openChatPanel(context, manager, logger)),
+    // #224：命令路径（新建会话 / fork / 面板命令 / 默认打开）也落一行请求留痕——
+    // 与侧栏点击那条路合起来，这条通路的每一次请求都读得出来。
+    vscode.commands.registerCommand('dshOne.assembledChat', async () => {
+      const found = pickChatPanel().found
+      const created = await openChatPanel(context, manager, logger)
+      logChatOpen({
+        sessionId: undefined,
+        panel: found,
+        branch: found === 'singleton:disposed' ? 'retry' : 'create',
+        result: created.ok ? 'ok' : `failed:${created.step}`,
+      })
+    }),
     // 面板跨「窗口重载 / 扩展宿主重启」的恢复（#169）：没注册 serializer 时
     // VS Code 会把这些标签页直接丢掉（用户观感 = 「面板没了、要重新打开」）。
     // state 由页面经官方 `acquireVsCodeApi().setState()` 存（见 sessionBootPlugin），
