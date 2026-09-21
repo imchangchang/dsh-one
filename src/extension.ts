@@ -2,7 +2,7 @@ import * as vscode from 'vscode'
 import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { randomUUID } from 'node:crypto'
+import { randomUUID, randomBytes } from 'node:crypto'
 import { Logger } from './log.ts'
 import { ServerManager } from './server/manager.ts'
 import { browserUrl, getAuth } from './server/serverAuth.ts'
@@ -10,6 +10,7 @@ import { archiveSession, createSession, ensureWorkspace, forkSession, renameSess
 import { formatSessionMention } from './pure/sessionMention.ts'
 import {
   hasAssembledChatPanel,
+  markHostDeactivating,
   preheatAssembly,
   registerAssembledChat,
   registerAssembledSettings,
@@ -55,6 +56,12 @@ function resolveSessionArg(arg: unknown): string | undefined {
  */
 let hostLogger: Logger | undefined
 
+/**
+ * 本次扩展宿主启动的标识（#224）：`activating` 与 `deactivating` 两条日志都带上它，
+ * 「窗口重载前后」那两段日志因此能一眼配对（同一份日志文件里还有 pid，能再对一层）。
+ */
+const HOST_BOOT_ID = randomBytes(4).toString('hex')
+
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   // 日志同时落一份文件（#169）：面板恢复这类宿主行为事后只能靠日志自证，而 VS
   // Code 输出面板的落点不在我们手里（自己的日志目录、会被清理）。位置固定在扩展
@@ -62,7 +69,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const logger = new Logger({ logFileDir: vscode.Uri.joinPath(context.globalStorageUri, 'logs').fsPath })
   const mode = context.extensionMode === vscode.ExtensionMode.Development ? 'dev' : 'stable'
   logger.info(
-    `dsh-one activating (platform=${process.platform}/${process.arch}, pid=${process.pid}, vscode=${vscode.version}, mode=${mode})`,
+    `dsh-one activating (boot=${HOST_BOOT_ID}, platform=${process.platform}/${process.arch}, pid=${process.pid}, vscode=${vscode.version}, mode=${mode})`,
   )
   if (logger.filePath !== undefined) logger.info(`log file: ${logger.filePath}`)
   hostLogger = logger
@@ -734,5 +741,8 @@ export function deactivate(): void {
   // 只留一条告别日志（#169）：窗口重载 / 扩展宿主退出时 VS Code 不逐个 dispose
   // 面板（用户看到的就是「面板没了」），日志里有这条 + 其后是一份新 pid 的日志
   // 文件 = 面板是被宿主带走的；没有这条 = 得另找原因。写在同步 IO 上，来得及。
-  hostLogger?.info('dsh-one deactivating (extension host shutting down)')
+  // #224 起带 `boot`（与 activating 那条同一个标识，重载前后两段日志一眼配对），
+  // 并把「宿主开始收摊」告诉装配视图——它在那之后 dispose 的面板会记 hostTeardown=yes。
+  markHostDeactivating()
+  hostLogger?.info(`dsh-one deactivating (boot=${HOST_BOOT_ID}, extension host shutting down)`)
 }

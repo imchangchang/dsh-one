@@ -261,6 +261,7 @@
   "Chat": "对话",
   "Failed to load the UI manifest from the dsh gateway: {0}": "从 dsh 网关加载界面清单失败：{0}",
   "Failed to start the local UI proxy: {0}": "本地界面代理启动失败：{0}",
+  "Failed to open the chat panel: {0}": "对话面板打不开：{0}",
   "The dsh version is unknown; this chat UI expects {0}.": "无法确定 dsh 版本；对话界面要求 {0}。",
   "The connected dsh is {0}, which may not match this chat UI (expects {1}).": "当前连接的 dsh 是 {0}，可能与对话界面不匹配（要求 {1}）。",
   "DSH sidebar failed to load: {0}": "DSH 侧栏加载失败：{0}",

@@ -261,6 +261,7 @@
   "Chat": "Chat",
   "Failed to load the UI manifest from the dsh gateway: {0}": "Failed to load the UI manifest from the dsh gateway: {0}",
   "Failed to start the local UI proxy: {0}": "Failed to start the local UI proxy: {0}",
+  "Failed to open the chat panel: {0}": "Failed to open the chat panel: {0}",
   "The dsh version is unknown; this chat UI expects {0}.": "The dsh version is unknown; this chat UI expects {0}.",
   "The connected dsh is {0}, which may not match this chat UI (expects {1}).": "The connected dsh is {0}, which may not match this chat UI (expects {1}).",
   "DSH sidebar failed to load: {0}": "DSH sidebar failed to load: {0}",
