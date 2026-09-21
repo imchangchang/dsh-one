@@ -65,6 +65,14 @@ export interface Harness {
   requestPanel(sessionId: string): void
   /** 跑一条登记过的命令（`dshOne.assembledChat`：新建会话 / fork / 默认打开那条路）。 */
   runCommand(commandId: string): Promise<void>
+  /** 造一个已经没了的面板（宿主收摊形状），供恢复路径那类判据用。 */
+  newDeadPanel(): StubPanel
+  /** 走面板恢复器（窗口重载 / 宿主重启那条路）：把 state 交给真实的 `restoreChatPanel`。 */
+  restorePanel(panel: StubPanel, state: unknown): Promise<void>
+  /** 改服务状态（`decideSidebarStatus` 吃它：stopped 时面板里画的是状态页）。 */
+  setServiceState(state: 'stopped' | 'starting' | 'running'): void
+  /** 把替网关关掉（之后拉清单会失败：判「准备步骤失败」那条路）。 */
+  stopGateway(): Promise<void>
   /** 把侧栏 view 关掉（释放它持有的那份 mirror 引用）。 */
   disposeSidebarView(): void
   /** 某个面板页面里的 mirror 源（页面 HTML 的 `<base href>`）。 */
@@ -152,7 +160,7 @@ export async function startHarness(): Promise<Harness> {
     error: (message: string) => logs.push({ level: 'error', message }),
   } as unknown as Logger
 
-  const status = { state: 'running' as const, url: gatewayUrl, version: '0.1.6-alpha.1' }
+  const status = { state: 'running' as 'running' | 'stopped' | 'starting', url: gatewayUrl, version: '0.1.6-alpha.1' }
   const manager = {
     ensureStarted: async () => status,
     getStatus: () => status,
@@ -175,6 +183,13 @@ export async function startHarness(): Promise<Harness> {
   provider.resolveWebviewView(sidebarView)
   // 侧栏那一页自己也要装一次（它占一份 mirror 引用，配平判据要把它算进去）。
   await waitUntil('侧栏 webview 装上装配页', () => webview.html !== '', 10_000)
+
+  // 模块状态是全进程共享的：上一个用例可能留下一个没兑现的待开请求（#223/#224 的 pending
+  // 语义），注册时它会被兑现、**异步**建出一个不属于本用例的面板。先让这一拍落定、把它
+  // 清掉，再取基线——否则它会混进本用例的面板计数，也会一直占着那份 mirror 引用。
+  await settlePanels()
+  for (const panel of panels) if (!panel.dead) panel.dispose()
+  await settlePanels()
 
   let hostCallId = 0
   // 模块级的表是全进程共享的（同一份 `src/ui/assemblyView.ts` 被所有 harness 共用），
@@ -217,6 +232,25 @@ export async function startHarness(): Promise<Harness> {
       if (handler === undefined) throw new Error(`lab: command ${commandId} is not registered`)
       await handler()
     },
+    newDeadPanel(): StubPanel {
+      const panel = stub.window.createWebviewPanel('dshOne.assembledChat', 'lab dead panel') as StubPanel
+      panel.__killWebview()
+      return panel
+    },
+    async restorePanel(panel: StubPanel, state: unknown): Promise<void> {
+      const serializer = stub.panelSerializers.get('dshOne.assembledChat') as
+        | { deserializeWebviewPanel(panel: StubPanel, state: unknown): Promise<void> }
+        | undefined
+      if (serializer === undefined) throw new Error('lab: no panel serializer registered')
+      await serializer.deserializeWebviewPanel(panel, state)
+    },
+    setServiceState(state: 'stopped' | 'starting' | 'running'): void {
+      status.state = state
+    },
+    async stopGateway(): Promise<void> {
+      server.closeAllConnections()
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    },
     disposeSidebarView(): void {
       sidebarView.dispose()
       kill()
@@ -235,13 +269,36 @@ export async function startHarness(): Promise<Harness> {
       closed = true
       sidebarView.dispose()
       kill()
-      // 本 harness 建出来的面板全部关掉：模块状态是全进程共享的，留着会串到下一个用例
-      // （残留的多开格子会让下一个用例以为「这个会话已经开着」）。
-      for (const panel of panels.slice(panelBase)) if (!panel.dead) panel.dispose()
+      // 本 harness 建出来的面板全部关掉；面板也可能在「关掉这一刻」之后才冒出来
+      // （上一个用例留下的待开请求会异步兑现），所以循环到连续两轮都稳定为止。
+      let quiet = 0
+      while (quiet < 2) {
+        const alive = panels.filter((panel) => !panel.dead)
+        const before = panels.length
+        for (const panel of alive) panel.dispose()
+        await new Promise((resolve) => setTimeout(resolve, 25))
+        quiet = alive.length === 0 && panels.length === before ? quiet + 1 : 0
+      }
       // fetch 的 keep-alive 连接会让 server.close() 一直不回调：先掐连接再关。
       server.closeAllConnections()
       await new Promise<void>((resolve) => server.close(() => resolve()))
     },
+  }
+}
+
+/** 等面板表稳定下来（连续 60ms 没有新面板冒出来）。 */
+export async function settlePanels(timeoutMs = 2_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  let last = panels.length
+  let stableSince = Date.now()
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 15))
+    if (panels.length !== last) {
+      last = panels.length
+      stableSince = Date.now()
+      continue
+    }
+    if (Date.now() - stableSince >= 60) return
   }
 }
 

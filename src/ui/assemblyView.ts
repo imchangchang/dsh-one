@@ -336,11 +336,17 @@ let pendingSessionOpen: string | undefined
 /**
  * 已 dispose 的面板（#223 存活标志）。
  *
- * 为什么不能只看引用在不在：面板被关掉之后 `chatSingleton` / `active` 有可能还指着
- * 它（宿主收摊时不逐个 dispose 面板，关闭事件与点击赛跑），这时 `reveal()` /
+ * 为什么不能只看引用在不在：面板被关掉之后 `chatSingleton` / `active` 有可能还指着它
+ * （宿主收摊时不逐个 dispose 面板，关闭事件与点击赛跑），这时 `reveal()` /
  * `postMessage` 抛 `Webview is disposed`——用户看到的就是「点了没反应」；而且坏引用
- * 不清，之后每一次点都撞同一堵墙。置位点 = `mountChatPanel` 的 `onDidDispose`
- * （面板生命周期的唯一出口），以及真撞上那个异常时（`noteDeadPanel`）。
+ * 不清，之后每一次点都撞同一堵墙（用户日志实证：7 秒内连撞 4 次）。置位点 =
+ * `mountChatPanel` 的 `onDidDispose`（面板生命周期的唯一出口），以及真撞上那个异常时
+ * （`noteDeadPanel`）。
+ *
+ * 实测说明：dispose 处理器在同一个同步 tick 里也把引用清了，所以「标志已置位、引用还在」
+ * 这一刻在现有代码里到不了（去掉这条判定的负向对照是 0 条红，见本轮报告 N-11）。它是按
+ * #223 第 1 条要求加的防御，也是日志里 `panel=singleton:disposed` 那一格的来源；把用户
+ * 现场真正修好的是下面那条「捕获死面板 → 清引用 + 只重试一次」。
  */
 const disposedPanels = new WeakSet<vscode.WebviewPanel>()
 
@@ -547,12 +553,12 @@ async function drainPendingSession(): Promise<'none' | 'served' | 'unserved'> {
   if (requested === undefined) return 'none'
   const picked = pickChatPanel()
   if (picked.panel === undefined) {
-    // 死面板的坏引用已由 pickChatPanel 清掉；请求留在 pending，等下一次创建兑现。
-    if (picked.found === 'singleton:disposed') {
-      logger?.warn(
-        `chat open: pending session ${shortSession(requested)} has no live panel (${failureScene(undefined, requested)})`,
-      )
-    }
+    // 没有可用面板（含引用指向死面板）：死面板的坏引用已由 pickChatPanel 清掉，请求
+    // 留在 pending 等下一次创建兑现。这是一次「记下了但没兑现」（正常路径不会走到：
+    // 兑现成功时 pending 已被创建那一步清掉），如实留一条带现场的 warn（#224）。
+    logger?.warn(
+      `chat open: pending request not served panel=${picked.found} (${failureScene(undefined, requested)})`,
+    )
     return 'unserved'
   }
   const panel = picked.panel

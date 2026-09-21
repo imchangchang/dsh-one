@@ -270,3 +270,49 @@ test('③ 兜底不再静默：创建路径抛错时用户看到一行提示 + �
   assert.ok(origin !== undefined, `日志里要取得到 mirror 源：${h.logs.map((line) => line.message).join(' | ')}`)
   await h.waitFor('失败路径不漏 mirror 引用（端口关掉）', async () => !(await portAnswers(origin!)), 3_000)
 })
+
+test('③ 准备步骤失败：目标会话记下了但没兑现，日志与用户提示都说得出是哪一步', async () => {
+  const h = await startHarness()
+  try {
+    await h.stopGateway() // 拉清单会失败：走 prepare 的失败分支（不是抛异常那条）
+    h.requestPanel('session-aaa')
+    await h.waitFor('请求走完', () => h.lines(/^chat open: session=/).length === 1)
+    assert.deepEqual(
+      h.lines(/^chat open: session=/).map((line) => line.replace(/^chat open: /, '')),
+      ['session=session-aaa panel=none branch=create result=failed:manifest'],
+      `请求留痕（实际日志：${h.logs.map((line) => `${line.level}:${line.message}`).join(' | ')}）`,
+    )
+    const unserved = h.lines(/^chat open: pending request not served /)
+    assert.equal(unserved.length, 1, `要留一条「记下了但没兑现」（实际：${h.logs.map((l) => l.message).join(' | ')}）`)
+    assert.ok(unserved[0]!.includes('panel=none'), `带选中面板那一格：${unserved[0]}`)
+    assert.ok(unserved[0]!.includes('requested=session-aaa'), `带现场：${unserved[0]}`)
+    assert.equal(
+      h.messages.filter((message) => message.level === 'error').length,
+      1,
+      '准备步骤失败本来就有自己的弹窗（UI 清单拉不到），不该再多弹一个',
+    )
+  } finally {
+    await h.close()
+  }
+})
+
+test('③ 面板相关其它失败点：状态页画不进已经关掉的面板时也留一行（不再静默）', async () => {
+  const h = await startHarness()
+  try {
+    // 窗口重载后恢复出来的面板 + 服务没在跑 + 面板已被关掉：两条静默 catch 都会走到。
+    h.setServiceState('stopped')
+    await h.restorePanel(h.newDeadPanel(), { sessionId: 'session-zzz', tab: false })
+    assert.equal(
+      h.lines(/^chat panel status page skipped in a disposed panel: Webview is disposed$/).length,
+      2,
+      `状态页两条（首帧 + 装配失败后）都要留痕：${h.logs.map((line) => line.message).join(' | ')}`,
+    )
+    assert.deepEqual(
+      h.lines(/^chat panel restore failed: /).map((line) => line.replace(/^chat panel restore failed: /, '')),
+      ['serviceDown (step=service)'],
+      '恢复失败那行要写清失败在哪一步',
+    )
+  } finally {
+    await h.close()
+  }
+})
