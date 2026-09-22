@@ -30,6 +30,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
 import { assemblyPageHtml } from '../../src/ui/assembly/pageHtml.ts'
 import { cookieHeader, exchangeToken, startAssemblyMirror, type AssemblyMirror } from '../../src/server/assemblyMirror.ts'
+import { applyBootDrift, BOOT_DRIFT_QUERY, SELF_HEAL_OFF, SELF_HEAL_QUERY } from './bootDrift.ts'
 import { localBundleRev } from '../../src/server/localBundleRev.ts'
 import { registerVersion } from '../../src/server/serverAuth.ts'
 import { defaultOwnedPath, readOwnedRecord } from '../../src/server/ownedRecord.ts'
@@ -258,6 +259,9 @@ export async function startLabServer(options: LabServerOptions): Promise<LabServ
     treeCombos: ASSEMBLY_TREES.map((tree) => ({ framePluginId: tree.framePluginId, blockList: tree.blockList })),
   })
 
+  /** 漂移现场的序号：`?drift=fresh:` 一档按**每次页面加载**换一个新 id（见 bootDrift.ts）。 */
+  let driftSeq = 0
+
   /** 装配页 HTML：真实模块 + 该树的过滤清单 + 首帧主题。 */
   const pageFor = async (route: LabTreeRoute, query: URLSearchParams): Promise<string> => {
     const html = await gatewayIndex()
@@ -274,12 +278,17 @@ export async function startLabServer(options: LabServerOptions): Promise<LabServ
     const assets = extractFrontendAssets(html)
     const theme = query.get('theme') === 'light' ? 'light' : 'dark'
     const sessionId = query.get('session')
+    // 漂移现场（#228 的 F-67）：`?drift=sick:<id>` / `?drift=fresh:<前缀>`。序号按
+    // **每次加载**递增，`fresh:` 那一档才换得出新 id（见 bootDrift.ts 的文件头）。
+    const driftSpec = query.get(BOOT_DRIFT_QUERY)
+    const drifted =
+      driftSpec === null || driftSpec === '' ? wire : applyBootDrift(wire, driftSpec, (driftSeq += 1))
     return assemblyPageHtml({
       mirrorOrigin: mirror.origin,
       cspNonce: `lab-${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`,
       assets,
-      bootWire: wire,
-      bootstrapUrl: bootstrapUrlOf(wire),
+      bootWire: drifted,
+      bootstrapUrl: bootstrapUrlOf(drifted),
       theme,
       // 版本门与生产同口径：只有网关版本落在区间外才显示信息条（实验室不做
       // 本地化，文案与 ui/assemblyView.ts 的英文档一致）。
@@ -289,6 +298,8 @@ export async function startLabServer(options: LabServerOptions): Promise<LabServ
           ? `The dsh version is unknown; this chat assembly expects ${PREREQ_MIN} <= version < ${PREREQ_MAX}.`
           : `The connected dsh is ${dshVersion}, which may not match this chat assembly (expects ${PREREQ_MIN} <= version < ${PREREQ_MAX}).`,
       ...(sessionId === null || sessionId === '' ? {} : { bootSessionId: sessionId }),
+      // `?selfHeal=off` = 这一页不装启动自愈（#228 的负向对照）；其余一切值照常装。
+      ...(query.get(SELF_HEAL_QUERY) === SELF_HEAL_OFF ? { selfHeal: false } : {}),
       localPluginIds: localPluginIdsOf(route.tree),
     })
   }
@@ -325,7 +336,7 @@ export async function startLabServer(options: LabServerOptions): Promise<LabServ
       ).join('\n      ')}
       <li><a href="${origin}/official">/official</a> — 网关原始 GUI（同一网关、同一个浏览器里做 A/B 对照用）</li>
     </ul>
-    <p class="note">URL 参数：<code>?theme=light</code> 切首帧主题；<code>?session=&lt;id&gt;</code> 给 chat 树注入启动会话。</p>
+    <p class="note">URL 参数：<code>?theme=light</code> 切首帧主题；<code>?session=&lt;id&gt;</code> 给 chat 树注入启动会话；<code>?drift=sick:&lt;id&gt;</code> / <code>?drift=fresh:&lt;前缀&gt;</code> 造「某条目永远起不来」的现场（每次加载换 id 的那一档验「只试一次」）；<code>?selfHeal=off</code> 这一页不装启动自愈（负向对照）。</p>
   </body>
 </html>
 `

@@ -74,6 +74,7 @@ import { CHAT_BOOT_RACE_SUITE } from './chatBootRaceSuites.ts'
 import { ASSEMBLY_FAILURE_SUITE } from './assemblyFailureSuites.ts'
 import { TAG_PRESETS_SUITE } from './tagPresetSuites.ts'
 import { TAG_COLOR_UNUSED_SUITE, TAG_GROUP_RECYCLE_SUITE } from './tagRecycleColorSuites.ts'
+import { SELF_HEAL_SUITE } from './selfHealSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
@@ -6628,4 +6629,8 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // #216 会话移入回收站后不再算标签组的成员（F-66：F-01…F-65 与 R-06 已占，按
   // 「从未占用的继续」顺延；套件本体与 F-65 同一份独立文件）。
   TAG_GROUP_RECYCLE_SUITE,
+  // #228 启动自愈（F-67：F-01…F-66 与 R-06 已占，按「从未占用的继续」顺延；套件本体在
+  // selfHealSuites.ts，同为独立文件，少一处合入热点。它用实验室的 `?drift=` 参数造
+  // 「某条目永远起不来」的现场，见那个文件头与 bootDrift.ts）。
+  SELF_HEAL_SUITE,
 ]
