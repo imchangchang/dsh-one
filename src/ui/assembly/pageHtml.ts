@@ -99,12 +99,23 @@ export interface AssemblyPageOptions {
    * 生产恒缺省（不许在宿主侧关掉：那是用户不用等我们发版的那一手）。
    */
   selfHeal?: boolean
+  /**
+   * 实验开关（#229）：false 时传输层**不装重试限流**——同一目标的失败退避、
+   * 同一请求的合并、同一原因的日志限频，三样一起不装（见 transportJs 的文件注释）。
+   * 缺省装。
+   *
+   * 用途只有一处：负向对照——同一个「网关不可达 + 有调用方无退避重试」的现场，
+   * 装上请求量与日志条数都有上限、去掉就照旧刷屏（`verify:lab` 的 F-68 两条分支
+   * 各跑一遍）。生产恒缺省。
+   */
+  retryThrottle?: boolean
 }
 
 import { assemblyProbeJs } from './probe.ts'
 import { failureNoticeJs } from './failureNotice.ts'
 import { selfHealJs } from './selfHeal.ts'
 import { hostSdkJs } from './hostSdk.ts'
+import { FAILURE_LOG_WINDOW_MS, failureLogJs } from '../../pure/logThrottle.ts'
 
 function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -178,13 +189,53 @@ const QUEUE_FACADE_JS = `(() => {
  * loopback，缺这个标记会被官方判非 loopback：设置文档走 memory 不持久、
  * Models 提供方目录降级「settings are unavailable in this browser」、
  * Open configuration file 缺席。声明后三树等价官方 loopback 形态（#70）。
+ *
+ * **失败退避与失败日志限频（#229）**：网关不可达时，官方客户端会对同一目标**无退避**
+ * 地重试（现场实测 ≈280 次/秒、40 秒里 2 MB 日志翻转两轮）。查清的调用方是官方
+ * `dsh-client-ui-commands` 那一处（`CommandDirectory` → `ctx.remote.commands.list`），
+ * 我们这边没有任何调用方，也改不了官方那份代码——所以在这一层（我们的传输）兜住后果：
+ *
+ * - **同一目标失败后退避**：失败一次进入 250ms 起的退避窗（翻倍、封顶 2s）。窗口内的
+ *   重复尝试**不再发出去**，直接把上一次同样的失败结果回给调用方（调用方对这条路径
+ *   本来就只有失败处理，行为不变）。窗口一到期就发真请求，所以服务回来之后最多 2 秒
+ *   内就会通（「恢复后照常」靠它，不是靠调用方收敛）。
+ * - **同一请求合并**：同一个请求（方法 + URL + 请求体）正在飞时，后续同请求搭它的结果，
+ *   不另起连接——网关只是慢（不是拒连）时也不会堆出几百条在飞的请求。
+ * - **同一原因的失败限频记录**：第一次照原样记，之后每 10 秒才补一条带「已重复 N 次」
+ *   的汇总行，恢复时补一条收尾行（见 pure/logThrottle.ts）。
+ *
+ * 为什么退避这一层要放在传输而不是各调用方：调用方是官方插件（改不了），而传输是**所有**
+ * RPC 的必经之处，判据落在「同一目标」上，与谁在重试无关。代价是冷却窗内那几次调用拿到的是
+ * 上一次同样的失败（而不是新发一次），这是「请求量有上限」必须付的价钱；窗口上界 2 秒保证
+ * 它不会变成「卡死不重试」。
  */
-function transportJs(mirrorOrigin: string, localPluginIds: readonly string[]): string {
+export function transportJs(mirrorOrigin: string, localPluginIds: readonly string[], retryThrottle: boolean): string {
   return `(() => {
   const MIRROR = ${JSON.stringify(mirrorOrigin)}
   const WS_ORIGIN = MIRROR.replace(/^http/, "ws")
+  // Retry throttle switch (#229): false = none of the three mechanisms armed (negative control only,
+  // see AssemblyPageOptions.retryThrottle).
+  const RETRY_THROTTLE = ${JSON.stringify(retryThrottle)}
+  // Per-target backoff after a failure: 250ms, doubling, capped at 2s (≈280 requests/s → 0.5/s per
+  // target; once the gateway is back at most 2s pass before a real request goes out).
+  const RETRY_BACKOFF_BASE_MS = 250
+  const RETRY_BACKOFF_MAX_MS = 2000
+  const FAILURE_LOG_WINDOW_MS = ${FAILURE_LOG_WINDOW_MS}
+  ${failureLogJs()}
+  const failLog = createFailureLog(FAILURE_LOG_WINDOW_MS)
   // Diagnostic probe hook: probe.ts installs __DSH_ONE_PROBE__ in webview only; silent in browsers.
   const probe = (level, text) => { if (globalThis.__DSH_ONE_PROBE__) globalThis.__DSH_ONE_PROBE__.log(level, text) }
+  // Rate-limited reporting: log when the throttle says to (level comes from the caller), suppressed
+  // repeats only bump the counter (see pure/logThrottle.ts).
+  const noteFailure = (level, reason, message) => {
+    const line = RETRY_THROTTLE ? failLog.failed(reason, message) : message
+    if (line !== undefined) probe(level, line)
+  }
+  const noteRecovered = (reason, message) => {
+    if (!RETRY_THROTTLE) return
+    const line = failLog.recovered(reason, message)
+    if (line !== undefined) probe("info", line)
+  }
   // Roster event stream (see server/assemblyMirror.ts's serveGraphEvents, issue #191): the
   // official client opens an SSE on /plugins/events whose "graph" frames carry the host's FULL
   // plugin roster. 0.1.6-alpha.2 makes the client adopt it, so the stream has to go through the
@@ -215,16 +266,82 @@ function transportJs(mirrorOrigin: string, localPluginIds: readonly string[]): s
   // addresses the host via location.origin ends up off-target.
   probe("info", "page origin " + String(globalThis.location && globalThis.location.origin) + " mirror " + MIRROR)
   const NATIVE_FETCH = globalThis.fetch.bind(globalThis)
+  // Per-target failure state (#229): fails = consecutive failures (reset by a success), nextAllowedAt =
+  // earliest time the next real request may go out, inFlight/inFlightKey = the request currently flying
+  // (identical requests ride it instead of opening a second connection).
+  const gates = new Map()
+  const gateOf = (reason) => {
+    let gate = gates.get(reason)
+    if (gate === undefined) {
+      gate = { fails: 0, nextAllowedAt: 0, inFlight: null, inFlightKey: "", lastFailure: null }
+      gates.set(reason, gate)
+    }
+    return gate
+  }
+  const backoffMs = (fails) => Math.min(RETRY_BACKOFF_MAX_MS, RETRY_BACKOFF_BASE_MS * Math.pow(2, Math.max(0, fails - 1)))
+  // One request under the backoff gate. send() is the actual network call (Promise<Response>).
+  const throttled = (reason, attemptKey, send) => {
+    if (!RETRY_THROTTLE) return send()
+    const gate = gateOf(reason)
+    // Same request already flying: ride its outcome (a merely slow gateway must not pile up requests).
+    if (gate.inFlight !== null && gate.inFlightKey === attemptKey) return gate.inFlight
+    const at = Date.now()
+    if (at < gate.nextAllowedAt && gate.lastFailure !== null) {
+      // Inside the backoff window: send nothing, hand the caller the same failure as last time, and
+      // count the attempt into the "same cause" tally.
+      noteFailure(gate.lastFailure.level, reason, gate.lastFailure.message)
+      if (gate.lastFailure.kind === "reject") return Promise.reject(gate.lastFailure.value)
+      return Promise.resolve(new Response(null, { status: gate.lastFailure.status }))
+    }
+    const pending = send().then((res) => {
+      if (res.ok || res.status < 500) {
+        gate.fails = 0
+        gate.nextAllowedAt = 0
+        gate.lastFailure = null
+        return res
+      }
+      // 5xx is a target-side failure too (the mirror answers 502 when the gateway is gone) and enters
+      // the same backoff — otherwise the caller retries this path just as often.
+      gate.fails += 1
+      gate.nextAllowedAt = Date.now() + backoffMs(gate.fails)
+      gate.lastFailure = {
+        kind: "response",
+        status: res.status,
+        level: "warn",
+        message: "transport fetch " + reason + " -> HTTP " + res.status,
+      }
+      return res
+    }, (err) => {
+      gate.fails += 1
+      gate.nextAllowedAt = Date.now() + backoffMs(gate.fails)
+      gate.lastFailure = { kind: "reject", value: err, level: "error", message: "transport fetch " + reason + " failed: " + err }
+      throw err
+    })
+    gate.inFlight = pending
+    gate.inFlightKey = attemptKey
+    const clear = () => { if (gate.inFlight === pending) { gate.inFlight = null; gate.inFlightKey = "" } }
+    pending.then(clear, clear)
+    return pending
+  }
   const apiFetch = (input, init) => {
     const parsed = new URL(String(input), globalThis.location ? globalThis.location.href : MIRROR + "/")
     const url = new URL(parsed.pathname + parsed.search, MIRROR).href
-    return NATIVE_FETCH(url, init).then((res) => {
-      if (!res.ok) probe("warn", "transport fetch " + url + " -> HTTP " + res.status)
+    const method = init && typeof init.method === "string" ? init.method.toUpperCase() : "GET"
+    const body = init && typeof init.body === "string" ? init.body : ""
+    // Throttle keys (#229): one target = one URL (query string included); one request = that plus
+    // method and body.
+    const reason = url
+    const attemptKey = method + " " + url + " " + body
+    return throttled(reason, attemptKey, () => NATIVE_FETCH(url, init).then((res) => {
+      if (!res.ok) noteFailure("warn", reason, "transport fetch " + url + " -> HTTP " + res.status)
+      else noteRecovered(reason, "transport fetch " + url + " recovered")
       return res
     }, (err) => {
-      probe("error", "transport fetch " + url + " failed: " + err)
+      // The failure line is logged before the rejection goes out (the backoff path logs the same
+      // wording through throttled()).
+      noteFailure("error", reason, "transport fetch " + url + " failed: " + err)
       throw err
-    })
+    }))
   }
   // Host-addressed test (see the function comment above for the official call sites):
   // the page's own origin, the official internal base, or the mirror itself.
@@ -251,6 +368,11 @@ function transportJs(mirrorOrigin: string, localPluginIds: readonly string[]): s
     return NATIVE_FETCH(new URL(url.pathname + url.search, MIRROR).href, init)
   }
   globalThis.fetch = hostFetch
+  // Why openStream is left out of the throttle (#229 field check): the official connection layer
+  // already backs off on its own (dsh-client-connection: backoffBaseMs 500, factor 2, cap 10s — the
+  // reconnect loop lives there) and the incident log only had 9 carrier failures of this class, no
+  // storm at all. What flooded was the RPC path with no backoff whatsoever (apiFetch — all 16410
+  // lines). So the throttle sits on apiFetch only, not stacked twice.
   const openStream = (endpoint, payload, signal) => (async function* () {
     signal && signal.throwIfAborted()
     const ws = new WebSocket(WS_ORIGIN + "/api/remote.mux")
@@ -375,7 +497,7 @@ export function assemblyPageHtml(options: AssemblyPageOptions): string {
     banner === undefined
       ? ''
       : `<div style="position:sticky;top:0;z-index:100;padding:6px 12px;background:#8a6d1d;color:#fff;font:12px/1.5 var(--vscode-font-family,system-ui,sans-serif);">${escapeHtml(banner)}</div>`
-  const transportScript = transportOn ? `    <script nonce="${cspNonce}">${transportJs(mirrorOrigin, options.localPluginIds)}</script>\n` : ''
+  const transportScript = transportOn ? `    <script nonce="${cspNonce}">${transportJs(mirrorOrigin, options.localPluginIds, options.retryThrottle !== false)}</script>\n` : ''
   // 启动自愈（#228）：夹在 __DSH_BOOT__ 赋值与主 bundle 之间——清单已经在了，官方
   // 还没读它（消费清单的是主 bundle，`type="module"` 默认 defer，整页解析完才跑）。
   // 实验开关：`selfHeal: false` 时整段不注入（F-67 的负向对照）。

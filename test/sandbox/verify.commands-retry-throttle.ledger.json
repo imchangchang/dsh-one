@@ -1,0 +1,95 @@
+{
+  "title": "#229 网关不可达时装配页无退避重试同一接口、把日志刷穿（重试限流 + 失败日志限频）验收报告",
+  "branch": "agent/commands-retry-throttle",
+  "commit": "4972b5a32e9a531000d915b6f88b822c6fd8b08a",
+  "environment": {
+    "mode": "浏览器验证（装配实验室：仓库真实模块 + 实验室自起的隔离实例［临时 DSH_HOME / 随机端口 / 播种真数据 / 跑完按 PID 收］+ 假宿主）+ 单测（node --test）+ 两道静态自检",
+    "dsh": "0.1.6-alpha.2（本机安装）",
+    "locale": "zh（隔离实例的设置文档钉死）",
+    "theme": "dark",
+    "driver": "playwright chromium + test/assembly-lab/verify.ts（整轮 69 项，含新增的 F-68）",
+    "date": "2026-09-22"
+  },
+  "coverageNote": "本报告是浏览器验证 + 单测。未覆盖：真 VS Code webview 宿主层（本次改动全在页面运行时的传输脚本与镜像的日志层，与 webview 宿主层无关，按规矩不开真窗口）、真模型输出、macOS 之外的平台。",
+  "items": [
+    {
+      "id": "N-01",
+      "phase": "new-feature",
+      "name": "限流档：同一目标失败期间真请求数有上限，同一原因的日志只记「一条 + 计数」（F-68 场景①）",
+      "expect": "一个无退避重试的调用方（页内夹具连续发 `POST /api/commands/list`，与官方 `createWebConnectionRpc` 请求体同形、每次换 rpcId、不加间隔）撞上一台**真的被停掉**的隔离实例：12 秒窗里调用方试几千次，但**真发出去的请求要塌到个位数**（退避 250ms 起、翻倍、封顶 2s ⇒ 理论 ≤ 9 条）；页面侧同一原因只记「第一条 + 一条带『已重复 N 次』的汇总行」，镜像侧同样只记一两条（改前是每秒几百条、整段 16410 行）。",
+      "result": "pass",
+      "screenshots": [
+        "test/assembly-lab/out/shots/f-68-1-throttled-during-outage.png"
+      ],
+      "notes": "读数（F-68 14/14，34.3 秒；这一档 12 秒窗）：\n- 调用方试了 **2709 次**（226 次/秒），**真发出去 9 条**（0.7 条/秒）——改前是「试一次发一次」（负向对照同一夹具 15482 次 → 15482 条，见 N-03）。\n- 页面侧日志 **2 行**：`transport fetch http://127.0.0.1:56705/api/commands/list -> HTTP 502` 与 `… -> HTTP 502 (same cause repeated 2261 times)`（第一条照原样、第二条带计数）。\n- 镜像侧日志 **2 行**（同一条错误在镜像那半也只记一条 + 一条汇总）。\n- 判据落点：请求数由页内夹具在传输层 `NATIVE_FETCH` 那一层数的（被退避压掉的、被合并的一个都不进来）；日志条数取宿主侧真收到的 `assembly:log` 行与镜像自己的日志行（`LogSink` 替身记录）。\n- 现场与现场日志同形：网关被停之后页面侧拿到镜像回 502 的形态（`-> HTTP 502`），与现场那 16410 行 `failed: TypeError: Failed to fetch`（连接级失败）是同一处代码的两条分支，单测把拒绝那一支也逐条钉住了（见 N-04）。"
+    },
+    {
+      "id": "N-02",
+      "phase": "new-feature",
+      "name": "恢复档：网关回来之后照常（不因限流卡死），页面继续可用（F-68 场景②）",
+      "expect": "同端口同 `DSH_HOME` 起回网关（#202 的口径）后：退避封顶 2 秒 ⇒ 第一次成功落在 ≤ 2.5 秒内，之后连续成功、失败不再增长；页面上 `#root` 仍有内容、composer 槽位还在，**另外一条**普通 RPC（`settings/describe`，不是被限流的那个目标）也通——这一条证明限流没有变成「整页再也不发请求」；两侧日志各补一条「恢复」收尾行。",
+      "result": "pass",
+      "screenshots": [
+        "test/assembly-lab/out/shots/f-68-2-recovered.png"
+      ],
+      "notes": "读数（同一套件）：\n- 网关回来后 3 秒窗里试 1846 次、成功 **1534** 次、失败 312 次（失败全落在退避窗内），**第一次成功距「网关回来」约 1389 毫秒**（判据 ≤ 2500 毫秒）。\n- 页面照常：`#root` 有内容、composer 槽位 1 枚、旁路 RPC `settings/describe` 回 **HTTP 200**。\n- 日志：页面侧 `transport fetch …/api/commands/list recovered (recovered after N repeats)` 一条、镜像侧 `assembly mirror: POST /api/commands/list recovered` 一条。\n- 单测另钉住了「恢复之后退避清零」（恢复后紧接着的一次尝试立刻再真发一次）。"
+    },
+    {
+      "id": "N-03",
+      "phase": "new-feature",
+      "name": "负向对照：把限流去掉，请求数与日志条数两条必须重新失败（F-68 场景③）",
+      "expect": "`?retryThrottle=off`（`pageHtml` 的实验开关，与 `selfHeal` 同一形状）下，同一个夹具、同一台被停掉的网关：真请求数重新变成几百条、页面侧失败日志重新逐条（几千行）——即第 ① 条那两个上限都失去；镜像侧那半的限频与这个开关无关，仍旧是一两条。",
+      "result": "pass",
+      "screenshots": [
+        "test/assembly-lab/out/shots/f-68-3-unthrottled-negative-control.png"
+      ],
+      "notes": "读数（同一套件，同一 12 秒窗）：\n- 调用方试 **15482 次**、真发出去 **15482 条**（1290 条/秒，一条不落地发出去）；页面侧失败日志 **15482 行**。\n- 与限流档对照：9 条 / 2 行 → 15482 条 / 15482 行。\n- 镜像侧仍只有 2 行（15482 条失败请求转发进镜像，日志靠镜像那半自己的限频压住）——这一条如实说明：镜像是独立的一层，页面侧的开关不影响它。\n- 这一档里页面侧没有出现任何带计数的汇总行（计数行确实只来自限流那套）。"
+    },
+    {
+      "id": "N-04",
+      "phase": "new-feature",
+      "name": "确定性判据：内联传输脚本丢进 node:vm 逐分支跑（test/assemblyTransportThrottle.test.ts，7 个用例）",
+      "expect": "把 `transportJs()` 的产物放进最小沙箱（假 `location` / 假 `fetch` / 假钟 / 带记录的探针），逐条走真页面上要么造不出来、要么代价太大的分支：负向对照（不装限流 ⇒ 每次尝试都真发、每次失败都记一行）／装上之后 3000 次尝试的真请求与日志条数／时间窗汇总行的措辞与计数／恢复／5xx 也进退避／4xx 不进冷却／同请求合并且不同请求不合并／两半实现（Node 与页面里那份 JS）逐行一致。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "`node --test test/assemblyTransportThrottle.test.ts`：**7/7 通过**（87 毫秒）。关键读数：\n- 负向对照：200 次尝试 → **200 条真请求 + 200 行日志**；\n- 装上限流：3000 次尝试（假钟推进 15 秒）→ **10 条真请求**（0.67 条/秒）+ **2 行日志**（第二条 = `… failed: TypeError: Failed to fetch (same cause repeated 2000 times)`）；\n- 恢复：把假钟推过退避窗 ⇒ 下一次尝试真发出去并成功、且只补了一条恢复收尾行；\n- 5xx：第一次拿到 503，随后 50 次尝试只发出去 1 条、50 次拿到的都是同样的 503；\n- 4xx：30 次尝试连续 404 ⇒ 30 条真请求（4xx 是应用的答复，不该被限流挡住）；\n- 合并：同请求体两次并发 → 1 条真请求，不同请求体 → 第 2 条；\n- 两半一致：40 个事件（4 个原因、跨多个 10 秒窗）+ 3 条恢复事件喂给 `createFailureLog`（Node）与页面里那份 JS，输出逐行 deepEqual。\n- 整轮 `npm test`：**1093 条、1093 通过、0 失败**（改前基线 1086 条，本条新增 7 条）。",
+      "screenshots_note": ""
+    },
+    {
+      "id": "N-05",
+      "phase": "new-feature",
+      "name": "排查结论：是谁在重试 commands/list（#229 的第一步）",
+      "expect": "给出具体文件/函数与证据，说明重试发生在官方客户端那一层还是我们自己那一层——这决定限流该放在哪里，也是「为什么我们改不了调用方」的依据。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "证据链（三条，都是可复核的）：\n- **官方侧只有一处调用**：`commands/list` 这个端点在整份官方前端产物（`~/.dsh/profiles/node_modules/@deepseek-ai/*/lib/*.js` 逐个文件扫）里只出现在两个文件：`dsh-api-remotes/lib/client.js:4623`（远程方法声明）与 `dsh-client-ui-commands/lib/client.js`（**唯一调用方**，`:741` 的 `ctx.remote.commands.list(sessionId)`，由 `CommandDirectory.fetchCommands` 发出）。\n- **我们这边零调用方**：本仓库 `src/` 与 `packages/` 全量扫 `commands/list` / `commands.list` / `listCommands` / `remote.commands`，命中的只有注释、类型声明与上游探针（`scripts/dsh-upstream-watch/probe.mjs`），没有一处发出这条 RPC。\n- **运行期抓到调用栈**：实验室页面上把传输层 `NATIVE_FETCH` 那一层包起来记录 `new Error().stack`，触发一次真调用（在 chat 树里敲 `/`）后读到的链路是：官方插件（combo 整包）→ `dsh-api-remotes` 的 remote 代理（`invokeMethod` / `invokeSelected`）→ 我们的 `apiFetch`（`transportJs`）——与上面两处源码对得上。\n- 现场日志的旁证：那一万六千多行 `transport fetch …/api/commands/list failed` 与 460 行 `assembly mirror: POST /api/commands/list failed` 全是同一个目标。官方 `CommandDirectory` 的再入口只有 `warm`（会话 scope 出生时预热）/ `invalidateAll` / `resetSession` / `resetConnected` / `ensureReady`，其中只有 `warm` 与现场形状相符（风暴期间页面没有任何别的日志、没有 `[ui-input-trigger] … candidates failed`、也没有流重开）——「官方为什么一直在重试」属于 #226 那一路，与本条无关；本条只兜住后果。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "两道静态自检（dev-merge 的门禁）",
+      "expect": "i18n 与平台兼容性自检各 exit 0。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "`scripts/check-i18n.sh agent/commands-retry-throttle` → OK（新增行无漏翻；第一遍红过一次：页面内联脚本（模板串）里我写的中文注释被当成硬编码字面量，已按该文件的既有惯例改成英文注释——模板串里的注释一律英文）。`scripts/check-platform-compat.sh agent/commands-retry-throttle` → OK（0 条平台路径；状态分叉命中 1 处形状 = 页面传输里「限频器返回值是不是 undefined」那一处，已按 10 行分支矩阵逐条声明，见 `test/sandbox/verify.commands-retry-throttle.platform.json`）。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "npm test（typecheck + 单元测试 + build）",
+      "expect": "全过。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "`npm run typecheck` 干净；`npm test` **1093/1093**（改前 1086/1086）；`npm run build` 通过（dist/ 与 packages/*/lib/ 都重建成功，dist/assembly/plugins 里 13 个自有插件产物齐）。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "整轮 npm run verify:lab（69 项）",
+      "expect": "整轮绿（除已知的 #226 两条 alpha.2 漂移外），且新增的 F-68 与其余套件之间没有互相影响。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "整轮 **69 项 3620 条断言、3617 通过**（上一轮 #228 是 68 项 3606 条 3603 通过；+1 项 +14 条正是本条的 F-68）。\n- 红的两条是 **F-61 15/17** 与 **F-62 21/22**，与上一轮逐项同值：`scope 'session-maybe' rendered without an installed adapter` 与注入目标没落定，是 alpha.2 引入、由 **#226** 跟踪的漂移，与 #229 无关。\n- F-68 之外 68 项与上一轮逐项同值（没有被这次传输层改动带偏）。\n- F-68 自身 14/14（34.3 秒），读数见 N-01/N-02/N-03。\n- 整轮里镜像日志出现过的 `POST /api/session/list failed: socket hang up` 与紧随其后的 `POST /api/session/list recovered`，正是这次新加的限频与恢复行在真轮次里的样子（别的套件重启实例那一段顺带覆盖到了）。"
+    }
+  ]
+}

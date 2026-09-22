@@ -1,0 +1,60 @@
+{
+  "branch": "agent/commands-retry-throttle",
+  "slug": "commands-retry-throttle",
+  "platformCoverage": [],
+  "branchMatrix": {
+    "trigger": "probe-result-branch",
+    "rows": [
+      {
+        "condition": "`noteFailure` / `noteRecovered` 拿到限频器的返回值：`undefined`（这个原因在时间窗内的重复）",
+        "expected": "不记日志，只把这次累加进「同一原因」的计数（页面侧与镜像侧都是这一条：现场那一万六千行塌成一两条靠它）",
+        "verification": "单测 test/assemblyTransportThrottle.test.ts「装了限流：同一目标失败期间真请求数塌下来，同一原因的日志只记『第一条 + 窗口汇总行』」（3000 次失败 → 2 行日志）；浏览器验证 F-68 限流档：12 秒窗里调用方试 2476 次、页面侧 2 行、镜像侧 2 行"
+      },
+      {
+        "condition": "同上：返回值**不是** `undefined`（这个原因第一次出现 / 时间窗到期补汇总行 / 这个原因恢复）",
+        "expected": "记一条：首次照原样（`transport fetch <url> failed: <err>` 那类原文不动，旧日志的检索方式仍然有效）；窗口到期那条在原句尾带上「已重复 N 次」；恢复那条写明重复过几次（`recovered after N repeats`）",
+        "verification": "单测「装了限流…」断言首行原文逐字相等、汇总行含 `same cause repeated` 且计数 > 100；单测「网关回来之后…」断言恢复行含 `recovered after` 且共 1 行；F-68 限流档读到 `… -> HTTP 502 (same cause repeated 2068 times)`、恢复档两侧各一条恢复行"
+      },
+      {
+        "condition": "传输层开关 `retryThrottle`（`pageHtml` 选项）：false = 负向对照，true/缺省 = 生产",
+        "expected": "false 时三样一起不装（不退避、不合并、不限频），每个尝试都真发出去、每次失败都记一行；true 时走下面的 gate 分支",
+        "verification": "单测「负向对照：不装限流时，每次尝试都真发出去、每次失败都记一行（改前的样子）」（200 次尝试 → 200 条真请求 + 200 行日志）；浏览器验证 F-68 负向对照（`?retryThrottle=off`，同一夹具 14653 次尝试 → 14653 条真请求／1221 条每秒、页面侧 14653 行日志），与限流档的 9 条／2 行对照"
+      },
+      {
+        "condition": "同一个请求正在飞（`gate.inFlight !== null && gate.inFlightKey === attemptKey`，键含方法 + URL + 请求体）",
+        "expected": "搭上那一条的结果返回，不另起连接；键不同（请求体不同）时各发各的——官方的 `rpcId` 每次都不一样，所以官方那条路不会误合并",
+        "verification": "单测「同一个请求正在飞时合并成一条；不是同一个请求（请求体不同）不合并」（同体两次尝试 → 1 条真请求；`other` 那一条 → 第 2 条）"
+      },
+      {
+        "condition": "冷却窗内（`Date.now() < gate.nextAllowedAt && gate.lastFailure !== null`）",
+        "expected": "一个请求都不发，直接把上一次同样的失败回给调用方（连接级失败 → 抛出同一个错误；5xx → 合成同一个状态码的 `Response`），并把这次算进「同一原因」的计数",
+        "verification": "单测「装了限流…」（3000 次尝试只有 10 条真请求、每次拿到的都是 `TypeError: Failed to fetch`）与「5xx 也进退避…」（冷却窗内 50 次尝试只发出去 1 条、50 次拿到的都是 `status 503`）；F-68 限流档 12 秒窗里真发出去 9 条"
+      },
+      {
+        "condition": "冷却窗到期（`Date.now() >= gate.nextAllowedAt`）",
+        "expected": "照常发一次真请求——这是「网关回来之后照常」的保证：不管调用方重试得多密，最多每 2 秒（退避封顶）就有一条真请求出得去",
+        "verification": "单测「网关回来之后…」（把假钟推过退避窗 ⇒ 下一次尝试真发出去并成功、`sent` 加一）；浏览器验证 F-68 恢复档：同端口同 HOME 起回网关后 **1312 毫秒**就有第一次成功（判据 ≤ 2500 毫秒），之后窗口里 1450 次成功、失败只剩冷却期里的 269 次"
+      },
+      {
+        "condition": "拿到响应后的状态分叉：`res.ok || res.status < 500`（真答复，含 4xx）",
+        "expected": "这一次不算「目标不可达」：退避清零、不进冷却——4xx 是应用自己的答复，不该被限流挡住",
+        "verification": "单测「4xx 不进冷却…」（30 次尝试连续拿到 404 ⇒ 30 条真请求，一条都没被压掉）"
+      },
+      {
+        "condition": "拿到响应后的状态分叉：`res.status >= 500`（网关没了时镜像回的就是 502）",
+        "expected": "与连接级失败同等对待：进冷却、退避翻倍，并把这次的失败原文（`transport fetch <url> -> HTTP <status>`）留给冷却窗内的回执与日志",
+        "verification": "单测「5xx 也进退避…」（第一次拿到 503、随后 50 次尝试只发出去 1 条真请求）；浏览器验证 F-68 限流档整档走的就是这一支（网关被停、镜像活 ⇒ 页面侧稳定拿到 502，12 秒窗内只剩 9 条真请求）"
+      },
+      {
+        "condition": "镜像侧 `proxyRequest` / `proxyUpgrade` 的失败与恢复（同一份 `pure/logThrottle.ts`，Node 实现）",
+        "expected": "同一个目标（方法 + 路径）的失败日志同样限频，恢复时补一条收尾行；只改记什么，转发与 502 语义一个字节不动（所以网关回来后转发照常通）",
+        "verification": "单测「两半实现（Node 版与塞进页面的 JS 版）跑同一串事件逐行一致」（Node 实现与页面侧那份逐行比对）；浏览器验证 F-68：限流档 9 条转发失败 → 镜像侧 2 行、负向对照 15482 条转发失败 → 镜像侧仍只有 2 行，且恢复档镜像侧补出一条 `POST /api/commands/list recovered`"
+      },
+      {
+        "condition": "`createFailureLog` 内部按原因取表：没有这个原因 / 有但还在窗内 / 有且窗口到期（`recovered` 那一侧：没有这个原因 / 只出现过一次 / 出现过多次）",
+        "expected": "没有 → 记原文并开一份计数；窗内 → 不记只累加；窗口到期 → 记「原句 + 已重复 N 次」；恢复时没有 → 不记，只出现一次 → 记原句，多次 → 记「原句 + recovered after N repeats」（计数清掉，下次再坏从头算）",
+        "verification": "单测「两半实现…」把 40 个事件（4 个原因、跨多个窗口）与 3 条恢复事件喂给两半，逐行 deepEqual（断言里同时要求出现带计数的汇总行与 `recovered after`）；单测「装了限流…」覆盖「没有 → 记、窗内 → 不记、到期 → 记」三段"
+      }
+    ]
+  }
+}

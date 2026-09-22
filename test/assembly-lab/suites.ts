@@ -75,6 +75,7 @@ import { ASSEMBLY_FAILURE_SUITE } from './assemblyFailureSuites.ts'
 import { TAG_PRESETS_SUITE } from './tagPresetSuites.ts'
 import { TAG_COLOR_UNUSED_SUITE, TAG_GROUP_RECYCLE_SUITE } from './tagRecycleColorSuites.ts'
 import { SELF_HEAL_SUITE } from './selfHealSuites.ts'
+import { RETRY_THROTTLE_SUITE } from './retryThrottleSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
@@ -6633,4 +6634,8 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // selfHealSuites.ts，同为独立文件，少一处合入热点。它用实验室的 `?drift=` 参数造
   // 「某条目永远起不来」的现场，见那个文件头与 bootDrift.ts）。
   SELF_HEAL_SUITE,
+  // #229 网关不可达时的重试限流与失败日志限频（F-68：F-01…F-67 与 R-06 已占，按
+  // 「从未占用的继续」顺延；套件本体在 retryThrottleSuites.ts，同为独立文件，
+  // 少一处合入热点。它自起一台隔离实例并**真的把它停掉**造现场，见那个文件头）。
+  RETRY_THROTTLE_SUITE,
 ]
