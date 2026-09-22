@@ -11,8 +11,10 @@
  * 产物**（伺服面里的 `/` 启动契约标记、首个 batch 的 combo 端点、Origin 栅栏——
  * #67 的 N1–N3）、**客户端契约面**（网关下发的 combo 里我们必须存在的 slot 名 /
  * root 级 hook 名 / 取用过的字段与方法名，取法见 clientContract.mjs）与 **官方产物面**
- * （本机已安装的官方包文件里必须还在的内部标识符——静默失效型依赖，取法见
- * officialIdentifiers.mjs），输出结果表；有任何 fail 时退出码为 1（skip 不算失败）。
+ * （本机已安装的官方包文件：必须还在的内部标识符——静默失效型依赖，取法见
+ * officialIdentifiers.mjs；三棵树的 block list 是否覆盖官方服务依赖闭包——少挡一条
+ * 会让整页 boot 失败，取法见 blockListDrift.mjs），输出结果表；有任何 fail 时退出码
+ * 为 1（skip 不算失败）。
  * 探针全部只读/无副作用（创建的 workspace/session 在隔离 DSH_HOME 内，进程退出即弃；
  * 官方产物面只读磁盘，连本机默认 `~/.dsh` 也只看不改）。
  *
@@ -21,17 +23,34 @@
  * 一处刻意的设计（#37）：`commands/execute` 该发什么参数形状，探针**不复刻**——
  * 直接 import dsh-one 源码里的 `commandsExecuteArgs`（`src/pure/dshWire.ts`），
  * 与运行时同一份。探针跟着 dsh-one 走，就不会再出现「探针自己过时、报出上游没改
- * 的假失败」。
+ * 的假失败」。三棵树的 block list 同理（#227）：直接从 `src/ui/assembly/wireFilter.ts`
+ * import，探针里不复制一份。
  */
 import { checkClientContract } from './clientContract.mjs'
+import { checkBlockListDrift } from './blockListDrift.mjs'
 import { checkOfficialIdentifiers, resolveRealpath } from './officialIdentifiers.mjs'
 import { commandsExecuteArgs } from '../../src/pure/dshWire.ts'
+import {
+  CHAT_BLOCKED_IDS,
+  CHAT_FRAME_PLUGIN_ID,
+  SETTINGS_BLOCKED_IDS,
+  SETTINGS_FRAME_PLUGIN_ID,
+  SIDEBAR_BLOCKED_IDS,
+  SIDEBAR_FRAME_PLUGIN_ID,
+} from '../../src/ui/assembly/wireFilter.ts'
 import { spawn } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
+
+/** 三棵树（#227）：清单与 frame 插件 id 的单一事实源是 wireFilter.ts，探针不另抄一份。 */
+const BLOCK_LIST_TREES = [
+  { key: 'chat', label: '对话区', blocked: CHAT_BLOCKED_IDS, framePluginId: CHAT_FRAME_PLUGIN_ID },
+  { key: 'sidebar', label: '侧栏位', blocked: SIDEBAR_BLOCKED_IDS, framePluginId: SIDEBAR_FRAME_PLUGIN_ID },
+  { key: 'settings', label: '设置页', blocked: SETTINGS_BLOCKED_IDS, framePluginId: SETTINGS_FRAME_PLUGIN_ID },
+]
 
 // ---------- 参数 ----------
 
@@ -303,15 +322,18 @@ async function main() {
     record(r.id, r.name, r.status, r.detail)
   }
 
-  // 22. 官方产物面（#179）：本机已安装的官方包文件里必须还在的内部标识符
+  // 22-23. 官方产物面（#179 / #227）：读本机已安装的官方包，两项共用一次目录解析
   {
     const found = findOfficialRoot(opts, dshHome)
     if (found.root === null) {
-      record('official-identifiers', '官方内部标识符在场（本机官方产物，存在性检查）', 'fail',
-        `找不到官方产物目录（找过：${found.tried.join('、')}）——这一面未核实，不能当成没问题`)
+      const why = `找不到官方产物目录（找过：${found.tried.join('、')}）——这一面未核实，不能当成没问题`
+      record('official-identifiers', '官方内部标识符在场（本机官方产物，存在性检查）', 'fail', why)
+      record('block-list-drift', 'block list 补全（按官方服务依赖离线算出）', 'fail', why)
     } else {
       const r = checkOfficialIdentifiers({ root: found.root, version, profile: found.profile })
       record(r.id, r.name, r.status, r.detail)
+      const d = checkBlockListDrift({ root: found.root, version, profile: found.profile, trees: BLOCK_LIST_TREES })
+      record(d.id, d.name, d.status, d.detail)
     }
   }
 

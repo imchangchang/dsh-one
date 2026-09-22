@@ -1,16 +1,16 @@
 # dsh 上游版本兼容性测试清单
 
 本文对应 dsh-one 2.0.0（2026-09-20）。文中标注日期的段落是当时的现场记录；探针项数与
-实测读数以本机装的 dsh 0.1.6-alpha.1 为基线。
+新增项的实测读数以本机装的 dsh 0.1.6-alpha.2 为基线。
 
 dsh-one 是 dsh 的客户端（gateway HTTP/WS RPC + webview 嵌入），上游每个 release 都可能动 wire 协议与前端插件契约。本清单是对上游新版本的完整测试项，分两层：
 
 - **自动化探针**（`.github/workflows/dsh-upstream-watch.yml` 每日 04:00 UTC+8 跑 `scripts/dsh-upstream-watch/probe.mjs`，覆盖 wire 面、网关前端产物、客户端契约面与本机官方产物面，结果见 `upstream-watch` label 的 issue 与 README 徽章）。安装途径：版本已上 npm 走 `npm install`（快）；**GitHub-only 版本走源码构建**（codeload 源码包 → `pnpm install --frozen-lockfile` → `pnpm run build` → `node --import tsx/esm apps/cli/src/bin.ts`，上游 README 的 Run from source 路径），保证发 npm 前就能提前测。
 - **人工/补充项**（探针覆盖不到的模型行为与端到端，由认领该版本测试 issue 的人执行）
 
-## 自动化探针项（probe.mjs，22 项）
+## 自动化探针项（probe.mjs，23 项）
 
-探针分三类：**伺服面**（wire——网关对外的 HTTP/WS 接口。含装配形态直引的那两样网关前端产物：`/` 的 HTML 与 `/plugins/??` 的 combo——上游改了交互方式或改了产物写法，都在这一面现形）、**客户端契约面**（combo——装配线直引官方前端插件代码，官方的 slot 名、hook 名、字段名就是我们的 ABI）与**官方产物面**（本机已安装的官方包文件——静默失效型依赖：坏了不报错、只是不生效）。三类都由 `.github/workflows/dsh-upstream-watch.yml` 每日 04:00 UTC+8 跑。
+探针分三类：**伺服面**（wire——网关对外的 HTTP/WS 接口。含装配形态直引的那两样网关前端产物：`/` 的 HTML 与 `/plugins/??` 的 combo——上游改了交互方式或改了产物写法，都在这一面现形）、**客户端契约面**（combo——装配线直引官方前端插件代码，官方的 slot 名、hook 名、字段名就是我们的 ABI）与**官方产物面**（本机已安装的官方包文件——静默失效型依赖：坏了不报错、只是不生效；含每棵树 block list 的补全检查）。三类都由 `.github/workflows/dsh-upstream-watch.yml` 每日 04:00 UTC+8 跑。
 
 两者的分工：探针只查「名字还在不在」，不查「装起来崩不崩」——后者归 `npm run verify:lab`：F-01 CONTRACT 套件（四棵树零崩溃、零缺失契约），外加 #91 加的两条漂移断言 **F-10 FIBER**（四棵树零 cordis scope 进 FAILED——fiber 失败不进控制台，只能运行期看）与 **F-11 WIRE-LIVENESS**（三棵树 block list 的每个 id 都要在当天 wire 里找得到——官方改名会让过滤静默失效）。
 
@@ -53,13 +53,18 @@ dsh-one 是 dsh 的客户端（gateway HTTP/WS RPC + webview 嵌入），上游�
 
 清单不是凭记忆写的：每条都写明理由（`why`）与我方使用点（`where`），并由 `test/upstreamClientContract.test.ts` 保证「清单里的名字在 `src/` 里确实还有取用点、`where` 指向的文件确实存在」。**新增依赖 = 在 clientContract.mjs 的三张表里加一行**（名字、理由、使用点、期望的官方出处）；不再依赖就把该行删掉，否则测试会提醒。
 
-### 官方产物面（1 项，`scripts/dsh-upstream-watch/officialIdentifiers.mjs`）
+### 官方产物面（2 项，`scripts/dsh-upstream-watch/officialIdentifiers.mjs` + `blockListDrift.mjs`）
 
 做法：读**本机已安装的官方包文件**（只读磁盘，不起网关、不走网络），按存在性逐个查标识符还在不在——查的是「装到本机的这版官方包内容变了没有」，与上面 combo 面（查网关下发的产物写法）互补。官方包目录按可信度找三处：① 被测实例自己的 profile（`<DSH_HOME>/profiles/node_modules`，网关实际加载的那一份——**不是每种安装方式都会建它**，实测 npm `--prefix` 装的 dsh 只建 `profiles/web`）；② 被测 dsh **自己安装树**里的官方包（从 `--command` 的可执行文件与 `--cwd` 往上逐级找 `node_modules/@deepseek-ai`，全局装 / `--prefix` 装 / 源码构建三种形态都落在这里）；③ 本机默认 `~/.dsh` 的 profile（#179 点名的那个路径，**可能不是本次被测版本**）。结果行的 detail 会写明读的是哪一份；三处都没有时报红并列出找过的地方（取不到就不能显示成「没问题」）。已安装包里的条目是符号链接，读之前按真身解析。
 
 | id | 检查内容 | 判定方式 |
 |---|---|---|
 | official-identifiers | 11 条官方内部标识符在场（下表），任一条消失即 fail | 逐条在它的**出处文件**里按**形状**查存在性（不比对内容）；不成立时报出条目名、出处文件与我方使用点 |
+| block-list-drift | 三棵树的 block list 覆盖官方**服务依赖**闭包（#227，`blockListDrift.mjs` + `src/pure/blockListDerivation.ts`） | 离线读本机官方包：每件的服务面 = bundle 导出的 `inject`（它等哪些服务）＋提供服务的调用点（`super(ctx, "X")` / `ctx.reflect.provide("X", …)`）。按规则「一棵树挡掉的包，凡是等它的 entry 也一起挡掉」补全，与 `wireFilter.ts` 的清单对比：**少挡一条即 fail**（点出它、它等的服务、被挡的提供方）；规则算不出来的手写条目（形态/角色理由）只报读数——多挡无害，少挡才让整页 boot 失败。取不到就红：一个官方包都没读到、某件 bundle 解析不出 `inject` 导出、或有插件在等的服务在官方包里找不到提供方（框架/主机层那一族 `loader` / `modules` / `remote.*` 除外）。 |
+
+这条的**判据是服务**，不是 `package.json` 的 `dsh.client.inject`：后者是**模块 id** 表（wire 里每个 entry 的 `inject` 就是它），只决定装载顺序——按它做闭包会把三棵树里真正要用的官方件一起挡掉（实测 chat 2 → 38、sidebar 13 → 39、settings 14 → 38 条，把对话区与官方侧栏壳都算进去了），而依赖方并不会因为对方被挡而不激活（对话区那棵树挡了 `ui-layout`、`ui-conversation` 的模块表里就列着它，对话区照样全绿）。真正决定启动审计的是 bundle 里的**服务名**表：缺一个服务，cordis 就停在 `pending (waiting for service: X)`——#225 那起事故（侧栏树挡了 `ui-conversation` 却没挡等它的 `ui-plan`）正是这一类。
+
+**本机实测读数（0.1.6-alpha.2，58 件官方前端包）**：三棵树逐棵 少挡 0 条——对话区 手写 2 / 补全后 2（规则算不出 2：`ui-layout`、`ui-sidebar`，都是形态类）、侧栏位 13 / 13（规则算不出 7）、设置页 14 / 14（规则算不出 14；这棵树下线 ui-conversation 之外的那几件全是形态理由，服务规则本来就不解释它们）。**负向对照**：把 `@deepseek-ai/dsh-client-ui-plan` 从侧栏清单里删掉（= #225 事故前的样子）→ 当场 fail，文案是「侧栏位 少挡了 1 条：`@deepseek-ai/dsh-client-ui-plan`（等 `uiConversation`；提供方全被挡：`@deepseek-ai/dsh-client-ui-conversation`）」；加回去立刻 pass。纯函数单测见 `test/blockListDerivation.test.ts`（现场、多层依赖、同名服务有别的提供方时不误伤、只补不删、框架服务不传播、两处取法自检），探针模块单测与合成产物的负向对照见 `test/blockListDrift.test.ts`。
 
 这 11 条按 **#96 审计 comment 第七节**的核实结果列（基线 dsh 0.1.6-alpha.1，逐条在本机 `~/.dsh/profiles/node_modules/@deepseek-ai` 上只读核对过），每条的出处文件如下：
 
@@ -103,7 +108,7 @@ PID 收）。退出码就是实验室的：0 = 四棵树零崩溃、零装载未
 | 整页白：`renderSlot('root') before any 'root' registration` | 客户端的条目协调器（`dsh-client-modules` 的 `ClientEntries`）开始**采纳**官方 `/plugins/events` 事件流推来的 `graph` 帧（0.1.6-alpha.1 的客户端半对它是「收到就丢」）。那一帧带的是**未过滤的全量 roster**，采纳之后我们 block 掉的官方插件被装回来、自有 frame 插件的条目被卸掉，root 槽的注册随之撤销 | 事件流也由镜像过滤：`pageHtml` 把页面的 `/plugins/events` 改道到镜像的 `/plugins-local/events`，镜像逐帧跑该树的 `filterWire`（与页面 boot 那份**同一个函数**） |
 | 侧栏树只有工作区、没有会话行 | 会话列表快照不再下发 `current` 字段，官方各处改成自己从行上的 `retainedBy.mainView` 推（`dsh-client-ui-workspace` / `dsh-client-ui-layout` 各一份同形写法） | `pure/workspaceTreeView.ts` 的 `withCurrentSession`（两代字段的单一分叉点；侧栏树、选择桥、对话面板启动注入三处都走它） |
 | 侧栏会话行不再有「跑完还没打开」的绿点（F-43 / F-46 红） | 会话列表的**行**上不再有 `completed`，官方把它挪进同一条 `sessionStatus` 钩子的 `completionUnread` 那一格（官方 ui-session 维护：跑起来就清、成为主对话区当前会话也清） | `pure/sessionPendingSource.ts` 的 `completedIds` 投影 + `pure/workspaceTreeView.ts` 的 `withCompletedIds`；合并排在 `withoutPanelOpenCompleted` 之前（宿主面板里开着的那条仍由那条通道压掉），老代给 `null`、行里自带的那一格一个字节不动 |
-| 侧栏页出现官方启动审计失败，页面被那张失败卡挡住（#225，2026-09-22 在**本机装的** alpha.2 上撞到） | 官方 `dsh-client-ui-plan` 的导出 `inject` 表里多出 `uiConversation`（alpha.1 没有这个名字），于是它开始等一个侧栏树拿不到的服务 | 侧栏树也下线它（`src/ui/assembly/wireFilter.ts`：从 `FLOW_SETTINGS_TREE` 挪进 `FLOW_BOTH_TREES`，与 workflow-run / deliverables / trajectory / goal 同一条服务级硬约束）。这一类的常驻判据就是 F-01 CONTRACT：改前 35/43（红的 8 条全在侧栏两棵树）、改后 43/43；把下线项去掉立刻回到 35/43 |
+| 侧栏页出现官方启动审计失败，页面被那张失败卡挡住（#225，2026-09-22 在**本机装的** alpha.2 上撞到） | 官方 `dsh-client-ui-plan` 的导出 `inject` 表里多出 `uiConversation`（alpha.1 没有这个名字），于是它开始等一个侧栏树拿不到的服务 | 侧栏树也下线它（`src/ui/assembly/wireFilter.ts`：从 `FLOW_SETTINGS_TREE` 挪进 `FLOW_BOTH_TREES`，与 workflow-run / deliverables / trajectory / goal 同一条服务级硬约束）。页面侧那一轮的读数：改前 F-01 35/43（红的 8 条全在侧栏两棵树）、改后 43/43；把下线项去掉立刻回到 35/43。**这一类现在另有一条离线判据**（#227，`block-list-drift`）：按官方包的服务依赖算出每棵树的清单，少挡一条就报红——上游再这么改时，探针在发版当天就红，不必等页面撞上 |
 | 点会话行没反应（页面上 `sessions.open is not a function`） | 会话服务把「选中」交还给会话视图的所有者：`ctx.sessions` 只剩 retain / using / binding 这些引用管理口，`open` / `select` / `clear` 三个方法被删（类型注释 "view selection remains outside the Controller"） | 改走官方那条**两代都在**的入口 `uiWorkspace.openSession(id)`（官方 ui-chat / ui-subagent / ui-workflow-run 也用它），一个分支覆盖两代。另：官方的启动恢复也搬进了 ui-workspace 的 watcher，多开页上首次注入会被它盖掉（恢复值来自共用的 localStorage），所以注入是**盯住目标直到落定**（1.5 秒观察窗口内每一拍重新看一眼当前读数、没落定就再喊一次；「目标还没出现在这一页的清单里」不当结论、`openSession` 抛的错当场说出来），且目标落定前不上报当前会话 |
 
 这四处的共同点：**契约面的名字一个都没少**，坏掉的是「这些名字背后的语义」。探针按名字查，
@@ -157,7 +162,7 @@ root 卸掉——页面上一个可见的盒都不剩。页面运行时据此兜
 
 | 跑什么 | 命令 | 覆盖什么 | 前置 |
 |---|---|---|---|
-| 上游探针 | `node scripts/dsh-upstream-watch/probe.mjs --command dsh --expect-version <版本>`（CI 里由 dsh-upstream-watch 每日自动跑） | 伺服面（wire + 网关前端产物：`/` 的启动契约、combo 端点、Origin 栅栏）+ 客户端契约面（combo 里的 slot/hook/字段名）+ 官方产物面（本机官方包里的内部标识符） | 本机有 dsh；探针自起临时 `DSH_HOME` 实例，只读 |
+| 上游探针 | `node scripts/dsh-upstream-watch/probe.mjs --command dsh --expect-version <版本>`（CI 里由 dsh-upstream-watch 每日自动跑） | 伺服面（wire + 网关前端产物：`/` 的启动契约、combo 端点、Origin 栅栏）+ 客户端契约面（combo 里的 slot/hook/字段名）+ 官方产物面（本机官方包里的内部标识符、三棵树 block list 的服务依赖补全） | 本机有 dsh；探针自起临时 `DSH_HOME` 实例，只读 |
 | 浏览器验证（候选版本） | `npm run verify:lab-version <版本>` | **候选版本**上四棵树装不装得起来：零崩溃、零装载未激活、槽位有内容（F-01 CONTRACT）。脚本把候选版本装到临时目录再用它跑实验室，不动本机安装 | 见上一节「装配面」 |
 | 浏览器验证（本机版本） | `npm run verify:lab` | 同上，但验的是本机已装的那一版；改装配相关代码后跑它 | 无（这条 script 自己先 `npm run build`） |
 | 宿主半验证 | `npm run verify:host-half` | 网关侧插件半（`packages/dsh-host-capabilities`）与官方 dsh 的兼容 | 见 `scripts/verify-host-half-official.mjs` |
