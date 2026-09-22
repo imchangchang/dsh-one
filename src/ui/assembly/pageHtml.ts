@@ -8,7 +8,8 @@
  *   <head>：base href（一切相对 URL 落回 mirror）→ 诊断探针（内联，仅 webview 激活）
  *   → 失败提示条（内联，#201，React 树整个被卸掉时页面不留白）→ 队列 facade（内联）
  *   → modulepreload/CSS →
- *   __DSH_BOOT__ wire → 阻塞 bootstrap script → 主 bundle（type=module）→
+ *   __DSH_BOOT__ wire → 启动自愈（内联，#228，官方启动审计点名某条目起不来时摘掉它
+ *   并重载一次）→ 阻塞 bootstrap script → 主 bundle（type=module）→
  *   __DSH_TRANSPORT__ seam（内联）
  *   <body>：主题预置 → __DSH_BOOT_READY__ resolve → 版本门信息条（可选）→ #root
  *
@@ -90,10 +91,19 @@ export interface AssemblyPageOptions {
    * ——mirror 按它取该树的 block list。
    */
   localPluginIds: readonly string[]
+  /**
+   * 实验开关（#228）：false 时**不装启动自愈**（`selfHeal.ts`）。缺省装。
+   *
+   * 用途只有一处：负向对照——同一个「某条目起不来」的现场，装上就自己救回来、
+   * 去掉就照旧被官方那张失败卡挡住（`verify:lab` 的 F-67 两条分支各跑一遍）。
+   * 生产恒缺省（不许在宿主侧关掉：那是用户不用等我们发版的那一手）。
+   */
+  selfHeal?: boolean
 }
 
 import { assemblyProbeJs } from './probe.ts'
 import { failureNoticeJs } from './failureNotice.ts'
+import { selfHealJs } from './selfHeal.ts'
 import { hostSdkJs } from './hostSdk.ts'
 
 function escapeHtml(text: string): string {
@@ -366,6 +376,10 @@ export function assemblyPageHtml(options: AssemblyPageOptions): string {
       ? ''
       : `<div style="position:sticky;top:0;z-index:100;padding:6px 12px;background:#8a6d1d;color:#fff;font:12px/1.5 var(--vscode-font-family,system-ui,sans-serif);">${escapeHtml(banner)}</div>`
   const transportScript = transportOn ? `    <script nonce="${cspNonce}">${transportJs(mirrorOrigin, options.localPluginIds)}</script>\n` : ''
+  // 启动自愈（#228）：夹在 __DSH_BOOT__ 赋值与主 bundle 之间——清单已经在了，官方
+  // 还没读它（消费清单的是主 bundle，`type="module"` 默认 defer，整页解析完才跑）。
+  // 实验开关：`selfHeal: false` 时整段不注入（F-67 的负向对照）。
+  const selfHealScript = options.selfHeal === false ? '' : `    <script nonce="${cspNonce}">${selfHealJs()}</script>\n`
   // body 归零（#70）：VS Code 给每条 webview 注入 @layer vscode-default
   // { body { padding: 0 20px } }（pre/index.html defaultStyles）——层内规则
   // 输给任何非层样式，但页面没人设置 body padding 时它就生效（实验室普通
@@ -385,7 +399,7 @@ export function assemblyPageHtml(options: AssemblyPageOptions): string {
     <script nonce="${cspNonce}">${hostSdkJs()}</script>${bodyReset}${bootGlobals}${preload}
 ${styles}
     <script nonce="${cspNonce}">globalThis["__DSH_BOOT__"] = ${jsonForScript(bootWire)}</script>
-    <script src="${escapeAttr(bootstrapUrl)}"></script>
+${selfHealScript}    <script src="${escapeAttr(bootstrapUrl)}"></script>
 ${transportScript}    <script type="module" crossorigin src="./${escapeAttr(assets.moduleJs)}"></script>
   </head>
   <body>
