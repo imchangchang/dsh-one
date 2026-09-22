@@ -213,10 +213,11 @@ export function transportJs(mirrorOrigin: string, localPluginIds: readonly strin
   return `(() => {
   const MIRROR = ${JSON.stringify(mirrorOrigin)}
   const WS_ORIGIN = MIRROR.replace(/^http/, "ws")
-  // 重试限流（#229）的开关：false = 三样一起不装（只给负向对照用，见 AssemblyPageOptions.retryThrottle）。
+  // Retry throttle switch (#229): false = none of the three mechanisms armed (negative control only,
+  // see AssemblyPageOptions.retryThrottle).
   const RETRY_THROTTLE = ${JSON.stringify(retryThrottle)}
-  // 失败后退避：250ms 起、每次翻倍、封顶 2s（≈280 次/秒 → 稳态 0.5 次/秒/目标；网关回来后
-  // 最多等 2s 就会发出一次真请求）。
+  // Per-target backoff after a failure: 250ms, doubling, capped at 2s (≈280 requests/s → 0.5/s per
+  // target; once the gateway is back at most 2s pass before a real request goes out).
   const RETRY_BACKOFF_BASE_MS = 250
   const RETRY_BACKOFF_MAX_MS = 2000
   const FAILURE_LOG_WINDOW_MS = ${FAILURE_LOG_WINDOW_MS}
@@ -224,7 +225,8 @@ export function transportJs(mirrorOrigin: string, localPluginIds: readonly strin
   const failLog = createFailureLog(FAILURE_LOG_WINDOW_MS)
   // Diagnostic probe hook: probe.ts installs __DSH_ONE_PROBE__ in webview only; silent in browsers.
   const probe = (level, text) => { if (globalThis.__DSH_ONE_PROBE__) globalThis.__DSH_ONE_PROBE__.log(level, text) }
-  // 限频记录：该记时记一条（level 由调用方给），被压掉的只累加计数。
+  // Rate-limited reporting: log when the throttle says to (level comes from the caller), suppressed
+  // repeats only bump the counter (see pure/logThrottle.ts).
   const noteFailure = (level, reason, message) => {
     const line = RETRY_THROTTLE ? failLog.failed(reason, message) : message
     if (line !== undefined) probe(level, line)
@@ -264,8 +266,9 @@ export function transportJs(mirrorOrigin: string, localPluginIds: readonly strin
   // addresses the host via location.origin ends up off-target.
   probe("info", "page origin " + String(globalThis.location && globalThis.location.origin) + " mirror " + MIRROR)
   const NATIVE_FETCH = globalThis.fetch.bind(globalThis)
-  // 同一目标的失败退避状态（#229）：fails = 连续失败次数（成功清零），nextAllowedAt =
-  // 下一次真请求最早可在的时刻，inFlight/inFlightKey = 正在飞的那个请求（同请求合并用）。
+  // Per-target failure state (#229): fails = consecutive failures (reset by a success), nextAllowedAt =
+  // earliest time the next real request may go out, inFlight/inFlightKey = the request currently flying
+  // (identical requests ride it instead of opening a second connection).
   const gates = new Map()
   const gateOf = (reason) => {
     let gate = gates.get(reason)
@@ -276,15 +279,16 @@ export function transportJs(mirrorOrigin: string, localPluginIds: readonly strin
     return gate
   }
   const backoffMs = (fails) => Math.min(RETRY_BACKOFF_MAX_MS, RETRY_BACKOFF_BASE_MS * Math.pow(2, Math.max(0, fails - 1)))
-  // 一次受退避保护的请求。send 是「真发出去」那一下（返回 Promise<Response>）。
+  // One request under the backoff gate. send() is the actual network call (Promise<Response>).
   const throttled = (reason, attemptKey, send) => {
     if (!RETRY_THROTTLE) return send()
     const gate = gateOf(reason)
-    // 同一个请求正在飞：搭它的结果（不另起一条连接——网关只是慢时也不会堆请求）。
+    // Same request already flying: ride its outcome (a merely slow gateway must not pile up requests).
     if (gate.inFlight !== null && gate.inFlightKey === attemptKey) return gate.inFlight
     const at = Date.now()
     if (at < gate.nextAllowedAt && gate.lastFailure !== null) {
-      // 退避窗内：不发，直接把上一次同样的失败结果回给调用方（并把它算进「同一原因」的计数）。
+      // Inside the backoff window: send nothing, hand the caller the same failure as last time, and
+      // count the attempt into the "same cause" tally.
       noteFailure(gate.lastFailure.level, reason, gate.lastFailure.message)
       if (gate.lastFailure.kind === "reject") return Promise.reject(gate.lastFailure.value)
       return Promise.resolve(new Response(null, { status: gate.lastFailure.status }))
@@ -296,8 +300,8 @@ export function transportJs(mirrorOrigin: string, localPluginIds: readonly strin
         gate.lastFailure = null
         return res
       }
-      // 5xx：目标侧的失败（网关不可达时镜像回的就是 502），同样进退避——否则这条路
-      // 会被调用方以同样的频率重试（现场那 460 条镜像失败的下一跳就是它）。
+      // 5xx is a target-side failure too (the mirror answers 502 when the gateway is gone) and enters
+      // the same backoff — otherwise the caller retries this path just as often.
       gate.fails += 1
       gate.nextAllowedAt = Date.now() + backoffMs(gate.fails)
       gate.lastFailure = {
@@ -324,7 +328,9 @@ export function transportJs(mirrorOrigin: string, localPluginIds: readonly strin
     const url = new URL(parsed.pathname + parsed.search, MIRROR).href
     const method = init && typeof init.method === "string" ? init.method.toUpperCase() : "GET"
     const body = init && typeof init.body === "string" ? init.body : ""
-    // 判据（#229）：同一目标 = 同一个 URL（查询串一起算）；同一请求 = 还要加方法与请求体。
+    // Throttle keys (#229): one target = one URL (query string included); one request = that plus
+    // method and body.
+
     const reason = url
     const attemptKey = method + " " + url + " " + body
     return throttled(reason, attemptKey, () => NATIVE_FETCH(url, init).then((res) => {
@@ -332,7 +338,8 @@ export function transportJs(mirrorOrigin: string, localPluginIds: readonly strin
       else noteRecovered(reason, "transport fetch " + url + " recovered")
       return res
     }, (err) => {
-      // 失败行必须在抛出去之前记（回退那条路也在 throttled 里记，两处措辞同源）。
+      // The failure line is logged before the rejection goes out (the backoff path logs the same
+      // wording through throttled()).
       noteFailure("error", reason, "transport fetch " + url + " failed: " + err)
       throw err
     }))
@@ -362,10 +369,11 @@ export function transportJs(mirrorOrigin: string, localPluginIds: readonly strin
     return NATIVE_FETCH(new URL(url.pathname + url.search, MIRROR).href, init)
   }
   globalThis.fetch = hostFetch
-  // 为什么 openStream 这一路不进退避限频（#229 的现场核查）：官方连接层自己就有退避
-  // （dsh-client-connection 的 backoffBaseMs 500 / factor 2 / cap 10s，重连循环在那里），
-  // 现场日志里这一类也只出现 9 条、没形成风暴；被刷穿的是**没有任何退避**的 RPC 那一层
-  // （apiFetch，日志里 16410 行全是它）。所以限流只落在 apiFetch 上，不叠第二层。
+  // Why openStream is left out of the throttle (#229 field check): the official connection layer
+  // already backs off on its own (dsh-client-connection: backoffBaseMs 500, factor 2, cap 10s — the
+  // reconnect loop lives there) and the incident log only had 9 carrier failures of this class, no
+  // storm at all. What flooded was the RPC path with no backoff whatsoever (apiFetch — all 16410
+  // lines). So the throttle sits on apiFetch only, not stacked twice.
   const openStream = (endpoint, payload, signal) => (async function* () {
     signal && signal.throwIfAborted()
     const ws = new WebSocket(WS_ORIGIN + "/api/remote.mux")
