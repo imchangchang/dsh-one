@@ -78,7 +78,7 @@ dsh-one/
 │       ├── workspaceTreeView.ts / sessionPendingSource.ts / treeGroups.ts …          # 侧栏树的数据形态
 │       ├── sessionTagGroups.ts / sessionTags.ts / recycleBinState.ts / sessionMarks.ts  # 标签组、回收站、置顶未读
 │       ├── chatContract.ts / conversation.ts / sessionTree.ts / hostFrames.ts        # 消息契约与会话模型
-│       ├── envelope.ts / readyLine.ts / semver.ts / dshWire.ts                       # 协议小工具
+│       ├── envelope.ts / readyLine.ts / semver.ts / dshWire.ts / logThrottle.ts      # 协议小工具与失败日志限频
 │       └── …                 # 其余按文件名自解释（tokenScan / installGuidePage / statusTooltip 等）
 ├── test/                     # src/pure 的单测（node:test）+ assembly-lab（浏览器验证）+ mock-dsh 协议夹具
 │                             #   + legacy-sidebar(旧侧栏参照 harness) + sandbox(容器装机验收)
@@ -215,7 +215,7 @@ dsh 上游出于安全只监听 `127.0.0.1`（拒绝 `--host 0.0.0.0`），所�
 | seam | 我们怎么用 |
 | --- | --- |
 | `__DSH_BOOT__` | 读网关那一份拿到清单与资产名；把过滤后的清单内联进装配页（`pageHtml.ts`） |
-| `__DSH_TRANSPORT__` | 官方留给「不同物理传输的 shell」的接口。webview 的页面源是 `vscode-webview://<uuid>`，而官方客户端按 `location.origin` 寻址，所以我们在页面里提供 `fetch`（把宿主寻址的请求换源到 mirror）、`openStream`（自建 WS 说 `remote.mux` 协议）与 `ownsHost: true`（声明传输层拥有 loopback 宿主权威，官方 `isLoopback` 判定读它——不声明会掉进「浏览器里设置不可用」那一档）。页面全局 `fetch` 也一并改写两类宿主寻址 URL（页面自己的源、官方内部常量 `http://dsh.internal`），Request 对象与真外部源原样放行 |
+| `__DSH_TRANSPORT__` | 官方留给「不同物理传输的 shell」的接口。webview 的页面源是 `vscode-webview://<uuid>`，而官方客户端按 `location.origin` 寻址，所以我们在页面里提供 `fetch`（把宿主寻址的请求换源到 mirror）、`openStream`（自建 WS 说 `remote.mux` 协议）与 `ownsHost: true`（声明传输层拥有 loopback 宿主权威，官方 `isLoopback` 判定读它——不声明会掉进「浏览器里设置不可用」那一档）。页面全局 `fetch` 也一并改写两类宿主寻址 URL（页面自己的源、官方内部常量 `http://dsh.internal`），Request 对象与真外部源原样放行。`fetch` 这一路上还挂着**失败退避与失败日志限频**（`#229`）：同一个目标失败后 250ms 起翻倍退避、封顶 2s，窗口内的重复尝试不再发出去（直接回上一次同样的失败），同一原因的失败日志只记「第一条 + 每 10 秒一条带重复次数的汇总行 + 恢复时一条收尾行」 |
 | `__DSH_BOOT_READY__` | 装配页在 `<body>` 末尾按官方启动形态兑现它 |
 | `__ModuleLoader__.load({ id, factory })` | 我们的自有插件 bundle 就是这个格式（打包时的 banner/footer，id 必须等于包名）；镜像也按这个边界切整包 |
 | 种子表 externals | 自有插件 bundle 里 `react` / `react/jsx-runtime` / `@deepseek-ai/cordis` / `@deepseek-ai/dsh-client-store` 保持 `require()`，由官方主 bundle 的种子表满足；打进包会双重实例化 |
@@ -331,12 +331,14 @@ dsh 上游出于安全只监听 `127.0.0.1`（拒绝 `--host 0.0.0.0`），所�
 14. **版本门只提示不阻断。** 区间外的版本给一条信息条照常使用——挡掉用户会让他没法自查是谁的问题，而区间判定太粗（整段区间里已知有漂移），挡也不准。
 15. **装配页不留白。** 官方渲染器故意让装配错穿出所有 entry 边界（fail loud），React 随即卸掉整棵 root；官方那套失败卡片只覆盖启动期，留给插件的 `onEntryError` 也收不到装配错。所以这一层由页面运行时出：捕获到错误就记下原文（不吞日志），`#root` 从「有过内容」变成「连续两拍一个可见的盒都没有」就落一行说明加一个重载入口。判据落在用户看到的东西上，页面好着时一个字节不动。
 16. **页面自己救一次，用户不必等我们发版。** 官方启动审计报「某条目起不来」（`web boot: N entry did not activate` + 点名 id）时，整页被官方那张失败卡挡住——规则化的 block list 覆盖不了所有漂移（服务级依赖、官方新加的注入项、官方改名），所以汇编页多一手自己的补救：把官方**点名的那一条**从本页清单（`__DSH_BOOT__` 这个官方 seam）里摘掉、把这一页重载**一次**；再失败就落到上一条那行说明（官方那张卡在，提示条由知道发生了什么的那一层显式落下）。三条死规矩：**只试一次**（重载的凭据写在 `sessionStorage`，写不下就不重载——写不下就没有「只用一次」的保证，宁可不救也不许循环）、**只认官方点出来的 id**（不自己猜哪些该摘；摘不干净的情形不浪费那一次）、**必须留痕**（摘了谁、因为什么写进日志，原始审计错误照旧打到控制台——不能悄悄修好，否则验证里那条「零装载未激活」就失去检测能力）。
-16. **局域网访问用本机转发器，不改 dsh 的监听。** dsh 只监听 `127.0.0.1` 是上游的安全策略，我们不去绕它，而是在局域网地址上做纯 TCP 透传并让 spawn 带 `--trusted-host`；多窗口共用地址与端口，先到者持有监听。代价是开着的时候局域网内拿到链接的人都能用 dsh，所以默认关闭、状态栏随时可切回。
+17. **限流落在传输层，因为重试的调用方改不了。** 网关不可达时官方客户端会对同一个接口无退避重试（现场实测 ≈280 次/秒、页面日志 16410 行把 2 MB 的日志文件翻转两轮）。调用方在官方那一层——`commands/list` 在整份官方前端里只有 `dsh-client-ui-commands` 的 `CommandDirectory` 一处调用（`ctx.remote.commands.list`），我们自己的代码一处都没有——所以能做的是在**所有 RPC 的必经之路**（页面传输的 `fetch`）兜住后果，判据落在「同一目标」上，与谁在重试无关：失败后 250ms 起翻倍退避、封顶 2s，窗口内的重复尝试不发出去、直接回上一次同样的失败（调用方的行为不变），窗口一到期就发真请求（所以服务回来最多 2 秒内就通，不是「卡死不重试」）；同一个请求正在飞时合并成一条。日志那半由 `src/pure/logThrottle.ts` 统一：同一原因第一次照原样记、之后每 10 秒一条带「已重复 N 次」的汇总行、恢复时补一条收尾行；页面侧与镜像侧各一份实现（内联脚本 import 不了 TS），两半由单测逐行对齐。镜像侧只改**记什么**，转发与 502 语义一个字节不动。
+18. **局域网访问用本机转发器，不改 dsh 的监听。** dsh 只监听 `127.0.0.1` 是上游的安全策略，我们不去绕它，而是在局域网地址上做纯 TCP 透传并让 spawn 带 `--trusted-host`；多窗口共用地址与端口，先到者持有监听。代价是开着的时候局域网内拿到链接的人都能用 dsh，所以默认关闭、状态栏随时可切回。
 
 ## 10. 变更记录
 
 按 issue 号从大到小排（这个仓库里约等于时间倒序；每条当时的具体讨论看 issue 本身）。这里只记「结构或依赖面变了」的那些，界面与交互的变化看 CHANGELOG。
 
+- `#229` 网关不可达时的重试限流：同一目标的失败退避与同一原因的失败日志限频落在页面传输层（重试的调用方是官方客户端，改不了它）。
 - `#228` 装配页启动自愈：官方启动审计点名某条目起不来时，页面自己把它从本页清单里摘掉并重载一次（再失败落到 `#201` 那行说明）。
 - `#216` `#215` 标签组：默认色优先取本工作区没用过的颜色；移入回收站的会话不再算活跃成员（组与归属当场清，还原可逆）。
 - `#213` `#214` 三个预设标签组改回恒存在、不可删改（名字走 l10n）、空着不占位。
@@ -382,6 +384,7 @@ dsh 上游出于安全只监听 `127.0.0.1`（拒绝 `--host 0.0.0.0`），所�
 
 ### 日志
 
+- **同一原因的失败日志必须在源头限频**（`#229`）：日志文件有 2 MB 上限（`src/pure/logFile.ts` 的 `LOG_FILE_MAX_BYTES`），而一次「同一接口每秒失败几百次」的循环就能把上限吃穿、翻转掉前面的内容——用户先看到的是「侧栏一直报错」，真正的问题线索反而被冲掉。所以页面传输与镜像那两条会按目标刷屏的通路都接了 `src/pure/logThrottle.ts` 的限频器（第一次照原样、之后按时间窗补一条带重复次数的汇总行、恢复时一条收尾行），文件上限只当最后一道兜底。
 - **日志**：一律走 `Logger`（`src/log.ts`），写入前 `sanitize()` 把 URL 的 query 值脱敏成 `***`（token 不进日志），同时落一份文件（`src/pure/logFile.ts`，读法见 `docs/development.md`「日志与事后取证」）——窗口重载、宿主重启这类发生在扩展之外的故障事后只能靠这份文件自证。新增日志点走 `Logger`，不要 `console.log`。
 ### webview CSP
 
