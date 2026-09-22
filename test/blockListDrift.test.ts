@@ -8,7 +8,7 @@
  * 1. 取数：`needs` / `provides` 的取法（含「找不到 inject 导出」要能报出来）；
  * 2. 目录读取：官方包目录里每条常常是指向安装树的**符号链接**，按 `isDirectory` 过滤会一条
  *    都读不到、又会静默算成「闭包是空的、三棵树一致」——合成产物里放一条符号链接钉住它；
- * 3. 正向：清单覆盖派生结果 → pass；
+ * 3. 正向：清单覆盖补全结果 → pass；
  * 4. 负向（#227 验收要的那条）：**把 `ui-plan` 从侧栏清单里删掉 → 必须红**，且 detail
  *    点得出它、它等的服务名与「提供方全被挡」的那个提供方；另加「多挡不红」（形态类
  *    条目本来就算不出来）与两处「取不到就红」。
@@ -173,7 +173,7 @@ test('取数：包里读不到 bundle / 解析不出 inject 导出时进 problem
   assert.match(problems[0], /dsh-client-ui-chat.*找不到导出的 inject 服务表/)
 })
 
-test('正向：侧栏清单覆盖派生结果 → pass，detail 给出逐棵树读数', () => {
+test('正向：侧栏清单覆盖补全结果 → pass，detail 给出逐棵树读数', () => {
   const { root } = writeFixture()
   const row = CHECK(root, [CONVERSATION, PLAN, CHAT])
   assert.equal(row.status, 'pass', row.detail)
