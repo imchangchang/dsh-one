@@ -42,6 +42,8 @@ interface Harness {
   heal(): void
   /** 让假 fetch 从现在起回 5xx（镜像顶不住时那条路）。 */
   break503(): void
+  /** 让假 fetch 从现在起回一个 4xx（应用自己的答复——不是「目标不可达」）。 */
+  break4xx(): void
   /** 假 fetch 挂住不落定；返回放行函数（造「请求在飞」那一刻）。 */
   hang(): () => void
 }
@@ -111,6 +113,10 @@ function makeHarness(options: HarnessOptions = {}): Harness {
     break503: () => {
       behaviour.kind = 'status'
       behaviour.status = 503
+    },
+    break4xx: () => {
+      behaviour.kind = 'status'
+      behaviour.status = 404
     },
     hang: () => {
       behaviour.kind = 'hang'
@@ -218,6 +224,19 @@ test('5xx 也进退避：镜像顶不住时回的 502 同样按目标限频，�
     h.logs.filter((line) => line.includes('HTTP 503')).length <= 2,
     `5xx 的日志同样限频（实测 ${JSON.stringify(h.logs)}）`,
   )
+})
+
+test('4xx 不进冷却：请求到达了应用、拿到的是真实答复，照常每次尝试都发出去', async () => {
+  const h = makeHarness()
+  h.break503()
+  h.break4xx()
+  for (let i = 0; i < 30; i++) {
+    h.advance(1)
+    const res = await h.attempt(bodyOf(i))
+    assert.equal(res.ok, false)
+    assert.equal(res.status, 404, '拿到的是应用自己的答复')
+  }
+  assert.equal(h.sent.length, 30, '4xx 不是「目标不可达」，不许进冷却（否则正常报错会被限流挡住）')
 })
 
 test('同一个请求正在飞时合并成一条；不是同一个请求（请求体不同）不合并', async () => {
