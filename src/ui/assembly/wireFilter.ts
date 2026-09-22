@@ -80,9 +80,10 @@ const UI_LAYOUT: BlockedPlugin = {
 
 /**
  * 对话流卡片组，**只在 settings 树里下线**（#71 瘦身，2026-09-18 #180 逐条复核后
- * 从这里摘掉了 sidebar 树）。
+ * 从这里摘掉了 sidebar 树；2026-09-22 #225 又把 `ui-plan` 从这份清单里挪进了
+ * `FLOW_BOTH_TREES`——理由从形态变成了服务，见那里的注释）。
  *
- * 为什么 sidebar 树不必再下线它们：这 7 件注册的槽位全在对话区（`conversation.*` /
+ * 为什么 sidebar 树不必再下线它们：这 6 件注册的槽位全在对话区（`conversation.*` /
  * `tool.call.*`），而 sidebar 树**一个都没声明**——它的 frame 只声明 `sidebar` 与
  * `shell.overlay`，官方 ui-conversation（那些槽位的声明方）也在这棵树上被下线，
  * 整棵对话子树因此不存在（#180 在真树上读过槽位声明表：sidebar 树共 10 个名字，
@@ -107,7 +108,6 @@ const FLOW_SETTINGS_TREE: ReadonlyArray<BlockedPlugin> = [
   { id: '@deepseek-ai/dsh-client-ui-attachment', reason: 'message attachment gallery; the settings tree declares the conversation seats (via keyed `main`) but is not a conversation page' },
   { id: '@deepseek-ai/dsh-client-ui-subagent', reason: 'subagent cards; the settings tree declares the conversation seats (via keyed `main`) but is not a conversation page' },
   { id: '@deepseek-ai/dsh-client-ui-jobs', reason: 'background-jobs cards; the settings tree declares the conversation seats (via keyed `main`) but is not a conversation page' },
-  { id: '@deepseek-ai/dsh-client-ui-plan', reason: 'plan cards; the settings tree declares the conversation seats (via keyed `main`) but is not a conversation page' },
   { id: '@deepseek-ai/dsh-client-ui-message-feedback', reason: 'message feedback; the settings tree declares the conversation seats (via keyed `main`) but is not a conversation page' },
   { id: '@deepseek-ai/dsh-session-log-export', reason: 'session-log export (routed through the host save-dialog action, #71); its seat is declared in the settings tree but nothing renders there' },
 ]
@@ -115,13 +115,21 @@ const FLOW_SETTINGS_TREE: ReadonlyArray<BlockedPlugin> = [
 /**
  * 对话区那几件里**两棵树都要下线**的（sidebar + settings）：多一个硬理由，不只是形态。
  *
- * - 前四件（workflow-run / deliverables / trajectory / goal）的 inject 里都有官方
- *   `uiConversation` 服务，而这个服务由 ui-conversation 提供——sidebar 树下线了
+ * - 前五件（workflow-run / deliverables / trajectory / goal / plan）的 inject 里都有
+ *   官方 `uiConversation` 服务，而这个服务由 ui-conversation 提供——sidebar 树下线了
  *   ui-conversation，服务不存在，放回它们会停在「未激活」，boot 一个条目没激活就整页
  *   抛错（#164 现场：`@deepseek-ai/dsh-client-ui-model-selection: pending (waiting for
  *   service: commandUi)`，整页连自有根节点都不出现）。这是**服务级**硬约束，不是形态
  *   判断。settings 树里这个服务在（ui-conversation 只被 sidebar 树下线），所以那棵树
  *   的理由仍是上一条清单的形态理由。
+ *
+ *   ui-plan 是 2026-09-22（#225）从 `FLOW_SETTINGS_TREE` 挪过来的：它在
+ *   **0.1.6-alpha.2** 里开始等 `uiConversation`（官方 `dsh-client-ui-plan/lib/client.js`
+ *   的导出 `inject` 表里多出这个名字，alpha.1 没有），于是同一件事在 sidebar 树上重演——
+ *   面板出现官方启动审计失败 `web boot: 1 entry did not activate` /
+ *   `@deepseek-ai/dsh-client-ui-plan: pending (waiting for service: uiConversation)`，
+ *   页面被那张失败卡挡住（F-01 复现 35/43，红的 8 条全在侧栏两棵树）。挪完之后
+ *   `FLOW_SETTINGS_TREE` 里不再留它的重复定义；那棵树照旧下线它，只是走本清单这条。
  * - directory-picker-native 注册的两处槽位里，`sidebar.workspaces.directoryFlow`
  *   在 **sidebar 树真被声明**（官方 ui-workspace 的 WorkspaceBrowser 声明它，自有树
  *   还要读它的占用态做「官方目录选择器接管」，见 dsh-workspace-tree）：放回它就会往
@@ -135,6 +143,7 @@ const FLOW_BOTH_TREES: ReadonlyArray<BlockedPlugin> = [
   { id: '@deepseek-ai/dsh-client-ui-deliverables', reason: 'injects the official `uiConversation` service, which the sidebar tree does not provide (ui-conversation is blocked there); boot fails when an entry never activates' },
   { id: '@deepseek-ai/dsh-client-ui-trajectory', reason: 'injects the official `uiConversation` service, which the sidebar tree does not provide (ui-conversation is blocked there); boot fails when an entry never activates' },
   { id: '@deepseek-ai/dsh-client-ui-goal', reason: 'injects the official `uiConversation` service, which the sidebar tree does not provide (ui-conversation is blocked there); boot fails when an entry never activates' },
+  { id: '@deepseek-ai/dsh-client-ui-plan', reason: 'injects the official `uiConversation` service since 0.1.6-alpha.2 (#225), which the sidebar tree does not provide (ui-conversation is blocked there); boot fails when an entry never activates' },
   { id: '@deepseek-ai/dsh-client-ui-directory-picker-native', reason: 'native directory picker; its `sidebar.workspaces.directoryFlow` seat is declared in the sidebar tree by the official WorkspaceBrowser, and the settings tree declares both of its seats' },
 ]
 
@@ -216,7 +225,8 @@ const SETTINGS_GENERAL: BlockedPlugin = {
 
 /**
  * sidebar 树 block list（#70，#71 瘦身；#180 起不再背对话流卡片的 id）：官方外框 +
- * 对话区那两件必须下线的 + 设置子页组 + 侧栏树专属（真正的对话区组件）。
+ * 对话区里两棵树都得下线的那几件（`FLOW_BOTH_TREES`，含 #225 起加进来的 ui-plan）
+ * + 设置子页组 + 侧栏树专属（真正的对话区组件）。
  * 保留闭包：ui-settings（settingsScope 服务提供方，theme 依赖）、ui-input-trigger
  * （ui-cordis 的 inputTriggers 依赖）、ui-cordis（底部动作条）、ui-commands
  * （commandUi 服务，#164）。
@@ -282,7 +292,7 @@ export const CHAT_BLOCK_LIST: ReadonlyArray<BlockedPlugin> = [
 
 /**
  * settings 树 block list（#70 设置独立成页 + #71 瘦身）：官方外框、官方侧栏、
- * 对话流卡片组（两棵树都下线的那 5 件 + 只在设置树下线的 7 件）。设置四件套/
+ * 对话流卡片组（两棵树都下线的那 6 件 + 只在设置树下线的 6 件）。设置四件套/
  * 主题/权限/预设全保留（设置页内容）。
  */
 export const SETTINGS_BLOCK_LIST: ReadonlyArray<BlockedPlugin> = [

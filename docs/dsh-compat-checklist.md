@@ -103,10 +103,16 @@ PID 收）。退出码就是实验室的：0 = 四棵树零崩溃、零装载未
 | 整页白：`renderSlot('root') before any 'root' registration` | 客户端的条目协调器（`dsh-client-modules` 的 `ClientEntries`）开始**采纳**官方 `/plugins/events` 事件流推来的 `graph` 帧（0.1.6-alpha.1 的客户端半对它是「收到就丢」）。那一帧带的是**未过滤的全量 roster**，采纳之后我们 block 掉的官方插件被装回来、自有 frame 插件的条目被卸掉，root 槽的注册随之撤销 | 事件流也由镜像过滤：`pageHtml` 把页面的 `/plugins/events` 改道到镜像的 `/plugins-local/events`，镜像逐帧跑该树的 `filterWire`（与页面 boot 那份**同一个函数**） |
 | 侧栏树只有工作区、没有会话行 | 会话列表快照不再下发 `current` 字段，官方各处改成自己从行上的 `retainedBy.mainView` 推（`dsh-client-ui-workspace` / `dsh-client-ui-layout` 各一份同形写法） | `pure/workspaceTreeView.ts` 的 `withCurrentSession`（两代字段的单一分叉点；侧栏树、选择桥、对话面板启动注入三处都走它） |
 | 侧栏会话行不再有「跑完还没打开」的绿点（F-43 / F-46 红） | 会话列表的**行**上不再有 `completed`，官方把它挪进同一条 `sessionStatus` 钩子的 `completionUnread` 那一格（官方 ui-session 维护：跑起来就清、成为主对话区当前会话也清） | `pure/sessionPendingSource.ts` 的 `completedIds` 投影 + `pure/workspaceTreeView.ts` 的 `withCompletedIds`；合并排在 `withoutPanelOpenCompleted` 之前（宿主面板里开着的那条仍由那条通道压掉），老代给 `null`、行里自带的那一格一个字节不动 |
+| 侧栏页出现官方启动审计失败，页面被那张失败卡挡住（#225，2026-09-22 在**本机装的** alpha.2 上撞到） | 官方 `dsh-client-ui-plan` 的导出 `inject` 表里多出 `uiConversation`（alpha.1 没有这个名字），于是它开始等一个侧栏树拿不到的服务 | 侧栏树也下线它（`src/ui/assembly/wireFilter.ts`：从 `FLOW_SETTINGS_TREE` 挪进 `FLOW_BOTH_TREES`，与 workflow-run / deliverables / trajectory / goal 同一条服务级硬约束）。这一类的常驻判据就是 F-01 CONTRACT：改前 35/43（红的 8 条全在侧栏两棵树）、改后 43/43；把下线项去掉立刻回到 35/43 |
 | 点会话行没反应（页面上 `sessions.open is not a function`） | 会话服务把「选中」交还给会话视图的所有者：`ctx.sessions` 只剩 retain / using / binding 这些引用管理口，`open` / `select` / `clear` 三个方法被删（类型注释 "view selection remains outside the Controller"） | 改走官方那条**两代都在**的入口 `uiWorkspace.openSession(id)`（官方 ui-chat / ui-subagent / ui-workflow-run 也用它），一个分支覆盖两代。另：官方的启动恢复也搬进了 ui-workspace 的 watcher，多开页上首次注入会被它盖掉（恢复值来自共用的 localStorage），所以注入是**盯住目标直到落定**（1.5 秒观察窗口内每一拍重新看一眼当前读数、没落定就再喊一次；「目标还没出现在这一页的清单里」不当结论、`openSession` 抛的错当场说出来），且目标落定前不上报当前会话 |
 
-两处的共同点：**契约面的名字一个都没少**，坏掉的是「这些名字背后的语义」。探针按名字查，
+这四处的共同点：**契约面的名字一个都没少**，坏掉的是「这些名字背后的语义」。探针按名字查，
 补不上这一类，只能靠真页面在真版本上跑出来。
+
+**整轮读数（2026-09-22，本机装的 0.1.6-alpha.2）**：67 项里 65 项全绿、**3580 / 3583** 条断言
+通过；红的只有 chat 树那两条（F-61 15/17、F-62 21/22，两处都在会话落定 / 未连通页面的渲染上，
+与 block list 无关——改前的 block list 上逐字复现，见 #226）。此前那一轮（2026-09-21，装的还是
+alpha.1）是 67 项零红、3583 条全过，套件集与总数都没变。
 
 ### 重启实例之后约 3 秒整页白（0.1.6-alpha.2，2026-09-18 复测 #10 时撞到）
 
