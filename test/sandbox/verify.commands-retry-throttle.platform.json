@@ -48,7 +48,7 @@
       {
         "condition": "镜像侧 `proxyRequest` / `proxyUpgrade` 的失败与恢复（同一份 `pure/logThrottle.ts`，Node 实现）",
         "expected": "同一个目标（方法 + 路径）的失败日志同样限频，恢复时补一条收尾行；只改记什么，转发与 502 语义一个字节不动（所以网关回来后转发照常通）",
-        "verification": "单测「两半实现（Node 版与塞进页面的 JS 版）跑同一串事件逐行一致」（Node 实现与页面侧那份逐行比对）；浏览器验证 F-68：限流档 9 条转发失败 → 镜像侧 2 行、负向对照 14653 条转发失败 → 镜像侧仍只有 2 行，且恢复档镜像侧补出一条 `POST /api/commands/list recovered`"
+        "verification": "单测「两半实现（Node 版与塞进页面的 JS 版）跑同一串事件逐行一致」（Node 实现与页面侧那份逐行比对）；浏览器验证 F-68：限流档 9 条转发失败 → 镜像侧 2 行、负向对照 15482 条转发失败 → 镜像侧仍只有 2 行，且恢复档镜像侧补出一条 `POST /api/commands/list recovered`"
       },
       {
         "condition": "`createFailureLog` 内部按原因取表：没有这个原因 / 有但还在窗内 / 有且窗口到期（`recovered` 那一侧：没有这个原因 / 只出现过一次 / 出现过多次）",
