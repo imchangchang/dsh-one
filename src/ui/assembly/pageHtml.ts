@@ -330,7 +330,6 @@ export function transportJs(mirrorOrigin: string, localPluginIds: readonly strin
     const body = init && typeof init.body === "string" ? init.body : ""
     // Throttle keys (#229): one target = one URL (query string included); one request = that plus
     // method and body.
-
     const reason = url
     const attemptKey = method + " " + url + " " + body
     return throttled(reason, attemptKey, () => NATIVE_FETCH(url, init).then((res) => {
