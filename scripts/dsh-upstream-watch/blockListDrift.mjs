@@ -12,8 +12,8 @@
  * 上游发版自动对比，结论进 upstream-watch issue。
  *
  * 算法与判据在 `src/pure/blockListDerivation.ts`（纯函数，`node --test` 直接测）；
- * 本文件只负责**取数据**（读本机官方包的清单与 bundle）与**报结果**（多算了哪几条 /
- * 少算了哪几条）。
+ * 本文件只负责**取数据**（读本机官方包的清单与 bundle）与**报结果**（少挡了哪几条 /
+ * 哪些手写条目是规则算不出来的）。
  *
  * ## 数据从哪来、为什么不是 `package.json` 的 `dsh.client.inject`
  *
@@ -36,7 +36,7 @@
  * 三类情况一律 fail，不降级：① 某个包的 bundle 读不到或解析不出 `inject` 导出；
  * ② 有插件在等的服务在官方包里找不到任何提供方、又不属于框架/主机层那一族
  * （`loader` / `modules` / `remote.*`，见 `isFrameworkService`）——那说明官方换了挂服务的
- * 写法、我们的取法漏了；③ 某棵树的派生清单里有条目没被手写清单覆盖（少挡）。
+ * 写法、我们的取法漏了；③ 某棵树的补全结果里有条目没被手写清单覆盖（少挡）。
  * 「多挡」不算失败：形态类条目（官方外框、官方侧栏）本来就算不出来，多挡一条的代价只是
  * 少加载一个本来也不渲染的 entry。
  */
@@ -153,7 +153,7 @@ export function checkBlockListDrift({ root, version, profile, trees }) {
   if (unprovided.length > 0) {
     failure.push(
       `有插件在等的服务在官方包里找不到提供方：${unprovided.join('、')}` +
-        `（框架/主机层那一族 ${[...['loader', 'modules'], 'remote.*'].join('、')} 不算；其余多半是官方换了挂服务的写法、取法要跟着改）`,
+        '（框架/主机层那一族 loader、modules、remote.* 不算；其余多半是官方换了挂服务的写法、取法要跟着改）',
     )
   }
   const perTree = []
