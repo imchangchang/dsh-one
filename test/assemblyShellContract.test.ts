@@ -388,3 +388,20 @@ test('#191：当前会话按 retainedBy.mainView 推（官方 0.1.6-alpha.2 起�
   const tree = fs.readFileSync(path.join(TREE_DIR, 'workspaceTree', 'tree.ts'), 'utf8')
   assert.match(tree, /withCurrentSession\(/, '侧栏树要归一当前会话（当前会话所在分组默认展开靠它）')
 })
+
+/** 去掉注释后的源码（只看代码，行注释与块注释都算）。 */
+const codeOnly = (text: string): string => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+
+test('#226：对话区外框的「当前会话」读数也走同一个分叉口（读快照的 current 会静默失效）', () => {
+  const layout = codeOnly(read('chatLayoutPlugin.ts'))
+  assert.match(layout, /withCurrentSession\(/, '要经官方两代唯一的那个分叉口（pure/workspaceTreeView 的 withCurrentSession）')
+  assert.ok(
+    !/\bs\.current\b/.test(layout),
+    '不得直接读会话列表快照的 current：0.1.6-alpha.2 起那张快照里没有这一格，读了会静默恒 undefined',
+  )
+  assert.match(
+    layout,
+    /const currentSession = useSessions\(currentIdOf\)/,
+    '冷启动遮罩的「目标到位了没有」要走同一个读数，否则每次都白等满 5 秒兜底（#226 的现场）',
+  )
+})

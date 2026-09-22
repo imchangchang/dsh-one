@@ -41,15 +41,31 @@ import {
 } from './frameShared'
 import { installExternalLinkShim } from './externalLinkShim'
 import { SHELL_LOCALE } from './shellLocale'
+import { withCurrentSession, type SessionListLike } from '../../../pure/workspaceTreeView'
 
 // ---------------------------------------------------------------------------
 // 类型（本地最小面；cordis ctx / 框架槽位的真实形态在私有包里，不跨包引用）
 // ---------------------------------------------------------------------------
 
-interface SessionsSnapshot {
-  current?: string
-  byId: Record<string, { blank?: boolean; title?: string }>
-}
+/**
+ * 会话列表快照：形状（`ids` / `byId` / `current`）见 `pure/workspaceTreeView.ts` 的
+ * `SessionListLike`。**本文件一律不直接读 `current`**——0.1.6-alpha.2 起官方那张快照
+ * 里已经没有这一格了（`dsh-api-session-controller` 的 `projectList` 不再写它），
+ * 唯一的入口是 {@link currentIdOf}。
+ */
+type SessionsSnapshot = SessionListLike
+
+/**
+ * 「当前会话」的取用法：官方两代字段的**唯一分叉点**在共享函数 `withCurrentSession`
+ * 里（老代直接下发 `current`；新代官方改成从行上的 `retainedBy.mainView` 推），这里
+ * 只调用它，不自己再分一次版本。
+ *
+ * **为什么这个文件也必须过它**（#226）：本插件读 `current` 的地方有三处（details 面板
+ * 的开合、文档标题、冷启动遮罩的「目标到位了没有」），在 0.1.6-alpha.2 上直接读快照
+ * 会恒得 `undefined`——遮罩于是永远等不到「目标到位」那一刻，只能靠 5 秒兜底揭幕并打
+ * 一句 `timed out`（实验室 F-62 实测红在这里，见 #226 的现场）。
+ */
+const currentIdOf = (snapshot: SessionsSnapshot): string | undefined => withCurrentSession(snapshot).current
 
 /**
  * 会话面板槽位名镜像：官方把「会话面板」这个槽位从 0.1.2 的 single `conversation`
@@ -326,12 +342,15 @@ function ShellFrame({ useStore, useSessions, usePanelInfo, actions, renderSlot, 
   const [, setSeatTick] = useState(0)
   useEffect(() => conversationSeat.subscribe(() => setSeatTick((n) => n + 1)), [conversationSeat])
   const activePanelId = usePanelInfo((info) => info.activePanelId)
+  // 「当前会话」三处读数都经 `currentIdOf`（版本分叉见那里的注释）：details 面板的
+  // 开合、文档标题、冷启动遮罩的「到位了没有」。直接读 `s.current` 在 0.1.6-alpha.2
+  // 上恒得 undefined（快照里没有这一格了）。
   const detailsSession = useSessions((s) => {
-    const current = s.current
+    const current = currentIdOf(s)
     return current !== undefined && s.byId[current]?.blank === false ? current : undefined
   })
   const documentTitle = useSessions((s) => {
-    const current = s.current
+    const current = currentIdOf(s)
     return current === undefined ? undefined : s.byId[current]?.title
   })
   const lastSession = useRef(detailsSession)
@@ -345,7 +364,7 @@ function ShellFrame({ useStore, useSessions, usePanelInfo, actions, renderSlot, 
   // 杜绝官方默认态（空白会话 hero）闪帧；默认 tab 无注入永不罩（官方恢复
   // 行为不动）。激活 = current === bootId（机制层 2 订阅）；超时兜底揭幕。
   const bootId = bootSessionId()
-  const currentSession = useSessions((s) => s.current)
+  const currentSession = useSessions(currentIdOf)
   const [revealedByTimeout, setRevealedByTimeout] = useState(false)
   // 冷启动遮罩只服务「首次到达目标会话」：到位即永久揭幕（#65 批 1 回归套件
   // 抓出——原先只比 current !== bootId，运行时切到别的会话会让遮罩**重新罩上**
