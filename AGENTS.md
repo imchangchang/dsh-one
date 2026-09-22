@@ -39,7 +39,7 @@
 - 起了就**一次跑完立刻收掉**：`pkill -f "user-data-dir=/tmp/dsh-uidev/<slug>"`，不许反复起停（用户看到的是「一直弹出来」）；
 - 隔离实例只写 `/tmp/dsh-uidev/<slug>/`，不碰用户的日常 VS Code 设置与扩展。
 
-**上游契约面由每日探针覆盖（2026-09-16）**：`scripts/dsh-upstream-watch/` 的探针现含 22 项，其中**客户端契约面 4 项**（关键 slot 名、root 级 hooks 及其 `use*` props、我们取用过的官方标识符）与**官方产物面 1 项**（本机已安装官方包里的内部标识符，查的是静默失效型依赖）——失败信息带版本、缺失名、期望出处与我方使用点。每次上游发版另跑 `npm run verify:lab` 与 `npm run verify:host-half`。结论：**契约漂移由探针在 CI 发现，而不是由用户日常使用撞见**。已实测版本见 README「dsh 版本兼容跟踪」（0.1.2-rc.1 / 0.1.6-alpha.1）。
+**上游契约面由每日探针覆盖（2026-09-16）**：`scripts/dsh-upstream-watch/` 的探针现含 23 项，其中**客户端契约面 4 项**（关键 slot 名、root 级 hooks 及其 `use*` props、我们取用过的官方标识符）与**官方产物面 2 项**（本机已安装官方包里的内部标识符；三棵树 block list 的服务依赖补全——少了哪一条会让整页 boot 失败，#227）——失败信息带版本、缺失名、期望出处与我方使用点。每次上游发版另跑 `npm run verify:lab` 与 `npm run verify:host-half`。结论：**契约漂移由探针在 CI 发现，而不是由用户日常使用撞见**。已实测版本见 README「dsh 版本兼容跟踪」（0.1.2-rc.1 / 0.1.6-alpha.1）。
 
 **集成线**：默认 `main`。`#11` 系列（Preact 迁移 + 对齐官方 dsh web）已于 2026-09-10 归档关闭：改动整线保留在 `develop/dsh-web-alignment`（远端同名分支），**仅作参考代码，不再开发、不再合入**；该系列 issue（#2/#11/#29/#40-#58 中相关条目）已关闭，真实问题重新梳理顶层结构后另立新 issue。`scripts/dev-merge.sh` 的 `MERGE_TARGET=<分支>` 能力保留（默认 `main`），两道静态自检（`check-i18n.sh` / `check-platform-compat.sh`）的合并基点都跟随目标分支。
 

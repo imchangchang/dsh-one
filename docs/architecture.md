@@ -253,6 +253,12 @@ dsh 上游出于安全只监听 `127.0.0.1`（拒绝 `--host 0.0.0.0`），所�
 - 设置子页组 `ui-settings-plugins` / `ui-settings-plugin-inventory`：它们等待的槽位都在 `sidebar.settings` 之下，而这棵树里 `ui-settings-general`（槽位声明方）被下线，于是整件停车——挂着不花用户流量，摘掉只是少一个 id 依赖，按 `#180` 对同类项的口径留在清单里。
 - 侧栏树专属三件：`ui-chat`（对话流卡片大段）、`ui-conversation`（对话区卡片宿主）、`ui-agent-preset`（挂对话区 hero 的会话级座）——侧栏这棵树没有对话区。
 
+**清单怎么来的、怎么核（#227）**：上面的条目是手写的——形态类（官方外框、官方侧栏、设置子页组这些与版本无关的）只能人定，服务类（挡掉一个服务提供方，就得把等它的 entry 一起挡掉）可以按官方包**静态**算出来。「算」的规则一句话：**一棵树挡掉的包，凡是等它的 entry 也一起挡掉**（顺着依赖一层层找，直到不再新增）；判据是**服务**——每件官方包的 bundle 导出的 `inject` 服务名表（它等哪些服务）＋提供服务的调用点（它提供哪些服务）。同名服务只要还有一个没被挡的提供方，这个服务就还在（三棵树的 frame 插件都 `reflect.provide('layout', …)`，官方 ui-layout 被挡不影响任何人）。
+
+要注意**别拿 `package.json` 的 `dsh.client.inject` 来算**：那是 wire 里每个 entry 的 `inject`，内容是**模块 id**，只决定装载顺序。按它做闭包会把三棵树里真正要用的官方件一起挡掉——实测 chat 2 → 38、sidebar 13 → 39、settings 14 → 38 条，多出来的里面有对话区本身与官方侧栏壳；而依赖方并不会因为对方被挡而不激活（对话区那棵树挡了 `ui-layout`、`ui-conversation` 的模块表里就列着它，对话区照样全绿）。真正让整页 boot 失败的是**服务**：缺一个服务，cordis 停在 `pending (waiting for service: X)`——#225 那起事故（侧栏树挡了 `ui-conversation`、没挡等它的 `ui-plan`）就是这一类。
+
+算出来的清单是**偏保守**的：静态表认不出「同名服务的两代名字」这类等价关系时，会把一个还在的服务当成没了，于是多挡一条。代价是少加载一个本来也不渲染的 entry，方向无害；反过来（少挡）会让整页 boot 失败。所以：**只补不删**（手写清单一条不放），补齐的结果由每日探针按本机官方包离线算出并对比（`block-list-drift`，见 §8.4），少挡一条就红。
+
 **`SETTINGS_TREE`（14 条）**：官方外框 + 官方侧栏（设置页不是侧栏位页，侧栏壳不该进来；它的 `register` 在 `slots.inject('sidebar', …)` 里，本树不声明那个槽位，槽位没声明就整件停车）+ 上述对话区那 6 件 + 只在设置树下线的 6 件（工具卡、附件画廊、subagent 卡、后台任务卡、消息反馈、会话日志导出）。后 6 件在别的树里放行，只在这棵树下线：设置页声明了 keyed `main`（官方 ui-conversation 的整棵对话子树挂在这个名字上，不声明它，官方 ui-agent-preset 的会话级 scope 会抛 `slot "conversation.hero.agentPreset" is not declared`），于是这些槽位在设置页里**是声明了的**，放回去会真的注册进那棵子树。今天渲染不出来只因为我们恰好只渲染自己那条 keyed 条目；把设置页的形态押在这条实现事实上不划算。
 
 ### 8.3 我们用官方原生机制做了哪些 shadow 与槽位贡献
@@ -280,11 +286,13 @@ dsh 上游出于安全只监听 `127.0.0.1`（拒绝 `--host 0.0.0.0`），所�
 
 | 手段 | 查什么 | 什么时候跑 |
 | --- | --- | --- |
-| 每日上游探针（`scripts/dsh-upstream-watch/probe.mjs`，22 项） | **名字还在不在**：伺服面（wire 协议、认证、RPC、WS 帧、网关 `/` 的启动契约、整包端点、Origin 栅栏，17 项）+ 客户端契约面（整包里的 slot 名/hook 名/字段名，4 项）+ 官方产物面（本机官方包里的 11 条内部标识符，1 项） | GitHub Actions 每日 04:00（UTC+8），结果进 `upstream-watch` label 的 issue 与 README 徽章 |
+| 每日上游探针（`scripts/dsh-upstream-watch/probe.mjs`，23 项） | **名字还在不在**：伺服面（wire 协议、认证、RPC、WS 帧、网关 `/` 的启动契约、整包端点、Origin 栅栏，17 项）+ 客户端契约面（整包里的 slot 名/hook 名/字段名，4 项）+ 官方产物面（本机官方包里的 11 条内部标识符 + 三棵树 block list 的服务依赖补全，2 项） | GitHub Actions 每日 04:00（UTC+8），结果进 `upstream-watch` label 的 issue 与 README 徽章 |
 | 浏览器验证的 CONTRACT / FIBER / WIRE-LIVENESS 套件（`npm run verify:lab`） | **装起来活不活**：四棵树零槽位崩溃、零装载未激活、关键槽位有内容、根条目声明覆盖预期槽位名（F-01）；四棵树零 cordis fiber 进 FAILED（F-10，fiber 失败不进浏览器控制台）；三棵树 block list 的每个 id 都要在当天 wire 里找得到（F-11，官方改名会让过滤静默失效） | 改装配相关代码后必跑；接新版本时用 `npm run verify:lab-version <版本>` |
 | `docs/dsh-compat-checklist.md` 的「装配面」一节 | 探针查不出的那一类（**名字一个没少、语义变了**）：0.1.6-alpha.2 上客户端契约面全绿，可页面整棵渲染不出来 | 接新版本时按那一节的流程走 |
 
 探针只读字节，所以它看不见「名字还在但装起来不活」；实验室只看行为，看不见「官方把某个我们没在页面上跑过的名字改了」。两者合起来才覆盖：#76 的 `usePanelInfo is not a function`、`imageIds` → `attachmentIds` 是探针抓的；0.1.6-alpha.2 的整页白、会话服务删掉 `open` / `select` / `clear`、`current` 字段消失、`completed` 挪进 `sessionStatus` 是实验室抓的。
+
+**block list 的服务依赖补全**（#227，`blockListDrift.mjs` + `src/pure/blockListDerivation.ts`）：离线读本机官方包（bundle 导出的 `inject` 服务表 + 提供服务的调用点），按 §8.2 那条规则算出每棵树的清单，与 `wireFilter.ts` 的现状对比：**少挡一条即红**（点出条目、它等的服务、被挡的提供方），派生不出来的手写条目（形态/角色理由）只报读数。本机 0.1.6-alpha.2 实测：三棵树 少挡 0 条（对话区 2/2、侧栏位 13/13、设置页 14/14）；把 `ui-plan` 从侧栏清单里删掉即红。纯函数与探针模块的单测在 `test/blockListDerivation.test.ts` / `test/blockListDrift.test.ts`。
 
 ### 8.5 支持的版本与上游发版时跑什么
 
