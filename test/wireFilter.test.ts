@@ -238,13 +238,17 @@ test('filterWire（settings 树）：外框+官方侧栏+对话流剥除，frame
 /**
  * 对话流卡片组（#180 逐条复核的那一批）：它们注册的槽位全在对话区
  * （`conversation.*` / `tool.call.*`），声明方是官方 ui-conversation / ui-chat。
+ *
+ * `ui-plan` 原本也在这份清单里，#225 起挪走了：它在 0.1.6-alpha.2 里开始等官方
+ * `uiConversation` 服务（导出 `inject` 表里多了这个名字），于是 sidebar 树上的
+ * 处置理由从「形态」（槽位在本树不声明）变成**服务级硬约束**，跟 workflow-run
+ * 那几件同走 `FLOW_BOTH_TREES`（见下面那条）。
  */
 const CONVERSATION_CARDS = [
   '@deepseek-ai/dsh-client-ui-tool',
   '@deepseek-ai/dsh-client-ui-attachment',
   '@deepseek-ai/dsh-client-ui-subagent',
   '@deepseek-ai/dsh-client-ui-jobs',
-  '@deepseek-ai/dsh-client-ui-plan',
   '@deepseek-ai/dsh-client-ui-message-feedback',
   '@deepseek-ai/dsh-session-log-export',
 ]
@@ -255,11 +259,11 @@ test('block list 逐条复核（#180）：sidebar 树不再背对话区卡片的
   // `slots.inject` 的回调永不跑，整件停车、不渲染任何东西。挂着它们只是白背
   // 一个官方 id 依赖（官方改名就要靠 F-11 才知道）。
   const stillBlocked = SIDEBAR_BLOCKED_IDS.filter((id) => CONVERSATION_CARDS.includes(id))
-  assert.deepEqual(stillBlocked, [], '这七件在 sidebar 树上一个槽位都没声明，不该继续下线')
+  assert.deepEqual(stillBlocked, [], '这六件在 sidebar 树上一个槽位都没声明，不该继续下线')
   // 同一批在 settings 树里要留着：设置页声明了 keyed `main`，官方 ui-conversation 的
   // 整棵子树因此注册成立，那些槽位在那棵树里**是声明了的**（放回会真注册进对话子树）。
   const settingsBlocked = SETTINGS_BLOCKED_IDS.filter((id) => CONVERSATION_CARDS.includes(id))
-  assert.deepEqual(settingsBlocked, [...CONVERSATION_CARDS], 'settings 树继续下线这七件')
+  assert.deepEqual(settingsBlocked, [...CONVERSATION_CARDS], 'settings 树继续下线这六件')
 })
 
 test('block list 逐条复核（#180）：没有任何槽位贡献、或槽位只由同样被下线的件声明的两件已摘除', () => {
@@ -278,13 +282,18 @@ test('block list 逐条复核（#180）：槽位在 sidebar 树**真被声明**�
   // ui-workspace 的 WorkspaceBrowser 声明、而自有树还要读它的占用态 ⇒ 放回它就会往
   // 我们自己的侧栏树里注册官方原生目录选择器。
   assert.ok(SIDEBAR_BLOCKED_IDS.includes('@deepseek-ai/dsh-client-ui-directory-picker-native'))
-  // 这四件的 inject 里有官方 `uiConversation` 服务，而 sidebar 树下线了它的提供方
+  // 这五件的 inject 里有官方 `uiConversation` 服务，而 sidebar 树下线了它的提供方
   // ui-conversation ⇒ 放回它们会停在「未激活」，boot 一个条目没激活就整页抛错（#164）。
+  // ui-plan 是 #225 加进来的：0.1.6-alpha.2 起它也开始等 `uiConversation`
+  // （官方 dsh-client-ui-plan/lib/client.js 的导出 inject 表），于是同一个现场在
+  // 侧栏树上重演（boot 审计 `@deepseek-ai/dsh-client-ui-plan: pending (waiting for
+  // service: uiConversation)`、页面被失败卡挡住），从 FLOW_SETTINGS_TREE 挪到这份清单。
   for (const id of [
     '@deepseek-ai/dsh-client-ui-workflow-run',
     '@deepseek-ai/dsh-client-ui-deliverables',
     '@deepseek-ai/dsh-client-ui-trajectory',
     '@deepseek-ai/dsh-client-ui-goal',
+    '@deepseek-ai/dsh-client-ui-plan',
   ]) {
     assert.ok(SIDEBAR_BLOCKED_IDS.includes(id), `${id} 依赖 sidebar 树没有的 uiConversation，必须继续下线`)
     assert.ok(SETTINGS_BLOCKED_IDS.includes(id), `${id} 的槽位在 settings 树里被声明，继续下线`)

@@ -1,5 +1,11 @@
 # Change Log
 
+## [Unreleased]
+
+### 上游兼容性
+
+- dsh 新版兼容：升级到新版 dsh 后，VS Code 侧栏不再显示装不起来，工作区与会话照常列出来。
+
 ## [2.0.1]
 
 ### Fixed

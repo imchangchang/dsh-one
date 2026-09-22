@@ -19,7 +19,7 @@ DSH One 是 dsh 与 VS Code 之间的桥接扩展。dsh 由用户自己装、自
 | 树 | 落在哪个容器 | block list | 自有 frame 插件 | 追加的自有插件 |
 | --- | --- | --- | --- | --- |
 | `CHAT_TREE` | 编辑器标签页，命令 `dshOne.assembledChat`（单例，可另开会话标签页） | 2 条：官方外框、官方侧栏 | `@dsh-one/vscode-chat-ui-layout` | theme-follow、session-boot、dsh-session-export、dsh-git-card、dsh-context-menu、dsh-composer-clear |
-| `SIDEBAR_TREE` | 侧栏 view `dshOne.chat` | 12 条：官方外框、对话区那几件、设置子页组、侧栏专属件 | `@dsh-one/vscode-sidebar-ui-layout` | theme-follow、settings-gear、session-bridge、dsh-workspace-tree |
+| `SIDEBAR_TREE` | 侧栏 view `dshOne.chat` | 13 条：官方外框、对话区那几件、设置子页组、侧栏专属件 | `@dsh-one/vscode-sidebar-ui-layout` | theme-follow、settings-gear、session-bridge、dsh-workspace-tree |
 | `SETTINGS_TREE` | 编辑器标签页，命令 `dshOne.assembledSettings`（单例） | 14 条：官方外框、官方侧栏、对话流卡片组 | `@dsh-one/vscode-settings-ui-layout` | theme-follow |
 
 每一条 block list 的理由写在 `src/ui/assembly/wireFilter.ts` 里对应清单的注释中，判据与逐条复核结论见本文第 8 章。
@@ -245,15 +245,15 @@ dsh 上游出于安全只监听 `127.0.0.1`（拒绝 `--host 0.0.0.0`），所�
 
 **`CHAT_TREE`（2 条）**：官方外框 + 官方侧栏。后者是因为对话区这棵树没有侧栏位——侧栏位由 `SIDEBAR_TREE` 承担。对话流卡片全保留；`#202` / `#204` 把 `ui-settings-general` 与两件插件设置页从这份清单里摘掉了（本树一个 `sidebar.settings` 子槽都没声明，它们本来就在停车）。
 
-**`SIDEBAR_TREE`（12 条）**：
+**`SIDEBAR_TREE`（13 条）**：
 
 - 官方外框（同上）。
-- 对话区那几件必须下线的（`FLOW_BOTH_TREES`）：`ui-workflow-run` / `ui-deliverables` / `ui-trajectory` / `ui-goal` 的 inject 里有官方 `uiConversation` 服务，而该服务由 `ui-conversation` 提供、在这棵树里也被下线——缺服务是硬约束，放回去会停在「未激活」，而 boot 的规矩是一个条目没激活就整页抛错。`ui-directory-picker-native` 注册的 `sidebar.workspaces.directoryFlow` 在这棵树里**真被声明**（官方 WorkspaceBrowser），放回去会把官方原生目录选择器注册进我们自己的树里，形态与添加工作区那条流程都会变。
+- 对话区那几件必须下线的（`FLOW_BOTH_TREES`）：`ui-workflow-run` / `ui-deliverables` / `ui-trajectory` / `ui-goal` / `ui-plan` 的 inject 里有官方 `uiConversation` 服务，而该服务由 `ui-conversation` 提供、在这棵树里也被下线——缺服务是硬约束，放回去会停在「未激活」，而 boot 的规矩是一个条目没激活就整页抛错。`ui-plan` 是 `#225` 加进来的：它在 0.1.6-alpha.2 里开始等这个服务（`0.1.6-alpha.1` 不用等），此前只被 `SETTINGS_TREE` 下线，于是侧栏树当场被官方启动审计挡住（`web boot: 1 entry did not activate`）。`ui-directory-picker-native` 注册的 `sidebar.workspaces.directoryFlow` 在这棵树里**真被声明**（官方 WorkspaceBrowser），放回去会把官方原生目录选择器注册进我们自己的树里，形态与添加工作区那条流程都会变。
 - `ui-settings-general`：它注册的槽位全是 `sidebar.settings` 的子槽，而这棵树有官方侧栏壳、声明得了那个槽位，它的 `SettingsRoot` 会真的注册进来——所以继续下线（我们那行设置入口按 priority −1 遮蔽它，不靠遮蔽兜底）。
 - 设置子页组 `ui-settings-plugins` / `ui-settings-plugin-inventory`：它们等待的槽位都在 `sidebar.settings` 之下，而这棵树里 `ui-settings-general`（槽位声明方）被下线，于是整件停车——挂着不花用户流量，摘掉只是少一个 id 依赖，按 `#180` 对同类项的口径留在清单里。
 - 侧栏树专属三件：`ui-chat`（对话流卡片大段）、`ui-conversation`（对话区卡片宿主）、`ui-agent-preset`（挂对话区 hero 的会话级座）——侧栏这棵树没有对话区。
 
-**`SETTINGS_TREE`（14 条）**：官方外框 + 官方侧栏（设置页不是侧栏位页，侧栏壳不该进来；它的 `register` 在 `slots.inject('sidebar', …)` 里，本树不声明那个槽位，槽位没声明就整件停车）+ 上述对话区那 5 件 + 只在设置树下线的 7 件（工具卡、附件画廊、subagent 卡、后台任务卡、计划卡、消息反馈、会话日志导出）。后 7 件在别的树里放行，只在这棵树下线：设置页声明了 keyed `main`（官方 ui-conversation 的整棵对话子树挂在这个名字上，不声明它，官方 ui-agent-preset 的会话级 scope 会抛 `slot "conversation.hero.agentPreset" is not declared`），于是这些槽位在设置页里**是声明了的**，放回去会真的注册进那棵子树。今天渲染不出来只因为我们恰好只渲染自己那条 keyed 条目；把设置页的形态押在这条实现事实上不划算。
+**`SETTINGS_TREE`（14 条）**：官方外框 + 官方侧栏（设置页不是侧栏位页，侧栏壳不该进来；它的 `register` 在 `slots.inject('sidebar', …)` 里，本树不声明那个槽位，槽位没声明就整件停车）+ 上述对话区那 6 件 + 只在设置树下线的 6 件（工具卡、附件画廊、subagent 卡、后台任务卡、消息反馈、会话日志导出）。后 6 件在别的树里放行，只在这棵树下线：设置页声明了 keyed `main`（官方 ui-conversation 的整棵对话子树挂在这个名字上，不声明它，官方 ui-agent-preset 的会话级 scope 会抛 `slot "conversation.hero.agentPreset" is not declared`），于是这些槽位在设置页里**是声明了的**，放回去会真的注册进那棵子树。今天渲染不出来只因为我们恰好只渲染自己那条 keyed 条目；把设置页的形态押在这条实现事实上不划算。
 
 ### 8.3 我们用官方原生机制做了哪些 shadow 与槽位贡献
 
