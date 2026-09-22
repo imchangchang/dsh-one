@@ -178,7 +178,7 @@ test('正向：侧栏清单覆盖派生结果 → pass，detail 给出逐棵树�
   const row = CHECK(root, [CONVERSATION, PLAN, CHAT])
   assert.equal(row.status, 'pass', row.detail)
   assert.equal(row.id, 'block-list-drift')
-  assert.match(row.detail, /侧栏位 手写 3 \/ 派生 3（少挡 0、派生不出 [01]）/)
+  assert.match(row.detail, /侧栏位 手写 3 \/ 补全后 3（少挡 0、规则算不出 [01]）/)
   assert.match(row.detail, /dsh 0\.1\.6-alpha\.2/)
 })
 
@@ -201,8 +201,8 @@ test('多挡不算失败：规则算不出来的手写条目只报读数', () =>
   const { root } = writeFixture()
   const row = CHECK(root, [CONVERSATION, PLAN, CHAT, SIDEBAR, LAYOUT])
   assert.equal(row.status, 'pass', row.detail)
-  assert.match(row.detail, /侧栏位 手写 5 \/ 派生 5（少挡 0、派生不出 3）/)
-  assert.match(row.detail, new RegExp(`派生不出的手写条目 3 条（形态/角色理由，多挡无害）：${CONVERSATION}、${SIDEBAR}、${LAYOUT}`))
+  assert.match(row.detail, /侧栏位 手写 5 \/ 补全后 5（少挡 0、规则算不出 3）/)
+  assert.match(row.detail, new RegExp(`规则算不出的手写条目 3 条（形态/角色理由，多挡无害）：${CONVERSATION}、${SIDEBAR}、${LAYOUT}`))
 })
 
 test('取不到就红：官方包一个都没读到、或有服务找不到提供方（框架那族除外）', () => {

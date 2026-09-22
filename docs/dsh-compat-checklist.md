@@ -60,11 +60,11 @@ dsh-one 是 dsh 的客户端（gateway HTTP/WS RPC + webview 嵌入），上游�
 | id | 检查内容 | 判定方式 |
 |---|---|---|
 | official-identifiers | 11 条官方内部标识符在场（下表），任一条消失即 fail | 逐条在它的**出处文件**里按**形状**查存在性（不比对内容）；不成立时报出条目名、出处文件与我方使用点 |
-| block-list-drift | 三棵树的 block list 覆盖官方**服务依赖**闭包（#227，`blockListDrift.mjs` + `src/pure/blockListDerivation.ts`） | 离线读本机官方包：每件的服务面 = bundle 导出的 `inject`（它等哪些服务）＋提供服务的调用点（`super(ctx, "X")` / `ctx.reflect.provide("X", …)`）。按规则「一棵树挡掉的包，凡是等它的 entry 也一起挡掉」补全，与 `wireFilter.ts` 的清单对比：**少挡一条即 fail**（点出它、它等的服务、被挡的提供方）；派生不出来的手写条目（形态/角色理由）只报读数——多挡无害，少挡才让整页 boot 失败。取不到就红：一个官方包都没读到、某件 bundle 解析不出 `inject` 导出、或有插件在等的服务在官方包里找不到提供方（框架/主机层那一族 `loader` / `modules` / `remote.*` 除外）。 |
+| block-list-drift | 三棵树的 block list 覆盖官方**服务依赖**闭包（#227，`blockListDrift.mjs` + `src/pure/blockListDerivation.ts`） | 离线读本机官方包：每件的服务面 = bundle 导出的 `inject`（它等哪些服务）＋提供服务的调用点（`super(ctx, "X")` / `ctx.reflect.provide("X", …)`）。按规则「一棵树挡掉的包，凡是等它的 entry 也一起挡掉」补全，与 `wireFilter.ts` 的清单对比：**少挡一条即 fail**（点出它、它等的服务、被挡的提供方）；规则算不出来的手写条目（形态/角色理由）只报读数——多挡无害，少挡才让整页 boot 失败。取不到就红：一个官方包都没读到、某件 bundle 解析不出 `inject` 导出、或有插件在等的服务在官方包里找不到提供方（框架/主机层那一族 `loader` / `modules` / `remote.*` 除外）。 |
 
 这条的**判据是服务**，不是 `package.json` 的 `dsh.client.inject`：后者是**模块 id** 表（wire 里每个 entry 的 `inject` 就是它），只决定装载顺序——按它做闭包会把三棵树里真正要用的官方件一起挡掉（实测 chat 2 → 38、sidebar 13 → 39、settings 14 → 38 条，把对话区与官方侧栏壳都算进去了），而依赖方并不会因为对方被挡而不激活（对话区那棵树挡了 `ui-layout`、`ui-conversation` 的模块表里就列着它，对话区照样全绿）。真正决定启动审计的是 bundle 里的**服务名**表：缺一个服务，cordis 就停在 `pending (waiting for service: X)`——#225 那起事故（侧栏树挡了 `ui-conversation` 却没挡等它的 `ui-plan`）正是这一类。
 
-**本机实测读数（0.1.6-alpha.2，58 件官方前端包）**：三棵树逐棵 少挡 0 条——对话区 手写 2 / 派生 2（派生不出 2：`ui-layout`、`ui-sidebar`，都是形态类）、侧栏位 13 / 13（派生不出 7）、设置页 14 / 14（派生不出 14）。**负向对照**：把 `@deepseek-ai/dsh-client-ui-plan` 从侧栏清单里删掉（= #225 事故前的样子）→ 当场 fail，文案是「侧栏位 少挡了 1 条：`@deepseek-ai/dsh-client-ui-plan`（等 `uiConversation`；提供方全被挡：`@deepseek-ai/dsh-client-ui-conversation`）」；加回去立刻 pass。纯函数单测见 `test/blockListDerivation.test.ts`（现场、多层依赖、同名服务有别的提供方时不误伤、只补不删、框架服务不传播、两处取法自检），探针模块单测与合成产物的负向对照见 `test/blockListDrift.test.ts`。
+**本机实测读数（0.1.6-alpha.2，58 件官方前端包）**：三棵树逐棵 少挡 0 条——对话区 手写 2 / 补全后 2（规则算不出 2：`ui-layout`、`ui-sidebar`，都是形态类）、侧栏位 13 / 13（规则算不出 7）、设置页 14 / 14（规则算不出 14；这棵树下线 ui-conversation 之外的那几件全是形态理由，服务规则本来就不解释它们）。**负向对照**：把 `@deepseek-ai/dsh-client-ui-plan` 从侧栏清单里删掉（= #225 事故前的样子）→ 当场 fail，文案是「侧栏位 少挡了 1 条：`@deepseek-ai/dsh-client-ui-plan`（等 `uiConversation`；提供方全被挡：`@deepseek-ai/dsh-client-ui-conversation`）」；加回去立刻 pass。纯函数单测见 `test/blockListDerivation.test.ts`（现场、多层依赖、同名服务有别的提供方时不误伤、只补不删、框架服务不传播、两处取法自检），探针模块单测与合成产物的负向对照见 `test/blockListDrift.test.ts`。
 
 这 11 条按 **#96 审计 comment 第七节**的核实结果列（基线 dsh 0.1.6-alpha.1，逐条在本机 `~/.dsh/profiles/node_modules/@deepseek-ai` 上只读核对过），每条的出处文件如下：
 

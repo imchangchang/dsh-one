@@ -292,7 +292,7 @@ dsh 上游出于安全只监听 `127.0.0.1`（拒绝 `--host 0.0.0.0`），所�
 
 探针只读字节，所以它看不见「名字还在但装起来不活」；实验室只看行为，看不见「官方把某个我们没在页面上跑过的名字改了」。两者合起来才覆盖：#76 的 `usePanelInfo is not a function`、`imageIds` → `attachmentIds` 是探针抓的；0.1.6-alpha.2 的整页白、会话服务删掉 `open` / `select` / `clear`、`current` 字段消失、`completed` 挪进 `sessionStatus` 是实验室抓的。
 
-**block list 的服务依赖补全**（#227，`blockListDrift.mjs` + `src/pure/blockListDerivation.ts`）：离线读本机官方包（bundle 导出的 `inject` 服务表 + 提供服务的调用点），按 §8.2 那条规则算出每棵树的清单，与 `wireFilter.ts` 的现状对比：**少挡一条即红**（点出条目、它等的服务、被挡的提供方），派生不出来的手写条目（形态/角色理由）只报读数。本机 0.1.6-alpha.2 实测：三棵树 少挡 0 条（对话区 2/2、侧栏位 13/13、设置页 14/14）；把 `ui-plan` 从侧栏清单里删掉即红。纯函数与探针模块的单测在 `test/blockListDerivation.test.ts` / `test/blockListDrift.test.ts`。
+**block list 的服务依赖补全**（#227，`blockListDrift.mjs` + `src/pure/blockListDerivation.ts`）：离线读本机官方包（bundle 导出的 `inject` 服务表 + 提供服务的调用点），按 §8.2 那条规则算出每棵树的清单，与 `wireFilter.ts` 的现状对比：**少挡一条即红**（点出条目、它等的服务、被挡的提供方），规则算不出来的手写条目（形态/角色理由）只报读数。本机 0.1.6-alpha.2 实测：三棵树 少挡 0 条（对话区 2/2、侧栏位 13/13、设置页 14/14）；把 `ui-plan` 从侧栏清单里删掉即红。纯函数与探针模块的单测在 `test/blockListDerivation.test.ts` / `test/blockListDrift.test.ts`。
 
 ### 8.5 支持的版本与上游发版时跑什么
 

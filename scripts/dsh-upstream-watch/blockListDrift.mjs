@@ -164,7 +164,7 @@ export function checkBlockListDrift({ root, version, profile, trees }) {
     const hand = new Set(tree.blocked)
     const missing = blocked.filter((id) => !hand.has(id))
     const form = unaccountedBlocks({ blocked: tree.blocked, plugins: faces, localProviders: providers })
-    perTree.push(`${tree.label} 手写 ${tree.blocked.length} / 派生 ${blocked.length}（少挡 ${missing.length}、派生不出 ${form.length}）`)
+    perTree.push(`${tree.label} 手写 ${tree.blocked.length} / 补全后 ${blocked.length}（少挡 ${missing.length}、规则算不出 ${form.length}）`)
     if (missing.length > 0) {
       const why = added
         .filter((a) => missing.includes(a.id))
@@ -172,7 +172,7 @@ export function checkBlockListDrift({ root, version, profile, trees }) {
       failure.push(`${tree.label} 少挡了 ${missing.length} 条：${why.join('；')}`)
     }
     if (form.length > 0) {
-      unaccounted.push(`${tree.label} 派生不出的手写条目 ${form.length} 条（形态/角色理由，多挡无害）：${form.join('、')}`)
+      unaccounted.push(`${tree.label} 规则算不出的手写条目 ${form.length} 条（形态/角色理由，多挡无害）：${form.join('、')}`)
     }
   }
   const head = `dsh ${version ?? 'unknown'}（读的是${profile}，路径 ${root}）`
