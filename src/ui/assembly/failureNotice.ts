@@ -96,6 +96,19 @@ const SCAN_LIMIT = 2000
 /** 提示条/按钮的自有标记（断言与截图上认它；属性值见文件头）。 */
 export const PAGE_FAILURE_MARK = 'data-dshone-page-failure'
 export const PAGE_RELOAD_MARK = 'data-dshone-page-reload'
+/**
+ * 提示条给页面运行时其余脚本（目前只有 `selfHeal.ts`，#228）用的入口：
+ * - `note(text, force)`：记下原始错误。缺省**先到先得**（#201 的口径）；`force === true`
+ *   时覆盖已经记下的那一份——「知道发生了什么的那一层」显式交过来的文本（启动自愈手里的
+ *   官方审计原文）比被动捕获到的更有用，而被动那一份可能只是跨源脚本被浏览器抹白后的
+ *   `Script error.`。两条路都照旧经探针进日志，谁都没被吞。
+ * - `show()`：当场把提示条落下来（幂等）。
+ *
+ * 为什么要有这一格：启动自愈那次重试也失败时，官方启动审计已经渲染了它自己那张卡
+ * （`#root` 里有内容），空白看门狗不会响——失败提示条得由**知道发生了什么的那一层**
+ * 显式落下，而不是等页面变白。
+ */
+export const PAGE_FAILURE_API = '__DSH_ONE_PAGE_FAILURE__'
 
 /**
  * 提示条的内联脚本（pageHtml 以普通 `<script nonce>` 注入，位置在探针之后、其余脚本
@@ -128,9 +141,12 @@ export function failureNoticeJs(): string {
   var blankTicks = 0
   // Record the original failure text (first one wins) and keep it observable: the probe
   // line reaches the extension log in the webview, and console still carries the raw
-  // error from React - this hook never swallows anything.
-  var noteError = function (text) {
-    if (reason !== null) return
+  // error from React - this hook never swallows anything. force (#228) lets a layer that
+  // KNOWS what happened overwrite what was captured passively: selfHeal.ts hands over the
+  // official boot audit text here, and the passive capture may have recorded something
+  // less useful first ("Script error." - a cross-origin classic script's sanitized error).
+  var noteError = function (text, force) {
+    if (reason !== null && force !== true) return
     reason = String(text).slice(0, 400)
     probe("error", "page failure: " + reason)
   }
@@ -192,6 +208,10 @@ export function failureNoticeJs(): string {
     document.body.appendChild(bar)
     probe("error", "page failure notice shown (" + kind + ")")
   }
+  // Hand the bar over to the page runtime's other inline scripts (selfHeal.ts, #228):
+  // it is the layer that knows a boot audit happened, and once the official failure card
+  // is rendered #root is not blank any more, so the watchdog below would never fire.
+  globalThis[${JSON.stringify(PAGE_FAILURE_API)}] = { note: noteError, show: show }
   var tick = function () {
     var root = document.getElementById("root")
     if (root === null) return

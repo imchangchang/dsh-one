@@ -1,0 +1,45 @@
+{
+  "branch": "agent/assembly-self-heal",
+  "slug": "assembly-self-heal",
+  "platformCoverage": [],
+  "branchMatrix": {
+    "trigger": "probe-result-branch",
+    "rows": [
+      {
+        "condition": "本页没有那份「已经试过一次」的记录（`sessionStorage.getItem` 返回 null ⇒ read() 返回 null ⇒ retried === null）",
+        "expected": "这一次是第一次遇到审计：把点名的 id 与官方审计原文写进 sessionStorage，然后重载这一页一次（绝不在这里循环）",
+        "verification": "单测 test/assemblySelfHeal.test.ts「第一次遇到审计：写下『要摘谁、为什么』并重载这一页一次」（reloads === 1、记录内容逐字段核对）+ 浏览器验证 F-67 场景②（这一页加载次数 = 2）与场景③（第一轮那行日志里有 id 与审计原文）"
+      },
+      {
+        "condition": "本页已用过那一次（记录存在 ⇒ retried !== null）：重载之后按记录摘，随后① 页面正常起来或② 审计再次失败",
+        "expected": "① 正常起来：静置后不再有任何重载动作（加载次数停在 2）；② 再失败：不再摘、不再重载，落到失败提示条（failureNotice 的 note(force) + show）",
+        "verification": "单测「重载之后（记录已在）：本页清单三处一起摘掉，不再重载」与「重载之后再失败：不再摘、不再重载，落到失败提示条」；浏览器验证 F-67 场景②（重载后首屏就绪、清单三处都没有那条、`<html>` 上痕迹 = 那条 id、静置后 loads 仍为 2）与场景③（提示条一枚、原因行含 did not activate、加载次数停在 2）"
+      },
+      {
+        "condition": "记录存在但形状不对（JSON 解析失败、或不是那份 `{removed: [...]}` 形状 ⇒ read() 返回 null）",
+        "expected": "当作「没有记录」，照常重试一次（坏记录不该把页面卡死在「已试过一次」上，也不该让它无限重试——它只走一次那条分支）",
+        "verification": "单测「坏记录（不是那份 JSON 形状）：当作没有记录，照常重试一次」（stored = '{\"nope\":true}' ⇒ reloads === 1、记录被覆盖成合规那份）"
+      },
+      {
+        "condition": "存储不可用（sessionStorage.getItem / setItem 抛错，隐私模式那类 ⇒ read() 返回 null、write() 返回 false）",
+        "expected": "不重载：写不下「已经试过一次」的记录就没有「只用一次」的保证，宁可落到失败提示条也不许循环",
+        "verification": "单测「存储不可用：不重载（写不下记录就没有『只试一次』的保证），落到失败提示条」（storageBroken ⇒ reloads === 0、warns 里有 cannot record the single retry、noticeShown === 1）"
+      },
+      {
+        "condition": "点名的那条在本页清单里摘不干净（不在 entries 里 / 落在 bootstrap 批 / 是它所在批的唯一成员 ⇒ canDrop() 为假、droppable 为空）",
+        "expected": "不重载、不写记录，直接落到失败提示条（救不了就别浪费那一次重载；摘了也会被官方 parseBootManifest 拒：空批与「不属于任何批的条目」都不合法）",
+        "verification": "单测三条：「点名的 id 不在本页清单里」「点名的 id 落在 bootstrap 批」「点名的 id 是它所在批的唯一成员」（都断言 reloads === 0、无记录、noticeShown === 1）"
+      },
+      {
+        "condition": "同一次加载里审计报到两次（console.error 连调 / window error 与 console.error 各来一次 ⇒ 内部 handled 已置位）",
+        "expected": "只动一次：不重复摘、不重复重载、不重复落提示条",
+        "verification": "单测「次数上限：同一次加载里连报两次也只动一次」（reloads === 1、warns 只有一行）"
+      },
+      {
+        "condition": "文本不是审计形状（正则 `^web boot: \\d+ entr(y|ies) did not activate` 不中，或中了但一行 id 都没解析出来）",
+        "expected": "什么都不动：不重载、不记录、不落提示条（只认官方点出来的 id，不自己猜）",
+        "verification": "单测「文本不是审计形状：什么都不动」（emit 一条普通错误与一条空的审计头 ⇒ reloads === 0、warns 空、noticeShown === 0、无记录）"
+      }
+    ]
+  }
+}

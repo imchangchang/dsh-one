@@ -61,8 +61,8 @@ dsh-one/
 │   │   └── tagBridge.ts      # loopback tag-bridge：派生脚本代写标签的 HTTP 小服务
 │   ├── ui/
 │   │   ├── assembly/         # 装配：trees（树定义）、wireFilter（清单过滤）、pageHtml（页面生成）、
-│   │   │                     #   probe / failureNotice / hostSdk / hostBridge / hostWorkspaceRoots
-│   │   │                     #   （页面诊断与宿主调用通道）
+│   │   │                     #   probe / failureNotice / selfHeal / hostSdk / hostBridge / hostWorkspaceRoots
+│   │   │                     #   （页面诊断、启动自愈与宿主调用通道）
 │   │   ├── assembly/shell/   # 只能用在我们 shell 里的 `@dsh-one/vscode-*` 源码：三个 frame 插件、
 │   │   │                     #   theme-follow、settings-gear、session-bridge、session-boot、
 │   │   │                     #   frameShared（frame 族共享件）、externalLinkShim、shellLocale
@@ -124,8 +124,8 @@ dsh-one/
 2. **取清单**：带 cookie GET 网关 `/`，从注入 HTML 里取出 `__DSH_BOOT__` 清单与前端资产名（`extractBootWire` / `extractFrontendAssets`），版本不在 `[0.1.2-rc.1, 0.2.0)` 时给页面顶部加一条信息条（**不阻断**）。
 3. **过滤清单**：`filterWire()` 按该树的 block list 剔除条目，application 批的整包 URL 改指 mirror 的 `/plugins-local/…`，追加该树的自有插件条目。整包 URL 里的 `rev` 是缓存键，同时代表两半内容（官方那份 + 我们自己的 bundle 内容哈希，见 §9 决策 11）。
 4. **起共享 mirror**：同一窗口同一网关地址只起一个 loopback 代理（引用计数，最后一个面板关掉才收），它按树各缓存一份过滤后的整包。
-5. **生成页面**：`assemblyPageHtml()` 出一份 HTML（`__DSH_BOOT__` 内联 + 阻塞 bootstrap script + 主 bundle + `__DSH_TRANSPORT__` seam + 探针 + 失败提示条），设进 webview。
-6. **页面里**：官方 WebBoot 按清单装插件（官方插件从 mirror 的过滤整包拿，我们的插件从 `/plugins-local/…` 的本地路径拿），我们的 frame 插件注册 `root` slot 并渲染整页。打开某个会话的注入、当前会话的上报、主题跟随都在这一步之后由自有插件接管。
+5. **生成页面**：`assemblyPageHtml()` 出一份 HTML（`__DSH_BOOT__` 内联 + 启动自愈 + 阻塞 bootstrap script + 主 bundle + `__DSH_TRANSPORT__` seam + 探针 + 失败提示条），设进 webview。
+6. **页面里**：官方 WebBoot 按清单装插件（官方插件从 mirror 的过滤整包拿，我们的插件从 `/plugins-local/…` 的本地路径拿），我们的 frame 插件注册 `root` slot 并渲染整页。打开某个会话的注入、当前会话的上报、主题跟随都在这一步之后由自有插件接管。官方启动审计报「某条目起不来」时，页面运行时的启动自愈接手：把官方点名的那一条从**本页清单**里摘掉、把这一页重载**一次**（再失败落到失败提示条，见 §「页面运行时」那三条）。
 7. **渲染**：对话区是官方 `ui-conversation` 的组件；侧栏页是我们的工作区树 shadow 掉官方 `sidebar.workspaces`；设置页渲染官方的 `settings.*` 槽位。
 
 面板生命周期（`src/ui/assemblyView.ts`）：
@@ -330,12 +330,14 @@ dsh 上游出于安全只监听 `127.0.0.1`（拒绝 `--host 0.0.0.0`），所�
 13. **官方新增插件默认保留，只收敛与 VS Code 容器冲突的呈现。** 官方新版本带来的插件不因为「我们用不上」进 block list；体积与流量问题用缓存（共享 mirror + 内容版本做缓存键）解决，不用裁剪功能解决。block list 只留两类：与 VS Code 容器形态冲突的，以及这棵树声明不了它槽位的。
 14. **版本门只提示不阻断。** 区间外的版本给一条信息条照常使用——挡掉用户会让他没法自查是谁的问题，而区间判定太粗（整段区间里已知有漂移），挡也不准。
 15. **装配页不留白。** 官方渲染器故意让装配错穿出所有 entry 边界（fail loud），React 随即卸掉整棵 root；官方那套失败卡片只覆盖启动期，留给插件的 `onEntryError` 也收不到装配错。所以这一层由页面运行时出：捕获到错误就记下原文（不吞日志），`#root` 从「有过内容」变成「连续两拍一个可见的盒都没有」就落一行说明加一个重载入口。判据落在用户看到的东西上，页面好着时一个字节不动。
+16. **页面自己救一次，用户不必等我们发版。** 官方启动审计报「某条目起不来」（`web boot: N entry did not activate` + 点名 id）时，整页被官方那张失败卡挡住——规则化的 block list 覆盖不了所有漂移（服务级依赖、官方新加的注入项、官方改名），所以汇编页多一手自己的补救：把官方**点名的那一条**从本页清单（`__DSH_BOOT__` 这个官方 seam）里摘掉、把这一页重载**一次**；再失败就落到上一条那行说明（官方那张卡在，提示条由知道发生了什么的那一层显式落下）。三条死规矩：**只试一次**（重载的凭据写在 `sessionStorage`，写不下就不重载——写不下就没有「只用一次」的保证，宁可不救也不许循环）、**只认官方点出来的 id**（不自己猜哪些该摘；摘不干净的情形不浪费那一次）、**必须留痕**（摘了谁、因为什么写进日志，原始审计错误照旧打到控制台——不能悄悄修好，否则验证里那条「零装载未激活」就失去检测能力）。
 16. **局域网访问用本机转发器，不改 dsh 的监听。** dsh 只监听 `127.0.0.1` 是上游的安全策略，我们不去绕它，而是在局域网地址上做纯 TCP 透传并让 spawn 带 `--trusted-host`；多窗口共用地址与端口，先到者持有监听。代价是开着的时候局域网内拿到链接的人都能用 dsh，所以默认关闭、状态栏随时可切回。
 
 ## 10. 变更记录
 
 按 issue 号从大到小排（这个仓库里约等于时间倒序；每条当时的具体讨论看 issue 本身）。这里只记「结构或依赖面变了」的那些，界面与交互的变化看 CHANGELOG。
 
+- `#228` 装配页启动自愈：官方启动审计点名某条目起不来时，页面自己把它从本页清单里摘掉并重载一次（再失败落到 `#201` 那行说明）。
 - `#216` `#215` 标签组：默认色优先取本工作区没用过的颜色；移入回收站的会话不再算活跃成员（组与归属当场清，还原可逆）。
 - `#213` `#214` 三个预设标签组改回恒存在、不可删改（名字走 l10n）、空着不占位。
 - `#211` 注入目标开不了时，对话面板落到官方新对话页，不再停在官方空态。

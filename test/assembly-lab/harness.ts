@@ -704,6 +704,20 @@ export interface OpenOptions {
    * 实例里，判据不必再吃一份合成数据。
    */
   dataset?: LabDataset | null
+  /**
+   * 页面 URL 上追加的查询参数（#228）：实验室页面按查询参数认几个套件用的现场开关
+   * （`drift=<spec>` 造「某条目永远起不来」、`selfHeal=off` 去掉启动自愈做负向对照，
+   * 见 `labServer.ts` 的页面路由与 `bootDrift.ts`）。
+   */
+  query?: Readonly<Record<string, string>>
+  /**
+   * 额外的页内初始化脚本，在页面**任何脚本之前**执行（同一上下文里的后续导航照样生效）。
+   *
+   * 用途是套件的页内簿记。现成的例子：F-67 数「这一页被加载了几次」——`sessionStorage`
+   * 在重载之间保留，正好是它的用途，而这类计数只在页面里数得准（套件侧从 Playwright
+   * 事件数会漏掉 `goto` 那一次）。
+   */
+  initScript?: string
 }
 
 export interface OpenedPage {
@@ -1072,6 +1086,8 @@ async function openPageIn(
   // 链接拦截层替身（#150）同一条道理：替身要早于页面任何脚本挂上，才对应真 webview
   // 里「外层文档先于页面内容装好监听」的位置。
   if (options.linkLayer === true) await context.addInitScript({ content: vscodeLinkLayerScript() })
+  // 套件自己的页内簿记（#228 的 F-67 数这一页加载了几次）：同一位置，页面任何脚本之前。
+  if (options.initScript !== undefined) await context.addInitScript({ content: options.initScript })
   // 请求观测（#177 的方法清单 + #175 的原生副作用守卫）不在这里装：它包在 `Browser`
   // 那一层（见 `observeEveryPage`），`newPage()` 返回之前就已经装好，所以这里只管开页。
   const page = await context.newPage()
@@ -1079,6 +1095,7 @@ async function openPageIn(
   const query = new URLSearchParams()
   if (options.theme === 'light') query.set('theme', 'light')
   if (options.sessionId !== undefined && options.sessionId !== '') query.set('session', options.sessionId)
+  for (const [name, value] of Object.entries(options.query ?? {})) query.set(name, value)
   const suffix = query.toString() === '' ? '' : `?${query.toString()}`
   const url = `${lab.origin}/${route.route}${suffix}`
   await page.goto(url, { waitUntil: 'domcontentloaded' })
