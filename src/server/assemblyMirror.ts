@@ -6,6 +6,7 @@ import type { Duplex } from 'node:stream'
 import type { LogSink } from '../log.ts'
 import { cookieHeader } from './serverAuth.ts'
 import { localBundleRev } from './localBundleRev.ts'
+import { createFailureLog } from '../pure/logThrottle.ts'
 import {
   blockedIdsOf,
   extractBootWire,
@@ -58,6 +59,34 @@ export interface AssemblyTreeCombo {
   blockList: ReadonlyArray<BlockedPlugin>
 }
 
+/**
+ * 镜像这一侧的失败日志（#229）：失败行按「同一目标」限频记，恢复行补一条收尾。
+ *
+ * 为什么镜像也要做：网关不可达时页面把请求转发进来的速率就是失败日志的速率——现场那 460 条
+ * `assembly mirror: POST /api/commands/list failed: connect ECONNREFUSED 127.0.0.1:3080`
+ * 全是这一处打的（`proxyRequest` 的上游错误 + `proxyUpgrade` 的 WS 升级失败），
+ * 2 MB 的宿主日志同样被它刷穿。限频只改**记什么**、不改请求处理：镜像照旧原样转发、
+ * 照旧回 502，所以「网关回来后页面照常」这条不受影响（限流那一半在我们这一侧的页面传输里）。
+ */
+interface MirrorFailureLog {
+  failed(reason: string, message: string): void
+  recovered(reason: string, message: string): void
+}
+
+function mirrorFailureLog(logger: LogSink): MirrorFailureLog {
+  const failures = createFailureLog()
+  return {
+    failed: (reason, message) => {
+      const line = failures.failed(reason, message)
+      if (line !== undefined) logger.warn(line)
+    },
+    recovered: (reason, message) => {
+      const line = failures.recovered(reason, message)
+      if (line !== undefined) logger.info(line)
+    },
+  }
+}
+
 export interface AssemblyMirrorOptions {
   /**
    * 本地插件根目录：`<pluginsDir>/@dsh-one/vscode-chat-ui-layout/client.js`（自有外框插件
@@ -90,6 +119,8 @@ export function startAssemblyMirror(
     treeEntries.map((tree) => [tree.framePluginId, tree.blockList]),
   )
   const treeCombosKeys = new Set(treeBlocks.keys())
+  // 这一台 mirror 一份失败日志限频（键里带方法与路径，天然按目标分开）。
+  const mirrorFailures = mirrorFailureLog(logger)
   const comboCache = new Map<string, Promise<{ text: string; ids: ReadonlySet<string> }>>()
   const filteredGatewayCombo = (framePluginId: string): Promise<{ text: string; ids: ReadonlySet<string> }> => {
     let pending = comboCache.get(framePluginId)
@@ -142,7 +173,7 @@ export function startAssemblyMirror(
         // 其余一切路径原样反代网关（/api、/assets、/plugins、/provider/status、
         // /plan/status……网关顶层路由不止 /api：mirror 是网关的 loopback 镜像，
         // 未知路径照 officialMirror 语义默认透传，带 cookie）。
-        proxyRequest(req, res, target, logger)
+        proxyRequest(req, res, target, logger, mirrorFailures)
       } catch (err) {
         logger.error(`assembly mirror handler error: ${String(err)}`)
         res.writeHead(500)
@@ -150,7 +181,7 @@ export function startAssemblyMirror(
       }
     })
     server.on('upgrade', (req, clientSocket, head) => {
-      proxyUpgrade(req, clientSocket, head, target, logger)
+      proxyUpgrade(req, clientSocket, head, target, logger, mirrorFailures)
     })
     server.on('error', reject)
     server.listen(0, '127.0.0.1', () => {
@@ -475,6 +506,7 @@ function proxyRequest(
   res: ServerResponse,
   target: () => string | undefined,
   logger: LogSink,
+  failures: MirrorFailureLog,
 ): void {
   const gateway = target()
   if (gateway === undefined) {
@@ -483,10 +515,14 @@ function proxyRequest(
     return
   }
   const url = new URL(req.url ?? '/', gateway)
+  // 同一目标的键（#229）：方法与路径——失败日志按它限频，成功时按它补「恢复」行。
+  const method = (req.method ?? 'GET').toUpperCase()
+  const targetKey = `${method} ${url.pathname}`
   const preq = http.request(
     `${gateway}${url.pathname}${url.search}`,
     { method: req.method, headers: proxyHeaders(req, gateway) },
     (pres) => {
+      failures.recovered(targetKey, `assembly mirror: ${targetKey} recovered`)
       const out: Record<string, string | string[]> = { 'access-control-allow-origin': '*' }
       for (const [key, value] of Object.entries(pres.headers)) {
         if (key === 'set-cookie' || key === 'content-length' || key === 'transfer-encoding' || value === undefined) continue
@@ -498,7 +534,7 @@ function proxyRequest(
     },
   )
   preq.on('error', (err: Error) => {
-    logger.warn(`assembly mirror: ${req.method} ${url.pathname} failed: ${err.message}`)
+    failures.failed(targetKey, `assembly mirror: ${targetKey} failed: ${err.message}`)
     res.writeHead(502, { 'access-control-allow-origin': '*' })
     res.end('assembly mirror proxy error')
   })
@@ -519,15 +555,21 @@ function proxyUpgrade(
   head: Buffer,
   target: () => string | undefined,
   logger: LogSink,
+  failures: MirrorFailureLog,
 ): void {
   const gateway = target()
   if (gateway === undefined || !new URL(req.url ?? '/', gateway).pathname.startsWith('/api/')) {
     clientSocket.destroy()
     return
   }
+  // WS 升级这一路的失败日志同样按目标限频（#229 现场里 `ws upgrade failed: connect
+  // ECONNREFUSED` 也是逐条打出来的）；`logger` 只留给 `ws upgrade rejected`（那是一份
+  // 明确的协议拒绝，不是在重试循环里刷的那种）。
+  const targetKey = `ws ${new URL(req.url ?? '/', gateway).pathname}`
   const preq = http.request(`${gateway}${req.url}`, { headers: proxyHeaders(req, gateway) })
   preq.end()
   preq.on('upgrade', (pres, usocket) => {
+    failures.recovered(targetKey, `assembly mirror: ${targetKey} recovered`)
     const lines = ['HTTP/1.1 101 Switching Protocols']
     for (const [key, value] of Object.entries(pres.headers)) {
       if (value !== undefined) lines.push(`${key}: ${Array.isArray(value) ? value.join(', ') : value}`)
@@ -549,7 +591,7 @@ function proxyUpgrade(
     clientSocket.destroy()
   })
   preq.on('error', (err: Error) => {
-    logger.warn(`assembly mirror: ws upgrade failed: ${err.message}`)
+    failures.failed(targetKey, `assembly mirror: ws upgrade failed: ${err.message}`)
     clientSocket.destroy()
   })
   clientSocket.on('error', () => preq.destroy())

@@ -43,6 +43,12 @@ import type { LogSink } from '../../src/log.ts'
 const PREREQ_MIN = '0.1.2-rc.1'
 const PREREQ_MAX = '0.2.0'
 
+/** 页面查询参数名：`?retryThrottle=off` = 这一页的传输层不装重试限流与失败日志限频（#229 的负向对照用）。 */
+export const RETRY_THROTTLE_QUERY = 'retryThrottle'
+
+/** `?retryThrottle=` 的这一取值 = 不装重试限流（其余取值照常装）。 */
+export const RETRY_THROTTLE_OFF = 'off'
+
 /** 控制台 logger（`[lab]` 前缀）：mirror 与清单过滤的诊断都走它。 */
 export function consoleLogger(quiet: boolean): LogSink {
   const write = (level: string, line: string): void => {
@@ -300,6 +306,8 @@ export async function startLabServer(options: LabServerOptions): Promise<LabServ
       ...(sessionId === null || sessionId === '' ? {} : { bootSessionId: sessionId }),
       // `?selfHeal=off` = 这一页不装启动自愈（#228 的负向对照）；其余一切值照常装。
       ...(query.get(SELF_HEAL_QUERY) === SELF_HEAL_OFF ? { selfHeal: false } : {}),
+      // `?retryThrottle=off` = 这一页的传输层不装重试限流与失败日志限频（#229 的负向对照）。
+      ...(query.get(RETRY_THROTTLE_QUERY) === RETRY_THROTTLE_OFF ? { retryThrottle: false } : {}),
       localPluginIds: localPluginIdsOf(route.tree),
     })
   }
@@ -336,7 +344,7 @@ export async function startLabServer(options: LabServerOptions): Promise<LabServ
       ).join('\n      ')}
       <li><a href="${origin}/official">/official</a> — 网关原始 GUI（同一网关、同一个浏览器里做 A/B 对照用）</li>
     </ul>
-    <p class="note">URL 参数：<code>?theme=light</code> 切首帧主题；<code>?session=&lt;id&gt;</code> 给 chat 树注入启动会话；<code>?drift=sick:&lt;id&gt;</code> / <code>?drift=fresh:&lt;前缀&gt;</code> 造「某条目永远起不来」的现场（每次加载换 id 的那一档验「只试一次」）；<code>?selfHeal=off</code> 这一页不装启动自愈（负向对照）。</p>
+    <p class="note">URL 参数：<code>?theme=light</code> 切首帧主题；<code>?session=&lt;id&gt;</code> 给 chat 树注入启动会话；<code>?drift=sick:&lt;id&gt;</code> / <code>?drift=fresh:&lt;前缀&gt;</code> 造「某条目永远起不来」的现场（每次加载换 id 的那一档验「只试一次」）；<code>?selfHeal=off</code> 这一页不装启动自愈（负向对照）；<code>?retryThrottle=off</code> 这一页不装重试限流与失败日志限频（负向对照）。</p>
   </body>
 </html>
 `
