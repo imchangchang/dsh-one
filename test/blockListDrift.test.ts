@@ -103,6 +103,23 @@ function syntheticFiles(): Record<string, string> {
   // 不是前端插件（没有 dsh.client）：目录里有它，但不该进服务面。
   files['dsh-agent/package.json'] = JSON.stringify({ name: '@deepseek-ai/dsh-agent', version: '0.1.6-alpha.2' })
   files['dsh-agent/lib/index.js'] = 'export const apply = () => {}'
+  // 目录里不是包的那一条（连清单都没有）：静默跳过，不算「取不到」。
+  files['not-a-package/README.md'] = '# 不是包\n'
+  // `exports["./client"]` 的两种写法：客户端半不在惯例路径 `lib/client.js` 时也要读得到。
+  files['dsh-client-ui-alias-string/package.json'] = JSON.stringify({
+    name: '@deepseek-ai/dsh-client-ui-alias-string',
+    version: '0.1.6-alpha.2',
+    exports: { './client': './lib/alt.js' },
+    dsh: { client: { inject: ['slots'], platform: 'web' } },
+  })
+  files['dsh-client-ui-alias-string/lib/alt.js'] = 'const inject = [ "slots" ];\nexport { apply, inject };'
+  files['dsh-client-ui-alias-object/package.json'] = JSON.stringify({
+    name: '@deepseek-ai/dsh-client-ui-alias-object',
+    version: '0.1.6-alpha.2',
+    exports: { './client': { types: './lib/types/client.d.ts', default: './lib/alt.js' } },
+    dsh: { client: { inject: ['slots'], platform: 'web' } },
+  })
+  files['dsh-client-ui-alias-object/lib/alt.js'] = 'const inject = [ "slots" ];\nexport { apply, inject };'
   return files
 }
 
@@ -154,7 +171,7 @@ test('取数：needs 取 bundle 导出的 inject 服务表，provides 取提供�
   assert.equal(mod.parseServiceFace('export const apply = () => {}', 'x'), null)
 })
 
-test('取数：逐条试读包目录，符号链接那条也读得到；没有 dsh.client 的包不算前端插件', () => {
+test('取数：逐条试读包目录，符号链接那条也读得到；不是包的条目静默跳过', () => {
   const { root } = writeFixture()
   const { faces, problems } = mod.collectOfficialServiceFaces(root)
   assert.deepEqual(problems, [])
@@ -162,7 +179,21 @@ test('取数：逐条试读包目录，符号链接那条也读得到；没有 d
   // 真目录一条 + 符号链接一条（两者同名，符号链接那条是从 install 树链过来的）。
   assert.equal(ids.filter((id) => id === SIDEBAR).length, 2, `符号链接那条要读到：${ids.join(',')}`)
   assert.equal(ids.some((id) => id.includes('dsh-agent')), false, '没有 dsh.client 的包不该进服务面')
-  assert.equal(faces.length, 10)
+  // 连清单都没有的那条（`not-a-package/`）走「读 package.json 失败就跳过」那一支：
+  // 既不算问题、也不进服务面（它本来就不是包，报红只会变成假红）。
+  assert.equal(ids.some((id) => id.includes('not-a-package')), false)
+  assert.equal(faces.length, 12)
+})
+
+test('取数：client 半按 exports["./client"] 找，字符串与 { default } 两种写法都认', () => {
+  const { root } = writeFixture()
+  const { faces, problems } = mod.collectOfficialServiceFaces(root)
+  assert.deepEqual(problems, [])
+  // 两件的 bundle 都不在 `lib/client.js`（那里什么都没有），读到了就说明路径是照 exports 取的。
+  for (const name of ['alias-string', 'alias-object']) {
+    const face = faces.find((f) => f.id === `@deepseek-ai/dsh-client-ui-${name}`)
+    assert.deepEqual(face?.needs, ['slots'], `${name} 这一件的 bundle 要按 exports 指定的路径读到`)
+  }
 })
 
 test('取数：包里读不到 bundle / 解析不出 inject 导出时进 problems（取不到就报红）', () => {
@@ -224,6 +255,27 @@ test('取不到就红：官方包一个都没读到、或有服务找不到提�
   const row = CHECK(root, [CONVERSATION, PLAN, CHAT])
   assert.equal(row.status, 'fail')
   assert.match(row.detail, /找不到提供方：brandNewService/)
+})
+
+test('取不到就红：读不到包目录 / 某件的 bundle 文件不在', () => {
+  const { root } = writeFixture()
+  // ① `readdirSync` 抛（目录不存在也是这一支）：探针手里连服务面都没有，报红。
+  const missing = mod.collectOfficialServiceFaces(path.join(path.dirname(root), 'not-here'))
+  assert.equal(missing.faces.length, 0)
+  assert.equal(missing.problems.length, 1)
+  assert.match(missing.problems[0], /读不到官方包目录/)
+  const missingRow = CHECK(path.join(path.dirname(root), 'not-here'), [])
+  assert.equal(missingRow.status, 'fail')
+  assert.match(missingRow.detail, /读不到官方包目录/)
+
+  // ② 清单在、bundle 文件不在（读文件抛）：这一件算「取不到」，报出件名与文件名。
+  fs.rmSync(path.join(root, short(CHAT), 'lib/client.js'))
+  const gone = mod.collectOfficialServiceFaces(root)
+  assert.equal(gone.problems.length, 1)
+  assert.match(gone.problems[0], /dsh-client-ui-chat.*读不到 lib\/client\.js/)
+  const goneRow = CHECK(root, [CONVERSATION, PLAN, CHAT])
+  assert.equal(goneRow.status, 'fail')
+  assert.match(goneRow.detail, /读不到 lib\/client\.js/)
 })
 
 test('自有 frame 插件在每棵树里都提供 layout（FRAME_PLUGIN_PROVIDES 的出处）', () => {

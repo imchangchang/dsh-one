@@ -1,0 +1,55 @@
+{
+  "branch": "agent/derived-blocklist",
+  "slug": "derived-blocklist",
+  "platformCoverage": [],
+  "branchMatrix": {
+    "trigger": "state-probe + probe-result-branch。本次新增的探针项 `block-list-drift`（`scripts/dsh-upstream-watch/blockListDrift.mjs`）是「读本机磁盘 → 按读到的结果分叉」的形状：探测的是本机官方包目录与每件包的 bundle，读不到 / 解析不出 / 找不到提供方都要报红而不是静默变绿——这些全都是**与平台无关的状态分支**（本机 macOS 上真跑过，Linux 上的 CI 走同一条路径：都是 `fs` 读盘、`path.join` 拼路径，没有任何按平台分叉的代码）。",
+    "rows": [
+      {
+        "condition": "读不到官方包目录：`collectOfficialServiceFaces` 里 `entries = fs.readdirSync(root).sort()`（blockListDrift.mjs:102）抛错（目录不存在、被删、权限读不到）→ catch 分支返回 `{ faces: [], problems: ['读不到官方包目录 <路径>：<原因>'] }`",
+        "expected": "报红：这一项以 fail 记结果，detail 里写明读的是哪个路径。**禁止**把「一件都没读到」静默当成「闭包是空的、三棵树都一致」（那正是这条探针要防的假绿方向）",
+        "verification": "test/blockListDrift.test.ts「取不到就红：读不到包目录 / 某件的 bundle 文件不在」① —— 传一个不存在的目录：`collectOfficialServiceFaces` 的 problems 恰一条且含「读不到官方包目录」，`checkBlockListDrift` 状态为 fail、detail 含同一句。真机（macOS）正向：本机 `~/.dsh/profiles/node_modules/@deepseek-ai` 读得到，58 件官方前端包全部进服务面（issues 为空）"
+      },
+      {
+        "condition": "某件包的 bundle 文件不在：清单读得到、但按 `exports[\"./client\"]` 算出来的那个文件 `fs.readFileSync` 抛（blockListDrift.mjs:119）→ `source === null`（:123）→ problems 记 `<包名>（读不到 <文件>）`",
+        "expected": "报红，点出件名与文件名；**不**把这一件当成「它什么都不需要」（少了它的 needs/provides 会让闭包变小 → 少挡变假绿）",
+        "verification": "test/blockListDrift.test.ts 同一条用例 ② —— 删掉 chat 那件的 `lib/client.js`：problems 恰一条且匹配 `dsh-client-ui-chat…读不到 lib/client.js`，`checkBlockListDrift` 状态为 fail、detail 含同一句。真机（macOS）正向：58 件的 bundle 全部读到，problems 为空"
+      },
+      {
+        "condition": "解析不出 inject 导出（门禁点名的 probe-result-branch）：`parseServiceFace` 里 `const match = INJECT_EXPORT.exec(source)`（blockListDrift.mjs:69）取不到 → `if (match === null) return null`（:70）→ 调用方 push problems `<包名>（<文件> 里找不到导出的 inject 服务表）`",
+        "expected": "报红。官方换打包形状（不再写 `const/var/let inject = […]` 或 `exports.inject = […]`）时必须先看见——当成「这一件什么都不需要」会让闭包变小、少挡变假绿，那正是 #225 事故的坏方向",
+        "verification": "test/blockListDrift.test.ts 两条：①「取数：needs 取 bundle 导出的 inject 服务表…」断言 `parseServiceFace('export const apply = () => {}', 'x') === null`，同时钉住两种认得的导出形状（`const inject = […]` 与 `exports.inject = […]`）；②「取数：包里读不到 bundle / 解析不出 inject 导出时进 problems」把 chat 的 bundle 换成无 inject 导出的源码 → problems 恰一条、含件名与「找不到导出的 inject 服务表」。真机（0.1.6-alpha.2）正向：58 件全部解析出服务面（problems 为空）"
+      },
+      {
+        "condition": "目录里那一条不是包：`JSON.parse(fs.readFileSync(<dir>/package.json))` 抛（没有清单 / JSON 坏，blockListDrift.mjs:110-113）→ `continue` 静默跳过；有清单但没有 `dsh.client`（:114）同样跳过",
+        "expected": "静默跳过，不进 problems、也不进服务面——这一类本来就不是官方前端包，报红只会变成假红。同时它不会被算成「一个包都没读到」（那一支由 faces 为空单独判）",
+        "verification": "test/blockListDrift.test.ts「取数：逐条试读包目录，符号链接那条也读得到；不是包的条目静默跳过」——合成产物里放 `not-a-package/README.md`（连清单都没有）与 `dsh-agent/`（有清单、没有 `dsh.client`）：`problems` 恒为空、12 件服务面里两件都不在"
+      },
+      {
+        "condition": "`exports[\"./client\"]` 的三种形状（`clientEntryRelPath`，blockListDrift.mjs:82-86）：是字符串 → 用它的值；是对象 → 取 `.default`；没有这个字段 → 退回惯例路径 `lib/client.js`",
+        "expected": "三种都读到那件的 bundle。官方把客户端半挪出惯例路径（打包形状变化）时，探针不用跟着改",
+        "verification": "test/blockListDrift.test.ts「取数：client 半按 exports[\"./client\"] 找，字符串与 { default } 两种写法都认」——合成产物里那两件的 bundle 都放在 `lib/alt.js`、`lib/client.js` **不存在**，读到 `needs` 即证明路径是照 exports 取的；「没有 exports 字段」那一支由同一份合成产物里其余 9 件覆盖（只有 `lib/client.js`，全部读到）。真机（0.1.6-alpha.2）正向：58 件都按各自 `exports[\"./client\"]` 读到"
+      },
+      {
+        "condition": "一个官方前端包都没读到：目录读到了、但里面一件带 `dsh.client` 的都没有（空目录、或认错了目录）→ `faces.length === 0`（blockListDrift.mjs:147）",
+        "expected": "报红「一个官方前端包都没读到——这一面未核实，不能当成没问题」。不许静默算成「闭包是空的、三棵树都一致」",
+        "verification": "test/blockListDrift.test.ts「取不到就红：官方包一个都没读到、或有服务找不到提供方」① —— 空目录：状态 fail、detail 含该句"
+      },
+      {
+        "condition": "有插件在等的服务在官方包里找不到任何提供方：`unresolvedServices(...)` 非空（blockListDrift.mjs:152）——即某服务出现在某件的 `inject` 里，但全表（官方包 + 各树 frame 插件）都没有提供点（`super(ctx, \"X\")` / `ctx.reflect.provide(\"X\", …)`），且不属于框架/主机层那一族 `loader` / `modules` / `remote.*`",
+        "expected": "报红并把服务名点出来（取法自检）。官方换一种挂服务的写法时先看见，而不是把它算成「这个服务永远在」（那会让提供方永远凑得齐 → 少挡变假绿）",
+        "verification": "test/blockListDrift.test.ts 同一条用例 ② —— 给 plan 的 inject 加一个没人提供的 `brandNewService`：状态 fail、detail 含「找不到提供方：brandNewService」；纯函数侧 test/blockListDerivation.test.ts「取法自检：找不到提供方的服务要能点出来，框架那一族除外」（`loader` / `remote.skills` 不算，自有插件提供的不算）。真机（0.1.6-alpha.2）正向：58 件的需求里没有非框架的未提供项（探针不报这一条）"
+      },
+      {
+        "condition": "服务依赖闭包的分叉（`src/pure/blockListDerivation.ts` 的 `providers.get(service)` 与不动点循环）：某件未被挡的插件等的服务「有提供方、且提供方全被挡」→ 这一件补进清单（可连锁多层，直到不再新增）；`providers.get(service) === undefined`（框架/主机层）或还有没被挡的提供方 → 不补",
+        "expected": "只补不删，手写条目一条不放；同名服务还有没被挡的提供方时（如三棵树的自有 frame 插件都提供 `layout`）不连坐、不误挡本来要用的官方件",
+        "verification": "test/blockListDerivation.test.ts 六条：现场（挡 ui-conversation ⇒ 等 uiConversation 的 ui-plan / ui-chat 一起挡）、多层依赖（c → b → a 逐层补入）、同名服务还有别的提供方时不误伤（`layout` 由自有 frame 插件顶着：传 vs 不传 localProviders 两个读数对照）、只补不删到不动点、框架/主机层服务（loader / modules / remote.*）不传播、规则算不出的手写条目（把某一条单独拿掉后补全不会补回来）"
+      },
+      {
+        "condition": "探针结果行的判定：三棵树逐棵「补全后 − 手写」为空 → pass；任一树不为空 → fail（blockListDrift.mjs:146-188）；「规则算不出的手写条目」只进 pass 行的读数、不参与判定",
+        "expected": "少挡即红（#225 那一类：挡了服务提供方却没挡等它的 entry）；形态/角色理由多挡的手写条目不算失败（多挡的代价只是少加载一个本来也不渲染的 entry）",
+        "verification": "test/blockListDrift.test.ts 正向（清单覆盖补全结果 → pass，detail 给出逐棵树读数）与负向对照（把 ui-plan 从侧栏清单里删掉 → fail，文案含「侧栏位 少挡了 1 条」「等 uiConversation」「提供方全被挡：@deepseek-ai/dsh-client-ui-conversation」；加回去立刻 pass）。真机（0.1.6-alpha.2，58 件官方包）读数：`23 pass / 0 fail / 0 skip`，三棵树逐棵少挡 0 条；同一条负向对照在真机上重跑（临时删掉 `FLOW_BOTH_TREES` 里 ui-plan 那一行）得 `22 pass / 1 fail`，红的正是这一项，读数与文案记在 issue #227 的 comment 里"
+      }
+    ]
+  }
+}
