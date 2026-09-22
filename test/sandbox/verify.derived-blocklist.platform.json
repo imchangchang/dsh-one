@@ -11,6 +11,11 @@
         "verification": "test/blockListDrift.test.ts「取不到就红：读不到包目录 / 某件的 bundle 文件不在」① —— 传一个不存在的目录：`collectOfficialServiceFaces` 的 problems 恰一条且含「读不到官方包目录」，`checkBlockListDrift` 状态为 fail、detail 含同一句。真机（macOS）正向：本机 `~/.dsh/profiles/node_modules/@deepseek-ai` 读得到，58 件官方前端包全部进服务面（issues 为空）"
       },
       {
+        "condition": "读到的条目是指向别处的符号链接（真机上 `~/.dsh/profiles/node_modules/@deepseek-ai/*` 每条都是指向安装树的链接）还是真目录——这一版**不分叉**：`collectOfficialServiceFaces` 直接 `fs.readdirSync(root)` 后逐条试读清单（blockListDrift.mjs:106-113），符号链接由 `fs` 自己跟随",
+        "expected": "两种都读进服务面。**刻意不做 `withFileTypes().isDirectory()` 过滤**——那一版会把符号链接条目全滤掉，一条都读不到，然后静默算成「闭包是空的、三棵树都一致」（比报红更坏：看起来是绿的）",
+        "verification": "test/blockListDrift.test.ts「取数：逐条试读包目录，符号链接那条也读得到；不是包的条目静默跳过」——合成产物里侧栏那件既有真目录、又有一条指向安装树的真符号链接（同名）：断言 `SIDEBAR` 这个 id 在服务面里出现 2 次（真目录 1 + 符号链接 1）。真机（macOS）正向：本机 profile 里 58 件官方前端包全是符号链接，全部读到"
+      },
+      {
         "condition": "某件包的 bundle 文件不在：清单读得到、但按 `exports[\"./client\"]` 算出来的那个文件 `fs.readFileSync` 抛（blockListDrift.mjs:119）→ `source === null`（:123）→ problems 记 `<包名>（读不到 <文件>）`",
         "expected": "报红，点出件名与文件名；**不**把这一件当成「它什么都不需要」（少了它的 needs/provides 会让闭包变小 → 少挡变假绿）",
         "verification": "test/blockListDrift.test.ts 同一条用例 ② —— 删掉 chat 那件的 `lib/client.js`：problems 恰一条且匹配 `dsh-client-ui-chat…读不到 lib/client.js`，`checkBlockListDrift` 状态为 fail、detail 含同一句。真机（macOS）正向：58 件的 bundle 全部读到，problems 为空"
