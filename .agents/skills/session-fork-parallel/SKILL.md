@@ -21,7 +21,7 @@ dsh 网关暴露 HTTP RPC（`POST /api/<method>`），与 dsh-one 插件 `src/se
 | 探测方法 | `host.describe`（rpcId 回声即无认证 dsh） | `host.describe` 用不了：0.1.2+ 的认证层先拦下未带 cookie 的 `/api/*`（401 + 正文 `unauthorized`，实测 0.1.2-rc.1）；换票后用 `session/list` 探测。扩展侧的端口探测代码见 `src/server/portProbe.ts` |
 | 版本判定 | 无 | `~/.dsh/dsh-owned.json` 的 `version` 字段（0.1.2+）；拿不到就两个形态都试 |
 
-**legacy 一列只在核对旧实例时用**：装配对话区支持的 dsh 版本范围是 `[0.1.2-rc.1, 0.2.0)`（见 `README.md` 的 dsh version tracking），0.1.1 的 wire 代码还留在仓库里（`src/server/dshRpc.ts` 的 legacy 分支），但已不在支持范围内。正常开发走 modern 一列。
+**legacy 一列只在核对旧实例时用**：装配对话区支持的 dsh 版本范围是 `[0.1.6-alpha.1, 0.2.0)`（见 `README.md` 的 dsh version tracking），0.1.1 的 wire 代码还留在仓库里（`src/server/dshRpc.ts` 的 legacy 分支），但已不在支持范围内。正常开发走 modern 一列。
 
 dsh-one 的完整映射表与 TS 封装在 `src/server/dshRpc.ts` 的 `MODERN_WIRE`，以它为准。
 

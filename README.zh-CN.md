@@ -115,18 +115,20 @@ flowchart LR
 
 ### dsh 版本兼容跟踪
 
-定时 GitHub Action（[dsh-upstream-watch](.github/workflows/dsh-upstream-watch.yml)）每天检查 [dsh 上游 release](https://github.com/deepseek-ai/deepseek-harness/releases)：发现新版本就在 CI 上自动跑一轮兼容性探针，共 22 项，分三面——伺服面（wire + 网关伺服的前端产物：`/` 的启动契约、combo（插件整包）端点、Origin 栅栏）、客户端契约面（装配直引的官方 slot 名、root 级 hook、字段与方法名）、官方产物面（本机已安装官方包里的内部标识符）；结果建 `upstream-watch` issue 记录。顶部最后两个徽章分别显示上游最新 release 与最近一次探针结论；完整测试清单（自动化 + 人工项）见 [docs/dsh-compat-checklist.md](docs/dsh-compat-checklist.md)。
+定时 GitHub Action（[dsh-upstream-watch](.github/workflows/dsh-upstream-watch.yml)）每天检查 [dsh 上游 release](https://github.com/deepseek-ai/deepseek-harness/releases)：发现新版本就在 CI 上自动跑一轮兼容性探针，共 23 项，分三面——伺服面（wire + 网关伺服的前端产物：`/` 的启动契约、combo（插件整包）端点、Origin 栅栏）、客户端契约面（装配直引的官方 slot 名、root 级 hook、字段与方法名）、官方产物面（本机已安装官方包里的内部标识符）；结果建 `upstream-watch` issue 记录。顶部最后两个徽章分别显示上游最新 release 与最近一次探针结论；完整测试清单、逐版本读数与已知的不通项见 [docs/dsh-compat-checklist.md](docs/dsh-compat-checklist.md)。
 
-**已实测版本**。以下三个 dsh 版本做过端到端实测：
+**dsh 版本**。每个版本都跑过整轮 `npm run verify:lab`，三种状态分开写：
 
 | dsh 版本 | 状态 |
 |---|---|
-| `0.1.2-rc.1` | 已实测——各验证线建立时的基线 |
-| `0.1.6-alpha.1` | 已实测——在这里抓到并修掉三处漂移：`details` slot 改名成 `rightbar`、新增 root 级 hook、composer 的 `imageIds` / `addImages` 改名成 `attachmentIds` / `addAttachments` |
-| `0.1.6-alpha.2` | 已实测——在这里抓到并修掉四处漂移（探针一条都看不见，它只读字节）：客户端开始采纳网关经 `/plugins/events` 下发的插件 roster，被我们下线的官方插件装回来、自有插件被卸掉（整页白）；会话列表快照不再下发 `current`（侧栏树只剩工作区、没有会话，git 卡片也拿不到工作目录）；会话服务删掉了 `open` / `select` / `clear`（点会话没反应）；`completed` 从会话行搬进 `sessionStatus` hook（「跑完还没被打开」那枚绿点丢了）。第五处（#225 修掉）让侧栏面板整个装不起来：对话区的一个卡片开始等一个侧栏树不提供的服务，面板上出现的是官方启动审计失败、而不是会话树。这一版上的整轮浏览器验证读数是 3580/3583，剩下的两条是 chat 树的启动/settle 问题，另立 #226 跟 |
-| `[0.1.2-rc.1, 0.2.0)` 区间内其余版本 | **未实测**——见下面的版本门说明 |
+| `0.1.6-alpha.1` | **实测通过**——69 项全过、3620 条断言全过、零红。它同时是**版本门的下界**，也是信息条让用户装的那一版 |
+| `0.1.6-alpha.2` | 实测通过——在这里抓到并修掉四处漂移（探针一条都看不见，它只读字节）：客户端开始采纳网关经 `/plugins/events` 下发的插件 roster，被我们下线的官方插件装回来、自有插件被卸掉（整页白）；会话列表快照不再下发 `current`（侧栏树只剩工作区、没有会话，git 卡片也拿不到工作目录）；会话服务删掉了 `open` / `select` / `clear`（点会话没反应）；`completed` 从会话行搬进 `sessionStatus` hook（「跑完还没被打开」那枚绿点丢了）。第五处（#225 修掉）让侧栏面板整个装不起来：对话区的一个卡片开始等一个侧栏树不提供的服务，面板上出现的是官方启动审计失败、而不是会话树。这一版上的整轮读数 3580/3583，剩下的两条是 chat 树的启动/settle 问题，另立 #226 跟。（更早那轮 `0.1.6-alpha.1` 的漂移记录：`details` slot 改名成 `rightbar`、新增 root 级 hook、composer 的 `imageIds` / `addImages` 改名成 `attachmentIds` / `addAttachments`。） |
+| `0.1.7-alpha.2` | **实测不通**——69 项里 11 过 / 58 红，58 项红只有一条根因：官方把 `@deepseek-ai/dsh-client-ui-primitives` 的图标名整批从尺寸后缀改成字重后缀（`IconCloseFill14` → `IconCloseFillMedium` / `IconCloseFillRegular`，我们会用到的共 26 个）。名字没了不会加载失败、只会变成 `undefined`，于是自有侧栏树的槽位条目在渲染时崩（`slot entry crashed in 'sidebar.workspaces': Error: Minified React error #130`），侧栏出不来东西。同一轮里那张对照页——同样一批官方件、不装我们的工作区树——装得好好的，对话区与设置页两棵树也正常，所以坏的是我们自己的插件包。适配另立 #236。同一版还把 `__DSH_BOOT__.batches[].url` 改成了相对地址（`plugins/??…`，不再带前导斜杠），镜像拉整包因此拼出解析不了的地址、整轮连门都出不来——这一处已经修掉 |
+| `0.1.5-rc.2` | **实测不通**——69 项里 67 过；两条红是启动自愈整族没生效（F-67，与 `0.1.2-rc.1` 上同一签名）和 composer 的 ＋ 根本不在场（F-54：那一代官方没有 `pickFiles` 这个动作） |
+| `0.1.2-rc.1` | **实测不通**——69 项里 52 过。那一代官方产物里没有 `openSession`，「把某条会话变成当前会话」这条主路径根本走不通（三类根因见 #234） |
+| 其余版本 | **未验过**——含 npm `next` 指的 `0.1.5-rc.3`，以及 `0.2.0` 及以上 |
 
-**版本门**。装配界面要求 dsh 落在 `[0.1.2-rc.1, 0.2.0)`：低于下限的版本没有装配用到的 browser-session 认证与装载协议，高于上限的版本行为无保证。版本门**不阻断**——区间外只在面板顶部加一条信息条。注意它是整区间判断，所以 0.1.6 这种「区间内但有漂移」的版本会被静默放行（见上一行的实测记录）。
+**版本门**。装配界面期望 dsh `[0.1.6-alpha.1, 0.2.0)`：下界 = 整轮能全过的最老那一版，上界之上没验过。版本门**不阻断**——区间外只在面板顶部加一条信息条；信息条现在会**把安装命令一起给出来**，不只说区间：**今天没有任何一个 npm dist-tag 指向实测可用的版本**（`latest` = 0.1.5-rc.2、`next` = 0.1.5-rc.3 都低于下界，`alpha` = 0.1.7-alpha.2 落在区间内但实测不通），所以信息条给的是确切版本（`npm install -g @deepseek-ai/dsh@0.1.6-alpha.1`，唯一整轮零红的那一版）。一处已知不严：它是整区间判断，所以「落在区间内但实测坏」的版本——现在就是 `0.1.7-alpha.2`——会被静默放行。
 
 **每次上游发版应跑的检查**（前置条件与细节见清单文档）；浏览器验证出现两次是故意的：一次在候选版本上，一次在你本机已装的那个上。
 

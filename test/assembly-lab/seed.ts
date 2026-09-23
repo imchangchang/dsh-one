@@ -143,7 +143,15 @@ export async function seedLabInstance(gateway: string, home: string, log: LogSin
     // 被「取清单里第一条能用的会话」的动作挑中（#177 实测撞到过一次）。
     if (spec.archived === true) {
       const id = await prompt(LAB_PROMPTS.idle(99))
-      await waitUntil(`会话 ${String(id)} 跑完第一轮（非 blank）`, async () => isLanded(await sessionById(gateway, id)))
+      // 归档前要等**这一轮真跑完**，不能只等「非 blank」。0.1.7-alpha.2 起官方拒绝归档
+      // 正在跑一轮的会话：`workspace/session-active cannot archive session '…': the
+      // session is active (turn)`——播种当场停在这第一步、整轮连页面都开不出来。
+      // 0.1.6 及以前对活跃会话照收，所以这条前提一直没暴露（`blank` 落回 false 比这一轮
+      // 结束早）。
+      await waitUntil(`会话 ${String(id)} 跑完第一轮（非 blank 且不在跑）`, async () => {
+        const row = await sessionById(gateway, id)
+        return isLanded(row) && row?.running !== true
+      })
       const title = await renameSession(gateway, id, `${spec.title} archived`)
       await archiveSession(gateway, id)
       archivedSessionIds.push(id)
