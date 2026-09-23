@@ -68,7 +68,7 @@
       "expect": "`scripts/check-i18n.sh` 与 `scripts/check-platform-compat.sh` 都通过：新增行没有漏同步的界面文案，平台/状态分支逐条有声明。",
       "result": "pass",
       "screenshots": [],
-      "notes": "`[i18n] OK：分支 agent/blocklist-sees-third-party-plugins 相对 main 的新增行无 i18n 漏同步。`；`[platform] OK：…平台路径逐条有声明（平台路径声明 0 条：本轮没有平台相关代码；状态分支矩阵 6 行，触发原因 state-probe + probe-result-branch）`——声明落在 `test/sandbox/verify.blocklist-sees-third-party-plugins.platform.json`，六行分别对应：root 不在 profile 形状下、profile 根读不到、逐条读 profile 目录的三类跳过、层列表里官方层与重复 id 的跳过、第三方包「取不到或读不全」的五种情形、每棵树的 `unplaceableProfilePlugins` 分叉。"
+      "notes": "`[i18n] OK：分支 agent/blocklist-sees-third-party-plugins 相对 main 的新增行无 i18n 漏同步。`；`[platform] OK：…平台路径逐条有声明（平台路径声明 0 条：本轮没有平台相关代码；状态分支矩阵 6 行，触发原因 state-probe + probe-result-branch）`——声明落在 `test/sandbox/verify.blocklist-sees-third-party-plugins.platform.json`，六行分别对应：root 不在 profile 形状下、profile 根读不到、逐条读 profile 目录的三类跳过、层列表里官方层与重复 id 的跳过、第三方包「取不到或读不全」的五种情形、每棵树的 `unplaceableProfilePlugins` 分叉。\n另外：本分支推到 origin 之后 CI 三平台矩阵（ubuntu-latest / macos-latest / windows-latest）**全绿**（run 35864440119，6m1s）——上面那 6 行状态分支的断言在同一批用例里跨三平台各跑了一遍（脚本本身没有按平台分叉，CI 是这一点的旁证）。"
     },
     {
       "id": "R-02",
