@@ -20,16 +20,34 @@
  *    丢帧只让页面保持自己那份 roster（退化成 alpha.1 的行为）；
  * 4. HTTP 契约：未知树 / 非 GET 一律 404；追加列表里混进不认识的名字时**只丢那一条**
  *    （#237），页面断开时上游连接一起收掉。
+ *
+ * #243 起还钉**名册基线参数（`revs`）的编码**（文件末尾那两条用例）：页面那份编码端
+ * （`pageHtml.ts` 的 `transportJs`，活在页面里、只能另写一份）与镜像那份解码端
+ * （`wireFilter.ts` 的 `parseRosterRevs`）必须对同一份清单给出同一份 `id → rev`——
+ * 分隔符 `,` 真的会出现在值里（0.1.7 起自有条目的 rev = 多个 application 批并起来的
+ * 整包缓存键，里面就带着一个 `,`），少了一层转义就会被截断成错的基线，镜像是拿它对
+ * 名册的，对齐错 → 客户端把自有 frame 插件先拆后建 → `root` 槽注册撤销 → 整页白
+ * （#243 现场就是这个）。
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fsp from 'node:fs/promises'
 import * as http from 'node:http'
 import * as path from 'node:path'
+import * as vm from 'node:vm'
 import { scratchDir } from './scratchDirs.ts'
 import { startAssemblyMirror } from '../src/server/assemblyMirror.ts'
 import { localBundleRev } from '../src/server/localBundleRev.ts'
-import { CHAT_BLOCK_LIST, CHAT_FRAME_PLUGIN_ID, filterWire, projectGraphFrame, extractBootWire } from '../src/ui/assembly/wireFilter.ts'
+import { assemblyPageHtml, transportJs } from '../src/ui/assembly/pageHtml.ts'
+import {
+  CHAT_BLOCK_LIST,
+  CHAT_FRAME_PLUGIN_ID,
+  filterWire,
+  projectGraphFrame,
+  extractBootWire,
+  parseRosterRevs,
+  ROSTER_REVS_PARAM,
+} from '../src/ui/assembly/wireFilter.ts'
 
 /** 宿主下发的全量 roster（三条：一条我们 block、一条保留、一条是本树的 frame 插件）。 */
 const HOST_WIRE = {
@@ -277,7 +295,6 @@ test('镜像事件流：页面断开时上游连接一起收掉（不留 ESTABLI
 })
 
 test('装配页把事件流改道到镜像：带上本树的自有插件 id', async () => {
-  const { assemblyPageHtml } = await import('../src/ui/assembly/pageHtml.ts')
   const html = assemblyPageHtml({
     mirrorOrigin: 'http://127.0.0.1:1',
     cspNonce: 'n',
@@ -293,4 +310,126 @@ test('装配页把事件流改道到镜像：带上本树的自有插件 id', as
   )
   assert.ok(html.includes(`["${CHAT_FRAME_PLUGIN_ID}","${EXTRA_PLUGIN_ID}"]`), '该树的自有插件 id 进了页面')
   assert.ok(html.includes('"/plugins/events"'), '只改道官方那条事件流，别的 EventSource 不动')
+})
+
+// ---------------------------------------------------------------------------
+// 名册基线参数（`revs`）的编码（#243）
+// ---------------------------------------------------------------------------
+
+/**
+ * 页面那份编码端（`transportJs` 里的 `rosterRevs`）跑一遍，拿它真的拼出来的那条流 URL。
+ *
+ * 为什么要在沙箱里真跑：这一段只能活在页面内联脚本里（它读 `globalThis.__DSH_BOOT__`），
+ * 所以它和镜像那份解码端是**两份实现**——本文件末尾那两条用例就是要让它们对着同一份清单
+ * 比一次，转义那一层谁写歪了就红。沙箱只要给页面脚本用到的那几个全局（`EventSource` /
+ * `fetch` / `location` / `document`），传输层其余部分（退避、openStream）本用例不碰。
+ */
+function pageStreamUrl(wire: unknown, options: { legacyRosterRevs?: boolean } = {}): string {
+  const urls: string[] = []
+  class StubEventSource {
+    constructor(url: unknown) {
+      urls.push(String(url))
+    }
+    addEventListener(): void {}
+  }
+  const context = vm.createContext({
+    EventSource: StubEventSource,
+    URL,
+    JSON,
+    console,
+    setTimeout,
+    location: { href: 'http://lab.local/chat', origin: 'http://lab.local', protocol: 'http:', host: 'lab.local' },
+    document: { baseURI: 'http://lab.local/chat' },
+    fetch: () => Promise.resolve({ ok: true, status: 200 }),
+    __DSH_BOOT__: wire,
+  })
+  const script = transportJs('http://127.0.0.1:9500', [CHAT_FRAME_PLUGIN_ID, EXTRA_PLUGIN_ID], true, options.legacyRosterRevs === true)
+  vm.runInContext(script, context, { filename: 'transport.js' })
+  vm.runInContext('globalThis.__pageStream = new EventSource("/plugins/events")', context, { filename: 'page.js' })
+  assert.equal(urls.length, 1, '页面没有把官方那条事件流改道（transportJs 的 EventSource 钩子没生效）')
+  return urls[0] ?? ''
+}
+
+/** 一条自带的清单：自有条目的 rev 里**带着分隔符**（0.1.7 起自有条目的真实形状，见下）。 */
+const COMMA_REV = '117817dcabda,0ec98e9bdd7b-694f1d2833d5'
+
+const COMMA_WIRE = {
+  rev: 'rev-host',
+  entries: [
+    { id: '@deepseek-ai/dsh-typert-registry', url: '/plugins/??x&rev=r2', rev: 'r2' },
+    { id: CHAT_FRAME_PLUGIN_ID, url: `/plugins-local/??x&rev=${COMMA_REV}`, rev: COMMA_REV },
+    { id: EXTRA_PLUGIN_ID, url: `/plugins-local/??y&rev=${COMMA_REV}`, rev: COMMA_REV },
+  ],
+  batches: [
+    { phase: 'bootstrap', url: '/plugins/??x&rev=r0', rev: 'r0', entries: ['@deepseek-ai/dsh-client-modules'] },
+    { phase: 'application', url: '/plugins-local/??x&rev=r1', rev: 'r1', entries: [CHAT_FRAME_PLUGIN_ID, EXTRA_PLUGIN_ID] },
+  ],
+}
+
+test('名册基线参数：页面那份编码端编出来的每一对，镜像那份解码端都原样解回来（#243）', () => {
+  const url = new URL(pageStreamUrl(COMMA_WIRE), 'http://lab.local')
+  const raw = url.searchParams.get(ROSTER_REVS_PARAM) ?? ''
+  // 现场有效性：这一份清单里真的有一条 rev 带着分隔符——没有它，下面那条断言在这个形状
+  // 下就是空转（这正是 0.1.6 及更早的清单形状：application 只有一个批，rev 里不含 `,`）。
+  assert.ok(
+    COMMA_WIRE.entries.some((entry) => entry.rev.includes(',')),
+    '夹具本身要有一条 rev 带分隔符，否则这条用例证明不了编码有没有用',
+  )
+  assert.ok(raw.includes('"'), `编出来的应当是 JSON（JSON 自带结构，值里出现什么都不影响）：${raw}`)
+  const parsed = parseRosterRevs(raw)
+  for (const entry of COMMA_WIRE.entries) {
+    assert.equal(parsed.get(entry.id), entry.rev, `${entry.id} 的 rev 要原样来回（含分隔符那几条）`)
+  }
+  // 页面侧那个开关只该改编码，不该改别的：编码端换了之后，事件流的 id 表一个字不动。
+  assert.equal(url.searchParams.get('ids'), `${CHAT_FRAME_PLUGIN_ID},${EXTRA_PLUGIN_ID}`)
+})
+
+test('名册基线参数：负向对照——改前那套原样拼接会把带分隔符的 rev 截断（#243）', () => {
+  const raw =
+    new URL(pageStreamUrl(COMMA_WIRE, { legacyRosterRevs: true }), 'http://lab.local').searchParams.get(ROSTER_REVS_PARAM) ?? ''
+  const legacy = parseRosterRevs(raw)
+  // 这一档就是改前那一份页面编出来的东西（`id:rev,id:rev`）：不带分隔符的条目照旧对得上，
+  // 带分隔符的那一条被切成两段、只剩前一半——镜像于是拿它当「这一条变了」，客户端先拆后建，
+  // 拆掉自有 frame 插件时 `root` 槽注册随之撤销、整页白（#243 现场）。
+  assert.equal(legacy.get('@deepseek-ai/dsh-typert-registry'), 'r2', '不带分隔符的那一条两档一致')
+  assert.notEqual(legacy.get(CHAT_FRAME_PLUGIN_ID), COMMA_REV, '带分隔符的那一条在这一档必须对不上（否则这条负向对照是空的）')
+})
+
+test('镜像事件流：基线里的 rev 含着分隔符时也照原样对齐（#243）', async () => {
+  const dir = await pluginsDir()
+  const gateway = await startStubGateway()
+  const mirror = await startAssemblyMirror(() => gateway.origin, silent, {
+    pluginsDir: dir,
+    treeCombos: [{ framePluginId: CHAT_FRAME_PLUGIN_ID, blockList: CHAT_BLOCK_LIST }],
+  })
+  const encode = (id: string, rev: string): string => encodeURIComponent(JSON.stringify([[id, rev]]))
+  // 页面 boot 那份清单（编成 JSON 参数）：自有条目那一半就是整包缓存键
+  // `${applicationComboRev}-${localRev}`——0.1.7 起官方有两个 application 批，`appRev`
+  // 是两份批 rev 用逗号并起来，于是这个值里真的带着一个 `,`（本用例就照这个形状给）。
+  const bootRevs = new Map<string, string>([
+    ['@deepseek-ai/dsh-client-modules', 'r0'],
+    ['@deepseek-ai/dsh-typert-registry', 'r2'],
+    [CHAT_FRAME_PLUGIN_ID, COMMA_REV],
+    [EXTRA_PLUGIN_ID, COMMA_REV],
+  ])
+  const param = encodeURIComponent(JSON.stringify([...bootRevs]))
+  try {
+    const ids = `${CHAT_FRAME_PLUGIN_ID},${EXTRA_PLUGIN_ID}`
+    const frames = await readFrames(`${mirror.origin}/plugins-local/events?ids=${ids}&${ROSTER_REVS_PARAM}=${param}`, 2)
+    const frame = JSON.parse((frames[1] ?? '').slice('data:'.length)) as {
+      graph: { entries: { id: string; rev: string }[] }
+    }
+    const framed = new Map(frame.graph.entries.map((entry) => [entry.id, entry.rev]))
+    for (const [id, rev] of bootRevs) {
+      // HOST_WIRE 里没有 `@deepseek-ai/dsh-client-modules` 之外的 bootstrap 条目也无妨：
+      // 对不上的那几条由 filterWire 决定，这里只比对名字两侧都有的。
+      if (!framed.has(id)) continue
+      assert.equal(framed.get(id), rev, `${id} 推给页面的 rev 要等于这一页 boot 那份（含带分隔符的那几条）`)
+    }
+    assert.equal(framed.get(EXTRA_PLUGIN_ID), COMMA_REV, '带分隔符那一条没被截断（这就是 #243 的修法本身）')
+  } finally {
+    mirror.dispose()
+    gateway.close()
+    await fsp.rm(dir, { recursive: true, force: true })
+  }
 })
