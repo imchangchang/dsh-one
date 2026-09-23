@@ -8,7 +8,8 @@
  *
  * 为什么不在这里真装一遍候选：那是网络 + 上百个包的活，跑在 `npm test` 里太贵也太脆；
  * 「钉住之后真装出来是不是一致的」由这条门禁自己每次跑的时候核（装完那一遍版本清单
- * 就是它的读数），实测记录见 #231。
+ * 就是它的读数），实测记录见 #231。`--from` 那一路只查发布时刻表、且只在树里真有同期
+ * 上游包时才查，所以下面这些假树（只有 `dsh*`）一个网络请求都不发。
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -18,12 +19,13 @@ import { spawnSync } from 'node:child_process'
 import { scratchDirSync } from './scratchDirs.ts'
 import {
   ROOT_PACKAGE,
-  checkFamilyVersions,
-  familyNamesFromLock,
+  checkVendorVersions,
   mismatchDetailLines,
+  pickAsOfVersion,
   pinnedOverrides,
   readInstalledPackages,
   resolvedVersionFromLock,
+  vendorNamesFromLock,
   versionReportLines,
 } from '../scripts/labCandidateTree.ts'
 
@@ -42,7 +44,7 @@ function runCli(args: string[]): { status: number | null; stdout: string; stderr
   return { status: result.status, stdout: String(result.stdout ?? ''), stderr: String(result.stderr ?? '') }
 }
 
-test('锁文件：取同族包名（含嵌套键、剔掉非同族），取解析出来的确切版本', () => {
+test('锁文件：取上游包名（`@deepseek-ai/*` 全部，含嵌套键），取解析出来的确切版本', () => {
   const lock = {
     packages: {
       '': { name: 'lab' },
@@ -53,7 +55,9 @@ test('锁文件：取同族包名（含嵌套键、剔掉非同族），取解�
       'node_modules/commander': { version: '15.0.0' },
     },
   }
-  assert.deepEqual(familyNamesFromLock(lock), [
+  // 同期上游包（cordis 这种非 dsh* 的）也要在名单里：#231 现场的第二半就是它。
+  assert.deepEqual(vendorNamesFromLock(lock), [
+    '@deepseek-ai/cordis',
     '@deepseek-ai/dsh',
     '@deepseek-ai/dsh-app-boot',
     '@deepseek-ai/dsh-hmr',
@@ -62,44 +66,96 @@ test('锁文件：取同族包名（含嵌套键、剔掉非同族），取解�
   assert.equal(resolvedVersionFromLock({ packages: {} }), undefined)
 })
 
-test('钉版本：同族子包一律钉到确切版本，`@deepseek-ai/dsh` 自己不进 overrides', () => {
-  const overrides = pinnedOverrides(['@deepseek-ai/dsh', '@deepseek-ai/dsh-app-boot', '@deepseek-ai/dsh-client-ui-layout'], '0.1.6-alpha.1')
+test('发布窗口取版本：挑窗口内最新发布的那一版（按发布时刻，不按版本号大小）', () => {
+  const times = {
+    created: '2026-08-01T00:00:00.000Z',
+    modified: '2026-09-22T00:00:00.000Z',
+    '1.0.2': '2026-08-01T00:00:00.000Z',
+    '1.0.17': '2026-08-30T13:14:24.871Z',
+    '1.0.18': '2026-09-22T03:46:37.411Z',
+    '1.0.19': '2026-09-22T15:39:05.442Z',
+  }
+  // 0.1.2-rc.1 的发布窗口（2026-09-03 + 1 小时）：1.0.17 才对，不能顺到 1.0.18/1.0.19。
+  assert.equal(pickAsOfVersion(times, '2026-09-03T07:21:53.000Z'), '1.0.17')
+  // 窗口边界是闭的（正好发布在窗口上界那一刻也算）。
+  assert.equal(pickAsOfVersion(times, '2026-08-30T13:14:24.871Z'), '1.0.17')
+  // 比最早的还早 ⇒ 挑不出来（调用方按「装不下去」处理）。
+  assert.equal(pickAsOfVersion(times, '2026-07-01T00:00:00.000Z'), undefined)
+  assert.equal(pickAsOfVersion(times, '不是时刻'), undefined)
+})
+
+test('钉版本：期望表逐条变成 overrides，`@deepseek-ai/dsh` 自己不进 overrides', () => {
+  const overrides = pinnedOverrides({
+    '@deepseek-ai/dsh': '0.1.2-rc.1',
+    '@deepseek-ai/dsh-app-boot': '0.1.2-rc.1',
+    '@deepseek-ai/cordis-plugin-hmr': '1.0.17',
+  })
   assert.deepEqual(overrides, {
-    '@deepseek-ai/dsh-app-boot': '0.1.6-alpha.1',
-    '@deepseek-ai/dsh-client-ui-layout': '0.1.6-alpha.1',
+    '@deepseek-ai/dsh-app-boot': '0.1.2-rc.1',
+    '@deepseek-ai/cordis-plugin-hmr': '1.0.17',
   })
   assert.equal(Object.hasOwn(overrides, ROOT_PACKAGE), false, '根包由 dependencies 钉，overrides 里再钉一次 npm 会报冲突')
 })
 
-test('内部一致性：一致 / 混装 / 缺关键子包三种结论', () => {
+test('内部一致性：一致 / 同族混装 / 同期上游包被顺到新版 / 有没钉到的包，四种结论', () => {
+  const targets = {
+    '@deepseek-ai/dsh': '0.1.2-rc.1',
+    '@deepseek-ai/dsh-app-boot': '0.1.2-rc.1',
+    '@deepseek-ai/cordis-plugin-hmr': '1.0.17',
+  }
   const clean = [
-    { name: ROOT_PACKAGE, version: '0.1.6-alpha.1', where: 'node_modules/@deepseek-ai/dsh' },
-    { name: '@deepseek-ai/dsh-app-boot', version: '0.1.6-alpha.1', where: 'node_modules/@deepseek-ai/dsh-app-boot' },
+    { name: ROOT_PACKAGE, version: '0.1.2-rc.1', where: 'node_modules/@deepseek-ai/dsh' },
+    { name: '@deepseek-ai/dsh-app-boot', version: '0.1.2-rc.1', where: 'node_modules/@deepseek-ai/dsh-app-boot' },
+    { name: '@deepseek-ai/cordis-plugin-hmr', version: '1.0.17', where: 'node_modules/@deepseek-ai/cordis-plugin-hmr' },
   ]
-  const cleanVerdict = checkFamilyVersions(clean)
+  const cleanVerdict = checkVendorVersions(clean, targets)
   assert.equal(cleanVerdict.ok, true)
-  assert.equal(cleanVerdict.expected, '0.1.6-alpha.1')
+  assert.equal(cleanVerdict.candidate, '0.1.2-rc.1')
   assert.deepEqual(cleanVerdict.mismatches, [])
-  assert.deepEqual(cleanVerdict.distinctVersions, ['0.1.6-alpha.1'])
+  assert.deepEqual(cleanVerdict.distinctFamilyVersions, ['0.1.2-rc.1'])
   assert.ok(cleanVerdict.missingKey.includes('@deepseek-ai/dsh-base'), '关键子包里没出现的那几个要如实点名')
 
-  const mixed = [...clean, { name: '@deepseek-ai/dsh-app-boot', version: '0.1.6-alpha.2', where: 'node_modules/other/node_modules/@deepseek-ai/dsh-app-boot' }]
-  const mixedVerdict = checkFamilyVersions(mixed)
+  // ① 同族混装（alpha.1 + 子包 alpha.2）
+  const mixedFamily = [...clean, { name: '@deepseek-ai/dsh-app-boot', version: '0.1.6-alpha.2', where: 'node_modules/x/node_modules/@deepseek-ai/dsh-app-boot' }]
+  const mixedVerdict = checkVendorVersions(mixedFamily, targets)
   assert.equal(mixedVerdict.ok, false)
-  assert.deepEqual(mixedVerdict.distinctVersions, ['0.1.6-alpha.1', '0.1.6-alpha.2'])
+  assert.deepEqual(mixedVerdict.distinctFamilyVersions, ['0.1.2-rc.1', '0.1.6-alpha.2'])
   assert.equal(mixedVerdict.mismatches.length, 1)
-  assert.match(mismatchDetailLines(mixedVerdict, { installDir: '/tmp/x' }).join('\n'), /版本混装/)
-  assert.match(mismatchDetailLines(mixedVerdict).join('\n'), /@deepseek-ai\/dsh-app-boot@0\.1\.6-alpha\.2/)
+  assert.match(mismatchDetailLines(mixedVerdict, { targets }).join('\n'), /版本混装/)
 
-  const empty = checkFamilyVersions([{ name: 'commander', version: '15.0.0', where: 'node_modules/commander' }])
-  assert.equal(empty.ok, false, '树里连 @deepseek-ai/dsh 都没有时不能判成一致')
-  assert.equal(empty.expected, undefined)
+  // ② 同期上游包被 npm 顺到窗口外的新版（0.1.2-rc.1 上真踩到的那种）
+  const drifted = clean.map((each) =>
+    each.name === '@deepseek-ai/cordis-plugin-hmr' ? { ...each, version: '1.0.19' } : each,
+  )
+  const driftedVerdict = checkVendorVersions(drifted, targets)
+  assert.equal(driftedVerdict.ok, false)
+  assert.deepEqual(
+    driftedVerdict.mismatches.map((each) => `${each.name}@${each.version}`),
+    ['@deepseek-ai/cordis-plugin-hmr@1.0.19'],
+  )
+  assert.match(mismatchDetailLines(driftedVerdict, { targets }).join('\n'), /期望 1\.0\.17/)
+
+  // ③ 树里有没钉到的上游包（没期望可比 ⇒ 读数同样不作数）
+  const stranger = [...clean, { name: '@deepseek-ai/dsh-newcomer', version: '9.9.9', where: 'node_modules/@deepseek-ai/dsh-newcomer' }]
+  const strangerVerdict = checkVendorVersions(stranger, targets)
+  assert.equal(strangerVerdict.ok, false)
+  assert.deepEqual(
+    strangerVerdict.unknown.map((each) => each.name),
+    ['@deepseek-ai/dsh-newcomer'],
+  )
+  assert.match(mismatchDetailLines(strangerVerdict, { targets }).join('\n'), /没钉到版本的上游包/)
+
+  // ④ 树里连 @deepseek-ai/dsh 都没有时不能判成一致
+  const empty = checkVendorVersions([{ name: 'commander', version: '15.0.0', where: 'node_modules/commander' }], {})
+  assert.equal(empty.ok, false)
+  assert.equal(empty.candidate, undefined)
 })
 
 test('读树：嵌套那一份也单独列出来，并按包名排序', async () => {
   const tree = scratchDirSync('dsh-lab-version-')
   writePackage(tree, '@deepseek-ai/dsh', '0.1.6-alpha.1')
   writePackage(tree, '@deepseek-ai/dsh-app-boot', '0.1.6-alpha.1')
+  writePackage(tree, '@deepseek-ai/cordis', '4.0.2')
   writePackage(tree, 'commander', '15.0.0')
   fs.mkdirSync(path.join(tree, 'node_modules', 'other', 'node_modules', '@deepseek-ai'), { recursive: true })
   writePackage(path.join(tree, 'node_modules', 'other'), '@deepseek-ai/dsh-app-boot', '0.1.6-alpha.2')
@@ -107,10 +163,18 @@ test('读树：嵌套那一份也单独列出来，并按包名排序', async ()
   const packages = await readInstalledPackages(tree)
   assert.deepEqual(
     packages.map((each) => `${each.name}@${each.version}`),
-    ['@deepseek-ai/dsh@0.1.6-alpha.1', '@deepseek-ai/dsh-app-boot@0.1.6-alpha.1', '@deepseek-ai/dsh-app-boot@0.1.6-alpha.2'],
+    [
+      '@deepseek-ai/cordis@4.0.2',
+      '@deepseek-ai/dsh@0.1.6-alpha.1',
+      '@deepseek-ai/dsh-app-boot@0.1.6-alpha.1',
+      '@deepseek-ai/dsh-app-boot@0.1.6-alpha.2',
+    ],
   )
-  assert.equal(checkFamilyVersions(packages).ok, false, '嵌套的那一份版本不同也该判成混装')
-  assert.ok(versionReportLines(checkFamilyVersions(packages))[0]?.includes('版本集合 = {0.1.6-alpha.1, 0.1.6-alpha.2}'))
+  const verdict = checkVendorVersions(packages, { '@deepseek-ai/dsh': '0.1.6-alpha.1', '@deepseek-ai/dsh-app-boot': '0.1.6-alpha.1' })
+  assert.equal(verdict.ok, false, '嵌套的那一份版本不同、cordis 又没有期望 ⇒ 两样都不算数')
+  assert.equal(verdict.mismatches.length, 1)
+  assert.equal(verdict.unknown.length, 1)
+  assert.match(versionReportLines(verdict, { targets: { '@deepseek-ai/dsh': '0.1.6-alpha.1', '@deepseek-ai/cordis': '4.0.2' } })[2] ?? '', /同期上游包按候选发布窗口钉住（1 个）：@deepseek-ai\/cordis@4\.0\.2/)
 })
 
 test('负向对照：混装的树喂进去必须报错停下、报出是哪几个包，且一条套件都不跑', () => {
@@ -163,10 +227,10 @@ test('读不到的包目录（没清单 / 清单不是 JSON）跳过，其余照
     packages.map((each) => `${each.name}@${each.version}`),
     ['@deepseek-ai/dsh@0.1.6-alpha.1', '@deepseek-ai/dsh-app-boot@0.1.6-alpha.1'],
   )
-  // fail-closed：读不到的那一份恰好是 dsh 自己时，期望版本成了 undefined ⇒ 当场判不一致。
-  const withoutRoot = checkFamilyVersions([{ name: '@deepseek-ai/dsh-app-boot', version: '0.1.6-alpha.1', where: 'x' }])
+  // fail-closed：读不到的那一份恰好是 dsh 自己时，候选版本成了 undefined ⇒ 当场判不一致。
+  const withoutRoot = checkVendorVersions([{ name: '@deepseek-ai/dsh-app-boot', version: '0.1.6-alpha.1', where: 'x' }], {})
   assert.equal(withoutRoot.ok, false)
-  assert.equal(withoutRoot.expected, undefined)
+  assert.equal(withoutRoot.candidate, undefined)
 })
 
 test('候选的 `dsh --version` 读得到时打进读数（读不到只跳过那一行旁证）', () => {

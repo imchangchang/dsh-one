@@ -19,15 +19,27 @@
  * 它跑不起来（实测 `SyntaxError: … '@deepseek-ai/dsh-app-boot' does not provide an export
  * named 'watchUserPatches'`），而门禁照跑照出读数——那读数既不代表候选版也不代表现网。
  *
- * 三步（判据与纯函数在 `scripts/labCandidateTree.mjs`，单测 `test/labCandidateTree.test.ts`）：
+ * 同一件事还有**第二半**（0.1.2-rc.1 上实测撞到）：上游不只 `dsh*` 这一族按批次发版，
+ * `@deepseek-ai/cordis-plugin-hmr` 这种包也在同一批里、范围写成 `^1.0.17`，npm 就顺到比候选
+ * 版本晚 19 天发布的那一版——那种树上 `dsh web` 一启动就报
+ * `Error: dsh: user patch-layer watching requires the Cordis HMR service` 并退出，
+ * 整轮与 F-01 都跑不起来。所以钉的范围是**上游自己那一批（`@deepseek-ai/*` 全部）**。
+ *
+ * 三步（判据与纯函数在 `scripts/labCandidateTree.ts`，单测 `test/labCandidateTree.test.ts`）：
  *
  * 1. 写一份只声明 `@deepseek-ai/dsh@<要验的那一版>` 的清单，`npm install
  *    --package-lock-only` 解析一次（**只取元数据、不下载**），从锁文件里拿到整棵树的
- *    同族包名与解析出来的确切版本；
- * 2. 把这些同族子包按**确切版本**写进 `overrides` 真装——范围里的其它版本不再有机会被选中；
- * 3. 装完读一遍树里的版本清单，**同族包必须同版本**，不一致就报错停下、不跑套件。
+ *    上游包名与解析出来的确切版本；
+ * 2. 按包名算**期望版本**，写进 `overrides` 真装——范围里的其它版本不再有机会被选中：
+ *    同族包钉候选那一版；同期上游包（`@deepseek-ai/cordis*` 这些）钉**候选发布窗口内**
+ *    最新的一版（候选发布时刻 + 一小时；这一批各包发布时刻实测散在 ±13 分钟内）；
+ * 3. 装完读一遍树里的版本清单逐条对账：同族包必须同版本、同期上游包必须是期望那一版、
+ *    树里还要没有没钉到的上游包；任何一条不成立就报错停下、不跑套件。
  *
- * 任何一步失败都把完整的报错带出来（npm 自己的 stdout / stderr 原样打出，不留 8 KB 尾巴）。
+ * 任何一步失败都把完整的报错带出来（npm 自己的 stdout / stderr 原样打出，不留短尾巴）。
+ *
+ * 范围之外（`commander` 这类第三方）不动——它们版本线独立、也没出过这类事故；要连它们
+ * 一起冻就得按日期过滤整棵树，那是另一件事，真需要了再另立条目。
  *
  * ## 它证明什么、不证明什么
  *
@@ -59,12 +71,14 @@ import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   ROOT_PACKAGE,
-  checkFamilyVersions,
-  familyNamesFromLock,
+  checkVendorVersions,
+  isFamilyName,
   mismatchDetailLines,
+  pickAsOfVersion,
   pinnedOverrides,
   readInstalledPackages,
   resolvedVersionFromLock,
+  vendorNamesFromLock,
   versionReportLines,
 } from './labCandidateTree.ts'
 
@@ -168,28 +182,102 @@ function writeManifest(dir, body) {
 }
 
 /**
- * 装一份候选并返回装出来的确切版本：先元数据解析拿包名，再把同族子包按确切版本钉住真装。
- * （每一步的理由见文件头「候选版本怎么装」。）
+ * 候选发布窗口的上界：候选版本自己的发布时刻 + 一小时。
+ *
+ * 一小时是照着上游**批次的形状**定的：同一批里各包的发布时间不是同一个瞬时，实测候选
+ * 本体发布前后 ±13 分钟内都还在发（0.1.6-alpha.2 最晚的一条比本体晚 114 秒），给一小时
+ * 足够容纳整批，又不会宽到把下一批（隔着两天以上）圈进来。
  */
-function installPinnedCandidate(dir, spec) {
+const RELEASE_WINDOW_MS = 60 * 60 * 1000
+
+/** 查一个包的发布时刻表（包名 → 版本 → ISO 时刻）。 */
+function packageTimes(name) {
+  return JSON.parse(runNpm(['view', name, 'time', '--json'], os.tmpdir()))
+}
+
+/** 候选本体的发布窗口上界（见 {@link RELEASE_WINDOW_MS}）。 */
+function candidateReleaseCutoff(resolved, timesCache) {
+  const times = timesCache.get(NPM_PKG) ?? packageTimes(NPM_PKG)
+  timesCache.set(NPM_PKG, times)
+  const published = times[resolved]
+  if (typeof published !== 'string') {
+    throw new Error(`查不到 ${NPM_PKG}@${resolved} 的发布时刻，没法算候选发布窗口。`)
+  }
+  return new Date(Date.parse(published) + RELEASE_WINDOW_MS).toISOString()
+}
+
+/**
+ * 期望版本表这一层的构造：同族包钉候选那一版（彼此同版本），同期上游包钉候选发布窗口内
+ * 最新的一版。发布时刻表按包名缓存，同一次运行里不重复查。
+ */
+function makeTargetsBuilder(resolved) {
+  const timesCache = new Map()
+  let cutoff
+  return (name) => {
+    if (isFamilyName(name)) return resolved
+    if (cutoff === undefined) cutoff = candidateReleaseCutoff(resolved, timesCache)
+    const times = timesCache.get(name) ?? packageTimes(name)
+    timesCache.set(name, times)
+    const picked = pickAsOfVersion(times, cutoff)
+    if (picked === undefined) {
+      throw new Error(`查不到 ${name} 在 ${cutoff} 之前发布过哪一版（候选 ${resolved} 的依赖里却有它），装不下去。`)
+    }
+    return picked
+  }
+}
+
+/** `--from` 那一路：拿一份已有的树算期望版本表（树里没有候选本体时给不出期望，返回空表）。 */
+async function targetsForExistingTree(packages, resolved) {
+  const targets = {}
+  if (resolved === undefined) return targets
+  const expectedFor = makeTargetsBuilder(resolved)
+  for (const name of [...new Set(packages.map((each) => each.name))].sort()) targets[name] = expectedFor(name)
+  return targets
+}
+
+/**
+ * 装一份候选并返回装出来的确切版本与期望版本表。
+ *
+ * 三件事（理由见文件头「候选版本怎么装」）：
+ * ① 元数据解析一次，拿到整棵树的上游包名（只取元数据，不下载）；
+ * ② 按包名算期望版本——同族包是候选那一版，同期上游包是候选发布窗口内最新的一版；
+ * ③ 真装，装完再扫一遍树：要是出现了期望表里没有的上游包，就把它也算进来重装，
+ *    直到稳定（最多 4 轮；真不稳定就是有问题，直接抛出来）。
+ */
+async function installPinnedCandidate(dir, spec) {
   writeManifest(dir, { dependencies: { [NPM_PKG]: spec } })
   process.stderr.write(`[lab-version] 解析 ${NPM_PKG}@${spec} 的依赖树（只取元数据，不下载）…\n`)
   runNpm(['install', '--package-lock-only', '--no-audit', '--no-fund', '--loglevel=error'], dir)
-  const lock = JSON.parse(fs.readFileSync(path.join(dir, 'package-lock.json'), 'utf8'))
-  const names = familyNamesFromLock(lock)
+  const lock = readLock(dir)
   const resolved = resolvedVersionFromLock(lock)
-  if (resolved === undefined || names.length === 0) {
-    throw new Error(`解析出来的依赖树里没有 ${ROOT_PACKAGE} 的同族包，装不下去（锁文件：${path.join(dir, 'package-lock.json')}）。`)
+  if (resolved === undefined) {
+    throw new Error(`解析出来的依赖树里没有 ${ROOT_PACKAGE}，装不下去（锁文件：${path.join(dir, 'package-lock.json')}）。`)
   }
-  const overrides = pinnedOverrides(names, resolved)
+  const expectedFor = makeTargetsBuilder(resolved)
+  const targets = {}
+  for (const name of vendorNamesFromLock(lock)) targets[name] = expectedFor(name)
+  const siblingCount = Object.keys(targets).filter((name) => !isFamilyName(name)).length
   process.stderr.write(
-    `[lab-version] 候选版本 = ${resolved}：把 ${String(Object.keys(overrides).length)} 个同族子包按确切版本钉住后真装…\n`,
+    `[lab-version] 候选版本 = ${resolved}；钉住 ${String(Object.keys(targets).length)} 个上游包（其中同期上游包 ${String(siblingCount)} 个按候选发布窗口取版本）后真装…\n`,
   )
-  writeManifest(dir, { dependencies: { [NPM_PKG]: resolved }, overrides })
-  // 锁文件是**没钉住**的那一份解析结果，留着 npm 就照它装——删掉，让它按钉住后的清单重解。
-  fs.rmSync(path.join(dir, 'package-lock.json'), { force: true })
-  runNpm(['install', '--no-audit', '--no-fund', '--loglevel=error'], dir)
-  return resolved
+  for (let pass = 1; pass <= 4; pass += 1) {
+    writeManifest(dir, { dependencies: { [NPM_PKG]: resolved }, overrides: pinnedOverrides(targets) })
+    // 锁文件是**没钉住**的那一份解析结果，留着 npm 就照它装——删掉，让它按钉住后的清单重解。
+    fs.rmSync(path.join(dir, 'package-lock.json'), { force: true })
+    runNpm(['install', '--no-audit', '--no-fund', '--loglevel=error'], dir)
+    const installed = await readInstalledPackages(dir)
+    const missing = [...new Set(installed.map((each) => each.name).filter((name) => targets[name] === undefined))]
+    if (missing.length === 0) return { resolved, targets }
+    process.stderr.write(
+      `[lab-version] 这一轮又出现 ${String(missing.length)} 个上游包，一并钉住后重装：${missing.join('、')}\n`,
+    )
+    for (const name of missing) targets[name] = expectedFor(name)
+  }
+  throw new Error('上游包清单连着四轮都在变（每一轮装完都多出没钉到的包），这棵树的形状不对劲，停下来。')
+}
+
+function readLock(dir) {
+  return JSON.parse(fs.readFileSync(path.join(dir, 'package-lock.json'), 'utf8'))
 }
 
 /**
@@ -221,17 +309,24 @@ function candidateVersionOutput(dir) {
 }
 
 try {
-  if (options.from === undefined) installPinnedCandidate(tmp, version)
-  const packages = await readInstalledPackages(installDir)
-  const verdict = checkFamilyVersions(packages)
-  for (const line of versionReportLines(verdict)) process.stderr.write(`${line}\n`)
-  if (version !== undefined && /^\d/.test(version) && verdict.expected !== version) {
-    process.stderr.write(`[lab-version] 装出来的 dsh 是 ${verdict.expected ?? '（不在树里）'}，不是你要的 ${version}。\n`)
+  let packages = await readInstalledPackages(installDir)
+  let targets = {}
+  if (options.from === undefined) {
+    targets = (await installPinnedCandidate(tmp, version)).targets
+    packages = await readInstalledPackages(installDir)
+  } else {
+    const installed = packages.find((each) => each.name === NPM_PKG)?.version
+    targets = await targetsForExistingTree(packages, installed)
+  }
+  const verdict = checkVendorVersions(packages, targets)
+  for (const line of versionReportLines(verdict, { targets })) process.stderr.write(`${line}\n`)
+  if (version !== undefined && /^\d/.test(version) && verdict.candidate !== version) {
+    process.stderr.write(`[lab-version] 装出来的 dsh 是 ${verdict.candidate ?? '（不在树里）'}，不是你要的 ${version}。\n`)
     cleanup()
     process.exit(2)
   }
   if (verdict.ok !== true) {
-    for (const line of mismatchDetailLines(verdict, { installDir })) process.stderr.write(`${line}\n`)
+    for (const line of mismatchDetailLines(verdict, { installDir, targets })) process.stderr.write(`${line}\n`)
     process.stderr.write('[lab-version] 停下，不跑套件（宁可红，不要假绿：这棵树上的读数不作数）。\n')
     cleanup()
     process.exit(2)

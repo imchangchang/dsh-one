@@ -1,32 +1,40 @@
 /**
  * 「候选版本树」这一层的纯函数（#231）：把一棵装出来的 dsh 读成版本清单、判它内部一致、
- * 按确切版本生成钉住用的 overrides。CLI 在 `scripts/verify-lab-version.mjs`，
- * 单测在 `test/labCandidateTree.test.ts`。
+ * 按确切版本算出钉住整棵树要用的 overrides。CLI 在 `scripts/verify-lab-version.mjs`，
+ * 单测在 `test/labCandidateTree.test.ts`。网络那部分（查发布时刻、跑 npm）留在 CLI 里，
+ * 这一层只做算得上单测的事。
  *
  * ## 为什么要有这一层（#231 的现场）
  *
  * `@deepseek-ai/dsh` 自己的依赖写的是 `^0.1.6-alpha.1` 这种范围——同一个范围里 alpha.2
- * 也满足，于是 `npm install` 把**子包**装成 alpha.2、`dsh` 自己还是 alpha.1（装的是
- * 确切版本）。这是一棵版本混杂的树：`dsh web` 起不来（实测
- * `SyntaxError: … '@deepseek-ai/dsh-app-boot' does not provide an export named 'watchUserPatches'`），
- * 而门禁照跑照出读数——读出来的既不代表候选版、也不代表现网，是个假读数。
+ * 也满足，于是 `npm install @deepseek-ai/dsh@0.1.6-alpha.1` 会把**子包**装成 alpha.2、
+ * `dsh` 自己还是 alpha.1。这是一棵版本混杂的树：`dsh web` 起不来（实测
+ * `SyntaxError: … '@deepseek-ai/dsh-app-boot' does not provide an export named
+ * 'watchUserPatches'`），而门禁照跑照出读数——读出来的既不代表候选版、也不代表现网。
  *
- * ## 判据（一句话）
+ * 同一件事还有**第二半**，0.1.2-rc.1 上实测撞到：上游不只 `dsh*` 这一族按批次发版，
+ * `@deepseek-ai/cordis-plugin-hmr` 这种包也在同一批里，范围写成 `^1.0.17`，npm 会顺到比
+ * 候选版本晚 19 天发布的那一版（1.0.19）——结果 `dsh web` 在启动时就报
+ * `user patch-layer watching requires the Cordis HMR service` 并退出（整轮与 F-01 都跑不了）。
+ * 所以钉的范围是**上游自己那一批（`@deepseek-ai/*` 全部）**，而不是只有 `dsh*`：
  *
- * **同族包（`@deepseek-ai/dsh` 与 `@deepseek-ai/dsh-*`）必须同版本**：上游把这些包按同一条
- * 版本线一起发布，`dsh` 与它的子包版本不一致就是混装。装的时候按确切版本钉住整棵树
- * （{@link pinnedOverrides}），装完再核一遍（{@link checkFamilyVersions}）——钉不住就报错
- * 停下，不跑套件。
+ * - **同族包**（`@deepseek-ai/dsh` 与 `@deepseek-ai/dsh-*`）：钉到候选那一版，并且必须
+ *   **彼此同版本**（上游按同一条版本线一起发布）；
+ * - **同期上游包**（`@deepseek-ai/cordis*` / `schemastery` / …）：钉到**候选版本发布窗口内**
+ *   的那一版（{@link pickAsOfVersion}，窗口由 CLI 算出：候选发布时刻 + 一小时）——就是
+ *   「这一版候选发布那天装的树」。
  *
- * 为什么不一并钉 `@deepseek-ai/cordis` / `@deepseek-ai/schemastery` 这些：它们的版本号与
- * dsh 不在同一条线上（实测 `cordis@4.0.2`、`schemastery@3.18.2`），范围也稳定，混装这件事
- * 与它们无关；把它们一起钉住反而会把无关包的版本冻在某一版上。
+ * 范围之外（`commander`、`js-yaml` 这类第三方）不动：它们版本线独立，也没出过这类事故；
+ * 要连它们一起冻就得按日期过滤整棵树，那是另一件事，真需要了再另立条目。
  */
 import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
 
 /** 候选包自己的名字（也是装配侧取清单时认的那个 id）。 */
 export const ROOT_PACKAGE = '@deepseek-ai/dsh'
+
+/** 上游那一批包的 scope（钉版本的范围）。 */
+export const VENDOR_SCOPE = '@deepseek-ai'
 
 /**
  * 报告里点名的那几个关键子包：`dsh-app-boot` 是 #231 现场那一条，其余是装配链路
@@ -52,13 +60,20 @@ export interface InstalledPackage {
   where: string
 }
 
-/** 同族包的版本体检结论。 */
-export interface FamilyVerdict {
-  /** 期望版本：树里 `@deepseek-ai/dsh` 自己那一版（树里没有它就是 undefined）。 */
-  expected: string | undefined
+/** 期望版本表：树里出现的每个 `@deepseek-ai/*` 包名 → 它该是的那一版。 */
+export type VersionTargets = Record<string, string>
+
+/** 版本体检结论。 */
+export interface VersionVerdict {
+  /** 同族包期望的那一版（= 候选版本；树里没有它就是 undefined）。 */
+  candidate: string | undefined
   family: InstalledPackage[]
-  distinctVersions: string[]
+  /** 同族包里出现过的版本集合（一致时只有一个）。 */
+  distinctFamilyVersions: string[]
+  /** 版本与期望对不上的包（含同族与同期上游包）。 */
   mismatches: InstalledPackage[]
+  /** 树里有、但期望表里没有的上游包——没钉到的那些，读数同样不作数。 */
+  unknown: InstalledPackage[]
   missingKey: string[]
   ok: boolean
 }
@@ -68,19 +83,24 @@ export function isFamilyName(name: string): boolean {
   return name === ROOT_PACKAGE || name.startsWith(`${ROOT_PACKAGE}-`)
 }
 
+/** 上游那一批（钉版本的范围）：`@deepseek-ai/*` 全部。 */
+export function isVendorName(name: string): boolean {
+  return name.startsWith(`${VENDOR_SCOPE}/`)
+}
+
 /**
- * 从 `package-lock.json` 的 `packages` 表里取出同族包名。
+ * 从 `package-lock.json` 的 `packages` 表里取出上游包名（`@deepseek-ai/*` 全部）。
  *
  * 锁文件的键是路径形状（`node_modules/@deepseek-ai/dsh-app-boot`，嵌套的更长），
  * 所以按末段取包名。用锁文件而不是装完再扫：`npm install --package-lock-only`
  * 只取元数据就能把整棵树的包名解析出来，不用先把上百个包下载解包一遍。
  */
-export function familyNamesFromLock(lock: unknown): string[] {
+export function vendorNamesFromLock(lock: unknown): string[] {
   const packages = (lock as { packages?: Record<string, unknown> } | undefined)?.packages ?? {}
   const names = new Set<string>()
   for (const key of Object.keys(packages)) {
     const matched = /(?:^|\/)node_modules\/(@[^/]+\/[^/]+)$/.exec(key)
-    if (matched !== null && isFamilyName(matched[1] ?? '')) names.add(matched[1] ?? '')
+    if (matched !== null && isVendorName(matched[1] ?? '')) names.add(matched[1] ?? '')
   }
   return [...names].sort()
 }
@@ -93,14 +113,32 @@ export function resolvedVersionFromLock(lock: unknown): string | undefined {
 }
 
 /**
- * 钉住整棵树用的 `overrides`：同族子包一律钉到 `version`。
+ * 从 npm 的 `time` 表（包名 → 版本 → 发布时刻）里挑「候选发布窗口内最新的一版」：
+ * 发布时刻不晚于 `cutoff` 的那些版本里最新的一个（按发布时刻排，不按版本号排——
+ * 预发布版本号的大小顺序与发布时间顺序不一定一致）。
+ */
+export function pickAsOfVersion(times: Record<string, string>, cutoff: string): string | undefined {
+  const limit = Date.parse(cutoff)
+  if (Number.isNaN(limit)) return undefined
+  let best: { version: string; at: number } | undefined
+  for (const [version, at] of Object.entries(times)) {
+    if (version === 'created' || version === 'modified') continue
+    const stamp = Date.parse(at)
+    if (Number.isNaN(stamp) || stamp > limit) continue
+    if (best === undefined || stamp > best.at) best = { version, at: stamp }
+  }
+  return best?.version
+}
+
+/**
+ * 钉住整棵树用的 `overrides`（包名 → 确切版本）。
  *
  * `@deepseek-ai/dsh` 自己不进 overrides——它在 `dependencies` 里已经是确切版本，
  * npm 也不允许 overrides 与根的直接依赖打架。
  */
-export function pinnedOverrides(names: readonly string[], version: string): Record<string, string> {
+export function pinnedOverrides(targets: VersionTargets): Record<string, string> {
   const overrides: Record<string, string> = {}
-  for (const name of names) {
+  for (const [name, version] of Object.entries(targets)) {
     if (name === ROOT_PACKAGE) continue
     overrides[name] = version
   }
@@ -109,14 +147,14 @@ export function pinnedOverrides(names: readonly string[], version: string): Reco
 
 /**
  * 读一棵装出来的树的版本清单：只读 `node_modules` 里的包清单，不跑 `dsh`、不连网。
- * 只留 `scope` 下的包（缺省 `@deepseek-ai`）；嵌套安装的副本也一并列出来——混装现场
+ * 只留 `scope` 下的包（缺省上游 scope）；嵌套安装的副本也一并列出来——混装现场
  * 恰好就是「同一个名字两个版本」。
  */
 export async function readInstalledPackages(
   root: string,
   options: { scope?: string; maxDepth?: number } = {},
 ): Promise<InstalledPackage[]> {
-  const scope = options.scope ?? '@deepseek-ai'
+  const scope = options.scope ?? VENDOR_SCOPE
   const found: InstalledPackage[] = []
   await walk(path.join(root, 'node_modules'), scope, options.maxDepth ?? 6, root, found)
   found.sort((a, b) => (a.name === b.name ? a.version.localeCompare(b.version) : a.name.localeCompare(b.name)))
@@ -153,7 +191,7 @@ async function walk(dir: string, scope: string, depth: number, root: string, fou
 /**
  * 读一个包目录的清单；读不到（文件不在 / 读不动）或不是 JSON 时返回 undefined——
  * 这种目录按「不是一个能读的包」跳过。方向是 **fail-closed**：万一跳掉的正是
- * `@deepseek-ai/dsh` 自己，期望版本就成了 undefined，校验当场判不一致并停下，
+ * `@deepseek-ai/dsh` 自己，候选版本就成了 undefined，校验当场判不一致并停下，
  * 不会因为少读一份清单而放过一棵混装的树。
  */
 async function readManifest(packageDir: string): Promise<{ name?: unknown; version?: unknown } | undefined> {
@@ -167,45 +205,74 @@ async function readManifest(packageDir: string): Promise<{ name?: unknown; versi
 }
 
 /**
- * 判同族包版本是否一致。期望版本缺省取树里 `@deepseek-ai/dsh` 自己那一版——
- * 「这棵树里 dsh 是哪一版，它的同族子包就该是哪一版」正是内部一致的定义。
+ * 判「装出来的树」与期望版本表是否一致。两件事都要成立：
+ *
+ * - 树里出现的**每个**上游包，版本都等于期望表里给它那一版（同族包因此自然满足
+ *   「彼此同版本」——它们都指向候选那一版）；
+ * - 树里没有期望表不知道的上游包（`unknown`——没钉到的不算数）。
  */
-export function checkFamilyVersions(packages: readonly InstalledPackage[], options: { expected?: string } = {}): FamilyVerdict {
+export function checkVendorVersions(packages: readonly InstalledPackage[], targets: VersionTargets): VersionVerdict {
   const family = packages.filter((each) => isFamilyName(each.name))
   const rootEntry = family.find((each) => each.name === ROOT_PACKAGE)
-  const expected = options.expected ?? rootEntry?.version
-  const distinctVersions = [...new Set(family.map((each) => each.version))].sort()
-  const mismatches = expected === undefined ? [] : family.filter((each) => each.version !== expected)
+  const candidate = rootEntry?.version ?? targets[ROOT_PACKAGE]
+  const mismatches = packages.filter((each) => {
+    const expected = targets[each.name]
+    return expected !== undefined && each.version !== expected
+  })
+  const unknown = packages.filter((each) => targets[each.name] === undefined)
   const present = new Set(family.map((each) => each.name))
+  const distinctFamilyVersions = [...new Set(family.map((each) => each.version))].sort()
   return {
-    expected,
+    candidate,
     family,
-    distinctVersions,
+    distinctFamilyVersions,
     mismatches,
+    unknown,
     missingKey: KEY_SUBPACKAGES.filter((name) => !present.has(name)),
-    ok: family.length > 0 && expected !== undefined && mismatches.length === 0,
+    ok: family.length > 0 && candidate !== undefined && mismatches.length === 0 && unknown.length === 0,
   }
 }
 
 /** 版本读数（人读；报告的「装出来的实际版本清单」贴的就是它）。 */
-export function versionReportLines(verdict: FamilyVerdict): string[] {
+export function versionReportLines(verdict: VersionVerdict, options: { targets?: VersionTargets } = {}): string[] {
   const byName = new Map(verdict.family.map((each) => [each.name, each.version]))
-  return [
-    `[lab-version] 装出来的树：${String(verdict.family.length)} 个同族包，版本集合 = {${verdict.distinctVersions.join(', ')}}`,
+  const lines = [
+    `[lab-version] 装出来的树：${String(verdict.family.length)} 个同族包，版本集合 = {${verdict.distinctFamilyVersions.join(', ')}}`,
     `[lab-version] 关键子包：${KEY_SUBPACKAGES.map((name) => `${name}@${byName.get(name) ?? '（不在树里）'}`).join('、')}`,
   ]
+  const targets = options.targets ?? {}
+  const siblings = Object.keys(targets)
+    .filter((name) => !isFamilyName(name))
+    .sort()
+  lines.push(
+    siblings.length === 0
+      ? '[lab-version] 同期上游包（`@deepseek-ai/*` 里非 `dsh*` 的那些）：树里没有，不用钉。'
+      : `[lab-version] 同期上游包按候选发布窗口钉住（${String(siblings.length)} 个）：${siblings.map((name) => `${name}@${targets[name] ?? ''}`).join('、')}`,
+  )
+  return lines
 }
 
 /** 内部不一致时的那段说明：哪几个包、各是什么版本、期望是哪一版。 */
-export function mismatchDetailLines(verdict: FamilyVerdict, options: { installDir?: string } = {}): string[] {
-  const lines = [
-    `[lab-version] 装出来的树内部不一致（版本混装）：期望同族包都是 ${verdict.expected ?? '（树里没有 @deepseek-ai/dsh）'}，实际版本集合 = {${verdict.distinctVersions.join(', ')}}`,
-  ]
-  for (const each of verdict.mismatches.slice(0, 40)) {
-    lines.push(`  ${each.name}@${each.version}（期望 ${verdict.expected ?? '?'}，在 ${each.where}）`)
+export function mismatchDetailLines(
+  verdict: VersionVerdict,
+  options: { installDir?: string; targets?: VersionTargets } = {},
+): string[] {
+  const lines: string[] = []
+  const targets = options.targets ?? {}
+  if (verdict.mismatches.length > 0) {
+    lines.push(
+      `[lab-version] 装出来的树内部不一致（版本混装）：这些包不是期望的那一版（同族包期望都是 ${verdict.candidate ?? '（树里没有 @deepseek-ai/dsh）'}）`,
+    )
+    for (const each of verdict.mismatches.slice(0, 40)) {
+      lines.push(`  ${each.name}@${each.version}（期望 ${targets[each.name] ?? '?'}，在 ${each.where}）`)
+    }
+    if (verdict.mismatches.length > 40) {
+      lines.push(`  …另有 ${String(verdict.mismatches.length - 40)} 个上游包版本不对（口径同上）`)
+    }
   }
-  if (verdict.mismatches.length > 40) {
-    lines.push(`  …另有 ${String(verdict.mismatches.length - 40)} 个同族包版本不对（口径同上）`)
+  if (verdict.unknown.length > 0) {
+    lines.push(`[lab-version] 树里有 ${String(verdict.unknown.length)} 个没钉到版本的上游包（读数不作数）：`)
+    for (const each of verdict.unknown.slice(0, 20)) lines.push(`  ${each.name}@${each.version}（在 ${each.where}）`)
   }
   if (verdict.missingKey.length > 0) lines.push(`  树里没有这几个关键子包：${verdict.missingKey.join('、')}`)
   if (options.installDir !== undefined) lines.push(`  （这一棵树的根目录：${options.installDir}）`)
