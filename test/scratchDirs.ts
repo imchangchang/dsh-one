@@ -10,11 +10,22 @@
  * 收不掉的（进程被 SIGKILL、目录被别的进程占着）只吞掉、绝不让测试变红——那是物理
  * 残留，正是 #200 明说允许的那一档；反过来，成功路径必须删掉，
  * `test/scratchDirs.test.ts` 的「跑完自检」用例盯着这件事。
+ *
+ * **Windows 的目录锁（2026-09-23，#235）**：删目录时 Windows 会瞬时回 EBUSY——被消灭
+ * 的子进程（本仓的 git 单测都真起 git）还没把目录句柄放干净、或杀软/索引器正在扫刚写
+ * 进去的 `.git`，内核在几十毫秒内放开。这不是「删不掉」，是「晚一点才能删」，所以走
+ * `fs.rm` 自带的重试（`maxRetries` + `retryDelay`，Node 对 EBUSY/EPERM/ENOTEMPTY 线性
+ * 退避重试）等它，而不是把「跑完不留残留」的判据放宽。删的判据一个字没改：重试完还是
+ * 删不掉，测试照样红。
  */
 import { mkdtempSync, readdirSync, rmSync } from 'node:fs'
-import { mkdtemp } from 'node:fs/promises'
+import { mkdtemp, rm } from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
+
+/** 删 scratch 目录的重试次数与退避步长（只针对瞬时锁，见文件头）。 */
+const REMOVE_MAX_RETRIES = 10
+const REMOVE_RETRY_DELAY_MS = 50
 
 /**
  * 本仓在 `$TMPDIR` 下用的 scratch 前缀全表（单测 + 验收脚本）：
@@ -77,7 +88,12 @@ function hookExitCleanup(): void {
   process.on('exit', () => {
     for (const dir of live) {
       try {
-        rmSync(dir, { recursive: true, force: true })
+        rmSync(dir, {
+          recursive: true,
+          force: true,
+          maxRetries: REMOVE_MAX_RETRIES,
+          retryDelay: REMOVE_RETRY_DELAY_MS,
+        })
       } catch {
         /* 物理残留：清理失败不许让测试变红 */
       }
@@ -99,6 +115,16 @@ export async function scratchDir(prefix: string): Promise<string> {
 /** 同步版（用例里已用同步 `node:fs` 时省一次 await）。 */
 export function scratchDirSync(prefix: string): string {
   return track(mkdtempSync(path.join(os.tmpdir(), prefix)))
+}
+
+/** 用例自己早清理时用它（不是 `fs.rm` 裸调）：瞬时 EBUSY 会重试，见文件头。 */
+export async function removeScratchDir(dir: string): Promise<void> {
+  await rm(dir, { recursive: true, force: true, maxRetries: REMOVE_MAX_RETRIES, retryDelay: REMOVE_RETRY_DELAY_MS })
+}
+
+/** 同步版的早清理（用例里用的是同步 `node:fs` 时）。 */
+export function removeScratchDirSync(dir: string): void {
+  rmSync(dir, { recursive: true, force: true, maxRetries: REMOVE_MAX_RETRIES, retryDelay: REMOVE_RETRY_DELAY_MS })
 }
 
 /** 某个临时根下命中本仓 scratch 前缀的条目名（升序）；给残留判据用。 */

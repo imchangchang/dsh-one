@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import * as path from 'node:path'
 import * as fs from 'node:fs/promises'
 import { DEFAULT_SKIP_DIRS, discoverGitRepos } from '../src/pure/gitRepoDiscovery.ts'
-import { scratchDir } from './scratchDirs.ts'
+import { removeScratchDir, scratchDir } from './scratchDirs.ts'
 
 /** 造一个临时树：`{ 'sub/.git': true, 'a/b/.git': true }`。 */
 async function makeTree(spec: Record<string, true>): Promise<string> {
@@ -31,7 +31,7 @@ test('限深 ≤3：第 1/2/3 层的仓库命中，第 4 层不扫', async () =>
     const deeper = await discoverGitRepos(root, { maxDepth: 4 })
     assert.ok(deeper.repos.includes(path.join(root, 'x', 'y', 'z', 'deep')))
   } finally {
-    await fs.rm(root, { recursive: true, force: true })
+    await removeScratchDir(root)
   }
 })
 
@@ -48,7 +48,7 @@ test('跳过目录不扫（node_modules/.venv/dist/build/vendor…）', async ()
     assert.deepEqual(result.repos, [path.join(root, 'src')])
     assert.ok(DEFAULT_SKIP_DIRS.includes('node_modules'))
   } finally {
-    await fs.rm(root, { recursive: true, force: true })
+    await removeScratchDir(root)
   }
 })
 
@@ -64,7 +64,7 @@ test('仓库数上限生效（命中上限即停并置 truncated）', async () =
     assert.equal(open.repos.length, 3)
     assert.equal(open.truncated, false)
   } finally {
-    await fs.rm(root, { recursive: true, force: true })
+    await removeScratchDir(root)
   }
 })
 
@@ -82,7 +82,7 @@ test('时间预算耗尽即停（truncated）', async () => {
     assert.deepEqual(result.repos, [])
     assert.equal(result.truncated, true)
   } finally {
-    await fs.rm(root, { recursive: true, force: true })
+    await removeScratchDir(root)
   }
 })
 
@@ -94,8 +94,8 @@ test('不跟符号链接（既防环，也保证发现结果落在根内）', as
     const result = await discoverGitRepos(root)
     assert.deepEqual(result.repos, [path.join(root, 'real')])
   } finally {
-    await fs.rm(root, { recursive: true, force: true })
-    await fs.rm(outside, { recursive: true, force: true })
+    await removeScratchDir(root)
+    await removeScratchDir(outside)
   }
 })
 
@@ -112,6 +112,6 @@ test('isRepo 可注入（判定与遍历解耦）', async () => {
     assert.deepEqual(result.repos, [path.join(root, 'b')])
     assert.ok(probes.includes('a') && probes.includes('b'))
   } finally {
-    await fs.rm(root, { recursive: true, force: true })
+    await removeScratchDir(root)
   }
 })
