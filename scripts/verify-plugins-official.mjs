@@ -64,10 +64,24 @@ const DEMO_SHA = 'cb1f933e15289a00e30865e8dd3963ba90a96780'
 const evidence = []
 const failures = []
 
+/**
+ * 一条断言一行（#241）：详情里的换行与连片空白压成空格再输出。
+ *
+ * 为什么在输出层做这件事：页面收来的报错天生多行（React #130 那段一抛就是三十行栈），
+ * 而终端里「多行块」与「未捕获异常栈」长得一模一样——读的人分不清这是「这条断言不工作」
+ * 还是「脚本炸了」。压成一行之后，整份读数就是一份一行一条的清单。
+ */
 function record(name, ok, detail) {
-  evidence.push({ name, ok, detail })
+  const flat = detail === undefined ? undefined : detail.replace(/\s+/g, ' ').trim()
+  evidence.push({ name, ok, detail: flat })
   if (!ok) failures.push(name)
-  if (!asJson) console.log(`${ok ? '  ok  ' : ' FAIL '} ${name}${detail === undefined ? '' : ` — ${detail}`}`)
+  if (!asJson) console.log(`${ok ? '  ok  ' : ' FAIL '} ${name}${flat === undefined || flat === '' ? '' : ` — ${flat}`}`)
+}
+
+/** 页面上收来的报错压成一段可读的单行摘要：每条只取第一行，超长的截断。 */
+function errorDigest(messages) {
+  const flat = messages.map((message) => message.split('\n')[0].trim()).join(' | ')
+  return flat.length <= 400 ? flat : `${flat.slice(0, 400)}…`
 }
 
 /**
@@ -431,8 +445,8 @@ async function main() {
     await guarded('第二轮回合', () => sendTurn(page, PROMPT_INLINE_CODE, 'sessionsWebview.ts'))
     await guarded('行内码菜单这一组', () => assertContextMenu(page))
 
-    record('页面零 pageerror', pageErrors.length === 0, pageErrors.slice(0, 3).join(' | '))
-    record('页面零 console error', consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '))
+    record('页面零 pageerror', pageErrors.length === 0, errorDigest(pageErrors.slice(0, 3)))
+    record('页面零 console error', consoleErrors.length === 0, errorDigest(consoleErrors.slice(0, 3)))
 
     if (!asJson) {
       const shot = path.join(tmp, 'official-web.png')
