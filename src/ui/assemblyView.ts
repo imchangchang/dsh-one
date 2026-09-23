@@ -57,8 +57,8 @@ import { openInstallGuide } from './installGuide.ts'
  * 过滤（application 批重指 mirror /plugins-local，mirror 拉官方原 combo 剥
  * blocked 段后伺服），追加该树自有 frame 插件，内联进装配页。
  *
- * 版本门：网关 dsh 版本不在 [0.1.6-alpha.1, 0.2.0) 时页面顶部加信息条（带一条能装出
- * 受支持版本的安装命令），不阻断。
+ * 版本门：网关 dsh 版本不在 [0.1.5-rc.2, 0.2.0) 时页面顶部加信息条（带一条能装出
+ * 受支持版本的安装命令），不阻断。区间取值与安装命令都出自 src/pure/versionGate.ts。
  *
  * 面板恢复（#169）：chat 面板注册了 WebviewPanelSerializer（view type 见
  * pure/chatPanelState.ts），窗口重载 / 扩展宿主重启后由它把标签页装回原来的

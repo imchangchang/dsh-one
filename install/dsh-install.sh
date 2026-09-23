@@ -264,6 +264,12 @@ else
 fi
 
 # 3. dsh itself
+# No version tag on purpose: this follows npm's `latest`, i.e. exactly what a user
+# gets from `npm i -g @deepseek-ai/dsh`. That tag must stay inside the extension's
+# supported range — 2026-09-23 it points at 0.1.5-rc.3, a whole-round-clean version
+# on the verified 0.1.5 line (see docs/dsh-compat-checklist.md). If upstream moves
+# `latest` onto a version we have not verified, pin this one line instead of
+# changing the tag.
 say "Installing @deepseek-ai/dsh (this pulls the Web UI + agent plugins; keep the terminal open)"
 # npm 11 blocks dependency build scripts unless allow-scripts lists them; koffi
 # and node-pty must run theirs or their native binaries never arrive and dsh
