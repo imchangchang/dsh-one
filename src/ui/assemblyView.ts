@@ -1463,14 +1463,154 @@ export function registerAssembledSidebar(
   )
 }
 
+/**
+ * 设置面板的宿主侧状态（#233：「已开则聚焦」这条路原先**没有存活判定、也没有任何日志**，
+ * 口径对齐 chat 面板在 #223 / #224 补上的那一套）。
+ *
+ * 为什么需要存活判定：设置页的打开动作是两步——侧栏齿轮经宿主能力口 `openSettings` 先问
+ * 「已开则聚焦」（{@link revealAssembledSettings}），问不到才走命令
+ * `dshOne.assembledSettings` 全量新建（`extension.ts` 的 `openAssembledSettings`）。
+ * 而齿轮那条路是**不等着调用**的（`hostBridge.ts` 里 `deps.openSettings()` 后面没有
+ * await），所以 `reveal()` 撞上死面板时抛出的 `Webview is disposed` **没人接**：用户侧
+ * 「点了没反应」，日志里一条记录也没有（#233 报的现场）。
+ */
+let settingsDeps: { logger: Logger } | undefined
+
 /** 当前打开的设置面板（单例：后开替换先开，与 chat 面板一致）。 */
 let activeSettings: { panel: vscode.WebviewPanel; mirror: AssemblyMirror } | undefined
 
-/** 已开则聚焦并返回 true：侧栏齿轮点击复用，避免重复装配。 */
+/** 已 dispose 的设置面板（#233 存活标志）：取面板的地方据此把死面板当没有。 */
+const disposedSettingsPanels = new WeakSet<vscode.WebviewPanel>()
+
+/** 设置面板装配起来的时刻（#233：dispose 行报存活时长）。 */
+const settingsMountedAt = new WeakMap<vscode.WebviewPanel, number>()
+
+/** 设置面板 dispose 的时刻（#233 现场取证：失败行要写得出这个面板什么时候没的）。 */
+const settingsDisposedAt = new WeakMap<vscode.WebviewPanel, number>()
+
+/**
+ * 设置面板占的那份共享 mirror 引用的释放动作（装配时登记）。释放必须**幂等**（与 chat
+ * 面板同因）：正常 dispose 与「发现面板已经死了」是两条路，都可能走到，而
+ * `releaseSharedMirror` 只是减一——减两次会把别人正用着的 mirror 关掉。
+ */
+const settingsRelease = new WeakMap<vscode.WebviewPanel, () => void>()
+
+/** 在途的设置面板创建：连点两次齿轮只建一个面板（口径同 chat 面板的 `creatingPanel`）。 */
+let creatingSettingsPanel: Promise<SettingsPanelCreateResult> | undefined
+
+/** #233 日志里「选中的设置面板」那一格：形态 + 它当时是不是已经没了。 */
+type SettingsPanelField = 'none' | 'singleton:alive' | 'singleton:disposed'
+
+/** 这次请求选中的设置面板 + 给日志的形态字段（#233 的存活判定入口）。 */
+interface PickedSettingsPanel {
+  /** 还活着的面板；没有、或引用指向已 dispose 的面板时为 undefined。 */
+  panel: vscode.WebviewPanel | undefined
+  found: SettingsPanelField
+}
+
+/**
+ * 取这次请求该用的设置面板（#233，口径同 chat 的 `pickChatPanel`）：**死面板一律当没有**
+ * ——引用指向已 dispose 的面板时当场清掉坏引用、还掉它占的 mirror 引用、留一条带现场的
+ * warn，返回 undefined，调用方随后走「新建」那条路。
+ *
+ * 实测说明（与 chat 面板 #223 同一条）：dispose 处理器在同一个同步 tick 里也把引用清了，
+ * 所以「标志已置位、引用还在」这一刻在现有代码里到不了（负向对照 0 条红，见 #233 报告）。
+ * 它是按「关掉之后再点必须新建」这条要求加的防御，也是日志里 `panel=singleton:disposed`
+ * 那一格的来源；把用户现场真正修好的是下面那条「捕获死面板 → 清引用 → 返回 false 让上层
+ * 新建」。
+ */
+function pickSettingsPanel(): PickedSettingsPanel {
+  const panel = activeSettings?.panel
+  if (panel === undefined) return { panel: undefined, found: 'none' }
+  if (disposedSettingsPanels.has(panel)) {
+    noteDeadSettingsPanel(panel, undefined)
+    return { panel: undefined, found: 'singleton:disposed' }
+  }
+  return { panel, found: 'singleton:alive' }
+}
+
+/** 清掉指向这个面板的引用（设置面板只有单例这一格）。 */
+function clearSettingsRefs(panel: vscode.WebviewPanel): void {
+  if (activeSettings?.panel === panel) activeSettings = undefined
+}
+
+/** 释放这个设置面板占的资源（只生效一次）：dispose 与「发现已死」两条路共用。 */
+function releaseSettingsPanelResources(panel: vscode.WebviewPanel): void {
+  const release = settingsRelease.get(panel)
+  if (release === undefined) return
+  settingsRelease.delete(panel)
+  release()
+}
+
+/**
+ * #233 失败现场：这个面板什么时候没的（`unobserved` = 宿主没把它的 dispose 送到我们这里）、
+ * 创建在不在途、宿主是不是已经开始收摊（后两项与 chat 面板的现场字段同一口径）。
+ */
+function settingsFailureScene(panel: vscode.WebviewPanel | undefined): string {
+  const died = panel === undefined ? undefined : settingsDisposedAt.get(panel)
+  return [
+    `panelDisposedAt=${died === undefined ? 'unobserved' : new Date(died).toISOString()}`,
+    `creating=${creatingSettingsPanel !== undefined ? 'yes' : 'no'}`,
+    `hostTeardown=${hostDeactivating ? 'yes' : 'no'}`,
+  ].join(' ')
+}
+
+/**
+ * #233：发现「引用还在、面板已经没了」——置存活标志、清坏引用、还掉它占的 mirror 引用、
+ * 落一条带现场的 warn。坏引用清掉之后，之后每一次点都不会再撞同一堵墙。
+ */
+function noteDeadSettingsPanel(panel: vscode.WebviewPanel, err: unknown): void {
+  disposedSettingsPanels.add(panel)
+  clearSettingsRefs(panel)
+  releaseSettingsPanelResources(panel)
+  settingsDeps?.logger.warn(
+    `settings open: panel is already gone (${settingsFailureScene(panel)})${err === undefined ? '' : `: ${errorText(err)}`}`,
+  )
+}
+
+/**
+ * #233 的请求留痕（口径对齐 #224 给 chat 面板的）：一次「打开设置」一行，字段定长好 grep：
+ *
+ * `settings open: panel=<none|singleton:alive|singleton:disposed> branch=<reveal|create> result=<ok|failed:…>`
+ *
+ * 「聚焦」那一步落 `branch=reveal`（齿轮那条路）、「新建」那一步落 `branch=create`（命令
+ * 那条路）；一次点击因此可能是两行——前一行说明为什么没能直接聚焦，读的时候按同一个
+ * tick 连着看。
+ */
+function logSettingsOpen(fields: { panel: SettingsPanelField; branch: 'reveal' | 'create'; result: string }): void {
+  settingsDeps?.logger.info(
+    `settings open: panel=${fields.panel} branch=${fields.branch} result=${fields.result}`,
+  )
+}
+
+/**
+ * 已开则聚焦并返回 true：侧栏齿轮点击与命令面板共用（`extension.ts` 那条
+ * `if (!revealAssembledSettings()) 走命令`），避免重复装配。
+ *
+ * 死面板当没有（#233）：引用指向已 dispose 的面板、或 `reveal()` 撞上 `Webview is disposed`
+ * 时，清掉坏引用并返回 false，让上一层去建新的——**绝不把异常抛给调用方**：齿轮那条路是
+ * 不等着调用的，抛出去没人接，用户侧就是「点了没反应」，日志里也一片安静。
+ */
 export function revealAssembledSettings(): boolean {
-  if (!activeSettings) return false
-  activeSettings.panel.reveal()
-  return true
+  const picked = pickSettingsPanel()
+  if (picked.panel === undefined) {
+    // 这一格里刚才发现的死面板如实落一行；正常「没有面板」不落——那一次点击的留痕由
+    // 命令那一步落（一次打开一行）。
+    if (picked.found === 'singleton:disposed') {
+      logSettingsOpen({ panel: picked.found, branch: 'reveal', result: 'failed:panel-disposed' })
+    }
+    return false
+  }
+  try {
+    picked.panel.reveal()
+    logSettingsOpen({ panel: picked.found, branch: 'reveal', result: 'ok' })
+    return true
+  } catch (err) {
+    if (!isDeadWebviewError(err)) throw err
+    noteDeadSettingsPanel(picked.panel, err)
+    logSettingsOpen({ panel: picked.found, branch: 'reveal', result: `failed:${errorText(err)}` })
+    return false
+  }
 }
 
 /** 用 VS Code 编辑器打开 dsh 设置文档（~/.dsh/settings.yaml）。 */
@@ -1490,45 +1630,104 @@ export function registerAssembledSettings(
   manager: ServerManager,
   logger: Logger,
 ): vscode.Disposable {
+  // #233：日志句柄登记在这里——`revealAssembledSettings` 是导出给 `extension.ts` 调的，
+  // 拿不到 logger（chat 面板的 `chatDeps` 同一个做法）。
+  settingsDeps = { logger }
   return vscode.commands.registerCommand('dshOne.assembledSettings', async () => {
-    const status = await manager.ensureStarted()
-    if (status.state !== 'running' || !status.url) {
-      void vscode.window.showErrorMessage(vscode.l10n.t('DSH service is not running'))
-      return
-    }
-    let assembly: GatewayAssembly
-    try {
-      assembly = await loadGatewayAssembly(context, status.url, SETTINGS_TREE, logger)
-    } catch (err) {
-      void vscode.window.showErrorMessage(
-        vscode.l10n.t('Failed to load the UI manifest from the dsh gateway: {0}', err instanceof Error ? err.message : String(err)),
-      )
-      return
-    }
-    let mirror: AssemblyMirror
-    try {
-      mirror = await acquireSharedMirror(context, manager, logger)
-    } catch (err) {
-      void vscode.window.showErrorMessage(
-        vscode.l10n.t('Failed to start the local UI proxy: {0}', err instanceof Error ? err.message : String(err)),
-      )
-      return
-    }
+    // 这一格里选中的面板（请求那一刻的形态，含「引用指着死面板」）：#233 的留痕用它。
+    const found = pickSettingsPanel().found
+    const created = await openSettingsPanel(context, manager, logger)
+    logSettingsOpen({ panel: found, branch: 'create', result: created.ok ? 'ok' : `failed:${created.step}` })
+  })
+}
+
+/** 建设置面板的结果（#233：失败要写得出失败在哪一步，日志里就是 `result=failed:<这一步>`）。 */
+type SettingsPanelCreateResult = { ok: true } | { ok: false; step: string }
+
+/**
+ * 打开设置面板（命令 `dshOne.assembledSettings` 的实现体）。
+ *
+ * 在途创建就等它建完（口径与 chat 面板的 `openChatPanel` 一致）：用户在「还没有面板」时
+ * 连点两次齿轮，两次请求落在同一个创建上——只建一个面板，不增生。
+ */
+async function openSettingsPanel(
+  context: vscode.ExtensionContext,
+  manager: ServerManager,
+  logger: Logger,
+): Promise<SettingsPanelCreateResult> {
+  const inFlight = creatingSettingsPanel
+  if (inFlight !== undefined) return await inFlight
+  const creating = createSettingsPanel(context, manager, logger)
+  creatingSettingsPanel = creating
+  try {
+    return await creating
+  } finally {
+    creatingSettingsPanel = undefined
+  }
+}
+
+/** 真正的建设置面板流程（由 openSettingsPanel 串行化调用）：单例语义，任何创建都顶替旧单例。 */
+async function createSettingsPanel(
+  context: vscode.ExtensionContext,
+  manager: ServerManager,
+  logger: Logger,
+): Promise<SettingsPanelCreateResult> {
+  const status = await manager.ensureStarted()
+  if (status.state !== 'running' || !status.url) {
+    void vscode.window.showErrorMessage(vscode.l10n.t('DSH service is not running'))
+    return { ok: false, step: 'service' }
+  }
+  let assembly: GatewayAssembly
+  try {
+    assembly = await loadGatewayAssembly(context, status.url, SETTINGS_TREE, logger)
+  } catch (err) {
+    void vscode.window.showErrorMessage(
+      vscode.l10n.t('Failed to load the UI manifest from the dsh gateway: {0}', err instanceof Error ? err.message : String(err)),
+    )
+    return { ok: false, step: 'manifest' }
+  }
+  let mirror: AssemblyMirror
+  try {
+    mirror = await acquireSharedMirror(context, manager, logger)
+  } catch (err) {
+    void vscode.window.showErrorMessage(
+      vscode.l10n.t('Failed to start the local UI proxy: {0}', err instanceof Error ? err.message : String(err)),
+    )
+    return { ok: false, step: 'mirror' }
+  }
+  // 单例语义：任何创建都顶替旧单例。取面板走 pickSettingsPanel——引用指着死面板时它当场
+  // 把坏引用清掉、把那份 mirror 引用还掉（#233），下面这一跳就不会漏下旧面板的资源。
+  const replaced = pickSettingsPanel().panel
+  if (replaced !== undefined) {
+    logger.info('settings panel replaced')
     replacing = true
     try {
-      activeSettings?.panel.dispose()
+      replaced.dispose()
     } finally {
       replacing = false
     }
+  }
+  // 建到一半失败时要撤的那个面板（连面板都没建出来时是 undefined）。
+  let created: vscode.WebviewPanel | undefined
+  try {
+    // 面板用一个局部常量接住：后面那些处理（含 onDidDispose 闭包）都挂在它身上，闭包里
+    // 引用外层的 `created` 是可能为 undefined 的可变变量，TS 收窄不到。
     const panel = vscode.window.createWebviewPanel(
       'dshOne.assembledSettings',
       panelTabTitle(vscode.l10n.t('Settings')),
       vscode.ViewColumn.Active,
       { enableScripts: true, retainContextWhenHidden: true },
     )
+    created = panel
     panel.iconPath = panelTabIconPath(context.extensionUri)
     activeSettings = { panel, mirror }
+    // 这份 mirror 引用由这个面板持有：dispose 与「发现面板已经死了」两条路共用这一条
+    // 释放动作（幂等，见 releaseSettingsPanelResources）。
+    settingsRelease.set(panel, () => releaseSharedMirror(mirror))
+    // 存活时长从这里起算（#233 的 dispose 行要用它）。
+    settingsMountedAt.set(panel, Date.now())
     logger.info(`assembled settings: ${mirror.origin}`)
+    logger.info('settings panel created')
     const probeSub = subscribeAssemblyProbe(panel.webview, logger)
     // 「打开配置文件」行动（自有 settings.action 贡献 postMessage）：用 VS Code
     // 编辑器打开 dsh 设置文档（官方实现是网关宿主侧打开，无客户端改道钩子；
@@ -1540,12 +1739,33 @@ export function registerAssembledSettings(
     const hostSub = subscribeHostCalls(panel.webview, logger, hostBridgeDeps(manager, logger, () => mirror.origin))
     trackAssemblyWebview(context, panel.webview)
     panel.onDidDispose(() => {
-      probeSub.dispose()
-      docSub.dispose()
-      hostSub.dispose()
-      untrackAssemblyWebview(panel.webview)
-      if (activeSettings?.panel === panel) activeSettings = undefined
-      releaseSharedMirror(mirror)
+      // 存活标志（#233）：取面板的地方据此把死面板当没有。
+      disposedSettingsPanels.add(panel)
+      settingsDisposedAt.set(panel, Date.now())
+      // 面板生命周期的留痕（#233，口径同 chat 面板 #224）：dispose 只可能是「我们自己
+      // 替换单例」或「用户/宿主关掉的」两种；后者的两档靠 `hostTeardown` 分开——
+      // `reason=other` + `hostTeardown=yes` = 扩展宿主正在收摊（跟同一 boot 的
+      // `dsh-one deactivating` 配对），`hostTeardown=no` 才是用户点关闭。`age` 是面板
+      // 存活时长。
+      const born = settingsMountedAt.get(panel)
+      logger.info(
+        `settings panel disposed: reason=${replacing ? 'replace' : 'other'}` +
+          ` age=${born === undefined ? 'unknown' : `${Date.now() - born}ms`}` +
+          ` hostTeardown=${hostDeactivating ? 'yes' : 'no'}`,
+      )
+      // 清引用与还 mirror 引用这两步必须在 finally 里（#233）：中间任何一步抛错都不能留下
+      // 「指向死面板的引用」（之后每次点都撞同一堵墙，用户侧就是「点了没反应」）或
+      // 「没人还的共享 mirror 引用」（那个 loopback 端口就一直开着）。原实现把清引用放在
+      // 最后一句，前面任一环抛错就漏掉了。
+      try {
+        probeSub.dispose()
+        docSub.dispose()
+        hostSub.dispose()
+        untrackAssemblyWebview(panel.webview)
+      } finally {
+        clearSettingsRefs(panel)
+        releaseSettingsPanelResources(panel)
+      }
     })
     panel.webview.html = assemblyPageHtml({
       mirrorOrigin: mirror.origin,
@@ -1557,5 +1777,28 @@ export function registerAssembledSettings(
       banner: versionBanner(dshVersion(status.url) ?? status.version),
       localPluginIds: localPluginIdsOf(SETTINGS_TREE),
     })
-  })
+  } catch (err) {
+    // 建面板 / 装页中途失败（例：面板刚建出来就被宿主收走）：撤掉刚登记的引用与那份
+    // mirror 引用，再给用户一行可见反馈（#233：命令这条路**不许静默**——它被齿轮那条路
+    // 不等着调用，抛出去就是一个没人接的 rejection = 用户侧「点了没反应」）。
+    discardFailedSettingsPanel(created, mirror)
+    void vscode.window.showErrorMessage(vscode.l10n.t('Failed to open the settings panel: {0}', errorText(err)))
+    return { ok: false, step: `create:${errorText(err)}` }
+  }
+  return { ok: true }
+}
+
+/**
+ * 建设置面板中途失败时的收尾（#233，口径同 chat 面板的 `discardFailedPanel`）：撤掉刚登记
+ * 的引用与那份 mirror 引用——不能留下指向死面板的单例（之后每次点都撞同一堵墙），也不能
+ * 漏掉没人释放的 loopback 代理（引用计数只减不增，那次创建之后这个端口就一直开着）。
+ */
+function discardFailedSettingsPanel(panel: vscode.WebviewPanel | undefined, mirror: AssemblyMirror): void {
+  if (panel === undefined) {
+    releaseSharedMirror(mirror)
+    return
+  }
+  disposedSettingsPanels.add(panel)
+  clearSettingsRefs(panel)
+  releaseSettingsPanelResources(panel)
 }
