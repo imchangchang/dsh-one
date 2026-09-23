@@ -38,6 +38,7 @@ import {
   type TreeViewPrefs,
 } from '../../../../src/pure/workspaceTreePrefs.ts'
 import { emptySessionMarks, pinnedFirst, toggleMarkId, type SessionMarksState } from '../../../../src/pure/sessionMarks.ts'
+import { registryPinnedIds } from '../../../../src/pure/sessionPinSource.ts'
 import {
   createTagGroup,
   deleteTagGroup,
@@ -124,6 +125,7 @@ export function WorkspaceTree(props: TreeProps): unknown {
     loadMarks,
     savePinned,
     saveUnread,
+    adoptLegacyPins,
     loadTagGroups,
     saveTagGroups,
     openInNewTab,
@@ -152,6 +154,15 @@ export function WorkspaceTree(props: TreeProps): unknown {
   const workspaces = useWorkspaces((state) => state.items)
   const workspacePhase = useWorkspaces((state) => state.phase)
   const archivedSessionIds = useWorkspaces((state) => state.archivedSessionIds)
+  /**
+   * #240：官方注册表里的置顶集合（0.1.7-alpha.1 起官方侧栏自带的会话置顶）。
+   *
+   * 与 `archivedSessionIds` 同一份快照、同一个钩子；**0.1.6 及以下这一格不在场**
+   * （`registryPinnedIds` 给 `null` → 这里 `undefined`），那时置顶仍读自有 `pinned`
+   * 键。这样分叉的理由与代价写在 `pure/sessionPinSource.ts` 的文件头：状态住哪儿是
+   * 官方产物的形状问题，按在场与否判，不猜版本号。
+   */
+  const registryPinned = useWorkspaces((state) => registryPinnedIds(state) ?? undefined)
   /**
    * 官方会话等待态（#184）：两代各一条 root 钩子——0.1.6-alpha.2 起是 `sessionStatus`
    * （会话状态表，等待态在 `status.pendingInteraction` 那一格），此前是
@@ -329,6 +340,22 @@ export function WorkspaceTree(props: TreeProps): unknown {
     }
   }, [loadMarks])
 
+  /**
+   * #240：自有 `pinned` 键里已有的置顶**一次性补写**进官方状态（把官方没有的置进去、
+   * 补完把自有键划掉），此后以官方为准。旧代（快照里没有 `pinnedSessionIds`）是空操作。
+   *
+   * 为什么等 `phase === 'ready'` 才做：官方那份 pin 集合随工作区基线一次到齐，读早了
+   * 会看到一份空集合，于是把「还没到」当成「官方没有」——那样每次开页都会把用户后来在
+   * 官方那边取消掉的置顶重新置上。补写与自有键的划账都在插件侧
+   * （`workspaceTreePlugin.ts` 的 `adoptLegacyPins`），这里只出触发点。
+   */
+  const legacyPinsAdopted = useRef(false)
+  useEffect(() => {
+    if (legacyPinsAdopted.current || workspacePhase !== 'ready') return
+    legacyPinsAdopted.current = true
+    adoptLegacyPins().catch((reason: unknown) => console.warn('[dsh-one] legacy pinned sessions not adopted:', reason))
+  }, [workspacePhase, adoptLegacyPins])
+
   // 标签组（#107）：与分组同一条路（宿主能力口 `tags` 键，= 旧侧栏的 tags.json 文件）。
   // 读一次（ref 守门，理由同上）；读失败保持空状态——树照常可用，只是没有标签组，
   // 不弹错、不白屏（与分组、标记的降级口径一致）。
@@ -397,12 +424,26 @@ export function WorkspaceTree(props: TreeProps): unknown {
   const groupKeyOfSession = (sessionId: string): string =>
     workspaces.find((workspace) => workspace.sessionIds.includes(sessionId))?.workspaceId ?? UNGROUPED_KEY
 
-  const pinnedIds = new Set(marks.pinned)
+  /**
+   * 置顶集合：官方这一代（快照里有 `pinnedSessionIds`）以**官方注册表**为准，没有它
+   * 才退回自有 `pinned` 键（`marks.pinned`）。#240 之前只有后半句。
+   *
+   * 为什么以官方那份为渲染依据而不是把官方值同步进 `marks`：官方那份是这一页随时可读
+   * 的事实（置顶在别的前端改了、或宿主那边被别处改了，快照会把新值推过来），跟着它渲染
+   * 就不会出现「界面显示的和注册表里存的不一样」；写失败时行上原样不动，配合下面那条
+   * 失败提示，用户看到的是「没生效」而不是「生效了又被回滚」。
+   */
+  const pinnedList = registryPinned ?? marks.pinned
+  const pinnedIds = new Set(pinnedList)
   const unreadIds = new Set(marks.unread)
-  /** 写回一份标记（先落界面、再落宿主能力口；失败静默，与分组同一处置）。 */
+  /**
+   * 写回一份标记（先落界面、再落状态口）。置顶那一份的落点由插件路由（官方注册表 /
+   * 自有键），失败**要有一行看得见的反馈**（#110）：官方这一代界面读的是官方集合，
+   * 写失败时行上不会有任何变化，静默就等于「点了没反应」。
+   */
   const persistPinned = (ids: readonly string[]): void => {
     setMarks((prev) => ({ ...prev, pinned: ids }))
-    savePinned(ids)
+    savePinned(ids).catch((reason: unknown) => reportFailure('pin.failed', reason))
   }
   const persistUnread = (ids: readonly string[]): void => {
     setMarks((prev) => ({ ...prev, unread: ids }))
@@ -410,7 +451,7 @@ export function WorkspaceTree(props: TreeProps): unknown {
   }
   /** 翻一下某一行的置顶/未读（无变化时 `toggleMarkId` 回同一份引用 = 不写盘）。 */
   const togglePin = (sessionId: string): void => {
-    persistPinned(toggleMarkId(marks.pinned, sessionId, !pinnedIds.has(sessionId)))
+    persistPinned(toggleMarkId(pinnedList, sessionId, !pinnedIds.has(sessionId)))
   }
   const toggleUnread = (sessionId: string): void => {
     persistUnread(toggleMarkId(marks.unread, sessionId, !unreadIds.has(sessionId)))

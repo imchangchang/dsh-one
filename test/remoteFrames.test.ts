@@ -77,7 +77,13 @@ test('workspace/follow frames', () => {
     type: 'baseline',
     items: [{ workspaceId: 'w1' }],
     archivedSessionIds: ['s9'],
+    // 0.1.6 及以下的基线里没有这一格：给空表（#240）。
+    pinnedSessionIds: [],
   })
+  assert.deepEqual(
+    parseWorkspaceStreamFrame({ type: 'baseline', value: { items: [], archivedSessionIds: [], pinnedSessionIds: ['s1', 's2'] } }),
+    { type: 'baseline', items: [], archivedSessionIds: [], pinnedSessionIds: ['s1', 's2'] },
+  )
   assert.deepEqual(parseWorkspaceStreamFrame({ type: 'upsert', workspace: { workspaceId: 'w1' } }), {
     type: 'upsert',
     workspace: { workspaceId: 'w1' },
@@ -85,6 +91,11 @@ test('workspace/follow frames', () => {
   assert.deepEqual(parseWorkspaceStreamFrame({ type: 'remove', workspaceId: 'w1' }), { type: 'remove', workspaceId: 'w1' })
   assert.deepEqual(parseWorkspaceStreamFrame({ type: 'order', workspaceIds: ['w2', 'w1'] }), { type: 'order', workspaceIds: ['w2', 'w1'] })
   assert.deepEqual(parseWorkspaceStreamFrame({ type: 'archived', archivedSessionIds: ['s9'] }), { type: 'archived', archivedSessionIds: ['s9'] })
+  // 0.1.7-alpha.1 起的置顶增量帧（与 archived 同形）。
+  assert.deepEqual(parseWorkspaceStreamFrame({ type: 'pinned', pinnedSessionIds: ['s1', 's2'] }), {
+    type: 'pinned',
+    pinnedSessionIds: ['s1', 's2'],
+  })
 })
 
 test('session/follow frames: snapshot and events', () => {

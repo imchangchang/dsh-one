@@ -10,6 +10,13 @@ export type Translate = (key: string, params?: Record<string, string | number>) 
 export interface WorkspaceSnapshotLike {
   readonly items: readonly WorkspaceViewLike[]
   readonly archivedSessionIds: readonly string[]
+  /**
+   * #240：官方工作区注册表里的**置顶会话 id 集合**（全局一份，与 `archivedSessionIds`
+   * 同一份快照）。官方 0.1.7-alpha.1 起才有这一格，0.1.6 及以下这里恒 `undefined`
+   * ——树的置顶标记因此按「有没有这一格」分叉：有它就以官方为准，没有就退回自有
+   * `pinned` 键（判定与写入路径见 `src/pure/sessionPinSource.ts`）。
+   */
+  readonly pinnedSessionIds?: readonly string[]
   readonly phase: 'pending' | 'ready'
   readonly state: 'idle' | 'loading' | 'error'
 }
@@ -119,12 +126,34 @@ export interface TreeProps extends PendingHookProps {
    * `stateRead('unread')` 的封装，见 `pure/sessionMarks.ts`）。读一次，此后只在
    * 变更时写回——旧文件（`~/.dsh/dsh-one/pinned.json` / `unread.json`）就是这两个
    * 键，没有任何第二份存储。
+   *
+   * #240：0.1.7 起**置顶那份归官方注册表**（上面 `WorkspaceSnapshotLike` 的
+   * `pinnedSessionIds`），这里的 `pinned` 只剩两个用处——官方这一代没到齐时（快照里
+   * 没有那一格）它仍是权威，以及它是要**一次性补写进官方**的那份旧数据（见
+   * {@link adoptLegacyPins}）。`unread` 两代都住这里。
    */
   loadMarks: () => Promise<SessionMarksState>
-  /** 写回置顶 id 集合（宿主能力口 `stateWrite('pinned')`；失败静默）。 */
-  savePinned: (ids: readonly string[]) => void
+  /**
+   * 写回置顶 id 集合（整份目标集合，不是差量）。
+   *
+   * #240：写进哪里由插件按这一页的官方产物路由——官方这一代走
+   * `uiWorkspace.pinSession` / `unpinSession`（官方注册表），没有那两个方法时写自有
+   * `pinned` 键。返回 Promise：官方那条路会失败（宿主拒绝），失败要有一行看得见的
+   * 反馈（#110 立的规矩），调用方据此飘提示。
+   */
+  savePinned: (ids: readonly string[]) => Promise<unknown>
   /** 写回手动未读 id 集合（宿主能力口 `stateWrite('unread')`；失败静默）。 */
   saveUnread: (ids: readonly string[]) => void
+  /**
+   * #240：把自有 `pinned` 键里已有的置顶**一次性补写进官方状态**（官方没有的补进去，
+   * 补完把自有键划掉），此后以官方为准。旧代（没有官方那一格）是空操作——自有键就是
+   * 权威，没有要迁的。
+   *
+   * 调用时机由树那一侧定：工作区快照 `phase === 'ready'` 之后调一次（官方那份 pin
+   * 集合随基线一次到齐，读早了会把「还没到」当成「官方没有」）。判据、写入与自有键的
+   * 划账全在插件侧，树不需要知道这一页是哪一代。
+   */
+  adoptLegacyPins: () => Promise<void>
   /**
    * #107：会话标签组的持久状态读回（宿主能力口 `stateRead('tags')` 的封装，见
    * `pure/sessionTagGroups.ts`）。键名 `tags` 就是旧侧栏的文件名
