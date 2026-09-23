@@ -23,6 +23,11 @@
  * HOME 里），不碰用户的 `~/.dsh`、不碰正在跑的 dsh 实例；端口默认现取空闲的；
  * 临时目录结束后删除（`--keep` 保留供人工查看）；起的进程与 chromium 用完即收。
  *
+ * **一条断言不工作不等于整轮作废**（#241）：读元素一律走**有界读**（`readBounded`，
+ * 等元素与读内容都带显式超时），读不到就记一条 FAIL 继续；每组断言再套一层 `guarded`
+ * 兜住没预料到的异常。于是「页面上的自有件崩了」这份读数长这样：每条都有 PASS/FAIL 行、
+ * 退出码 1、没有未捕获异常栈——而不是跑到一半被 `TimeoutError` 带走、后面几组一条不跑。
+ *
  * 用法：
  *   node scripts/verify-plugins-official.mjs [--keep] [--port 3399] [--json]
  *
@@ -63,6 +68,47 @@ function record(name, ok, detail) {
   evidence.push({ name, ok, detail })
   if (!ok) failures.push(name)
   if (!asJson) console.log(`${ok ? '  ok  ' : ' FAIL '} ${name}${detail === undefined ? '' : ` — ${detail}`}`)
+}
+
+/**
+ * 有界读取的默认超时。元素等这么久还没出现（或在读的过程中被卸载）就按「这条不工作」记，
+ * 不再往下等。
+ */
+const READ_TIMEOUT = 8_000
+
+/**
+ * 有界读：把「等元素 + 读内容」合成一次**带显式超时**的操作，超时、元素中途被卸载、
+ * 元素根本没出现都返回 `null`（不抛异常）。调用方看到 `null` 就记一条 FAIL 然后继续。
+ *
+ * 为什么这是硬要求（#241 的现场）：`locator.innerText()` / `hover()` / `click()` 这些
+ * Playwright 调用**默认等 30 秒**，等不到就抛 `TimeoutError`。0.1.7-alpha.2 上提交卡
+ * 先渲染出来、随后随宿主件崩掉被卸载（根因 #236），`assertGitCard` 里那句 `card.innerText()`
+ * 于是抛未捕获异常、整轮中止——后面的会话导出、行内码菜单、pageerror 三组断言一条都没跑。
+ * 一个「有元件不工作时」恰好最没用的脚本，比没有脚本更糟：报告看上去像脚本坏了。
+ *
+ * `step` 拿到的是超时毫秒数，自己把它传给 Playwright 的 `timeout` 选项（`locator.count()`
+ * 与 `locator.evaluateAll()` 本来就不等元素，不受这里影响）。
+ */
+async function readBounded(step, timeout = READ_TIMEOUT) {
+  try {
+    return await step(timeout)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 跑一组断言：这组里任何一条路径上**意外**抛出来的异常都记成一条 FAIL，不往外抛。
+ * 有界读已经覆盖了「元素消失」这条已知路径，这里兜的是没预料到的那些——口径一样：
+ * 这一轮的结论是「哪几条不工作」，不是「脚本坏了」，整轮必须跑到最后一行读数（#241）。
+ */
+async function guarded(name, work) {
+  try {
+    await work()
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    record(name, false, `断言里抛出异常：${message.split('\n')[0]}`)
+  }
 }
 
 /** 现取一个空闲端口（不撞用户正在跑的 dsh）。 */
@@ -361,16 +407,17 @@ async function main() {
     record('页面没有「Failed to load plugins」（官方启动审计全过）', !bootFailure)
 
     // 6) 端到端行为证据：官方页面上这些自有插件真的在工作。
-    await dismissOfficialOnboarding(page)
-    await assertComposerClear(page)
-    await assertWorkspaceTree(page)
+    //    每组各自兜异常（guarded）：一组里出意外不带走后面几组的读数（#241）。
+    await guarded('关首启引导', () => dismissOfficialOnboarding(page))
+    await guarded('清空件这一组', () => assertComposerClear(page))
+    await guarded('工作区树这一组', () => assertWorkspaceTree(page))
 
     // 6a) 一轮真回合（假模型）：消息落下后才有的证据——会话头、提交卡、行内码菜单。
-    await sendTurn(page, PROMPT_COMMIT, 'cb1f933e')
-    await assertGitCard(page, hostHalfCalls)
-    await assertSessionExport(page)
-    await sendTurn(page, PROMPT_INLINE_CODE, 'sessionsWebview.ts')
-    await assertContextMenu(page)
+    await guarded('第一轮回合', () => sendTurn(page, PROMPT_COMMIT, 'cb1f933e'))
+    await guarded('提交卡这一组', () => assertGitCard(page, hostHalfCalls))
+    await guarded('会话导出这一组', () => assertSessionExport(page))
+    await guarded('第二轮回合', () => sendTurn(page, PROMPT_INLINE_CODE, 'sessionsWebview.ts'))
+    await guarded('行内码菜单这一组', () => assertContextMenu(page))
 
     record('页面零 pageerror', pageErrors.length === 0, pageErrors.slice(0, 3).join(' | '))
     record('页面零 console error', consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '))
@@ -413,17 +460,37 @@ async function dismissOfficialOnboarding(page) {
   await page.waitForTimeout(500)
 }
 
-/** 在官方 composer 里发一轮（真 dsh + 假模型），等助手消息落下。 */
+/**
+ * 在官方 composer 里发一轮（真 dsh + 假模型），等助手消息落下。
+ *
+ * 助手消息没落下时**记一条 FAIL 并返回 false，不抛**：后面几组断言都靠这一轮的消息做夹具，
+ * 但它们各自照常跑、各自在自己那儿记 FAIL——结论是「哪几处不工作」，不是「脚本坏了」（#241）。
+ */
 async function sendTurn(page, prompt, expectText) {
   const input = page.locator('[data-slot="conversation.composer.bar"] [contenteditable="true"]').first()
-  await input.click()
-  await page.keyboard.type(prompt)
-  await page.keyboard.press('Enter')
-  await page.getByText(expectText).first().waitFor({ timeout: 90_000 })
+  const sent =
+    (await readBounded(async (ms) => {
+      await input.click({ timeout: ms })
+      await page.keyboard.type(prompt)
+      await page.keyboard.press('Enter')
+      return true
+    })) === true
+  const landed =
+    sent &&
+    (await readBounded(async () => {
+      await page.getByText(expectText).first().waitFor({ timeout: 90_000 })
+      return true
+    })) === true
+  record(
+    `夹具：发「${prompt}」后助手消息落下（这一轮的证据靠它）`,
+    landed,
+    landed ? undefined : sent ? '90 秒内没等到助手消息' : 'composer 里没点进去（输入框不在场）',
+  )
   await page.waitForTimeout(1500)
   // 收掉「已清空」提示的残留（清空件在上一节动过 composer）。
   await page.keyboard.press('Escape')
   await page.waitForTimeout(300)
+  return landed
 }
 
 /** 端到端：清空件——输入正文 → Esc ×2 出提示 → 清空生效 → Ctrl+Z 反悔还原。 */
@@ -431,17 +498,22 @@ async function assertComposerClear(page) {
   const HINT = '[data-dshone-clear-hint]'
   const text = 'dsh-one official web verify'
   const input = page.locator('[data-slot="conversation.composer.bar"] [contenteditable="true"]').first()
-  await input.click()
+  // 点不进去（输入框中途消失）不抛：下面三条各自按读到的内容记 FAIL。
+  await readBounded((ms) => input.click({ timeout: ms }))
   await page.keyboard.type(text)
   await page.waitForTimeout(300)
   await page.keyboard.press('Escape')
   await page.waitForTimeout(300)
   await page.keyboard.press('Escape')
-  const hint = await page
-    .waitForSelector(HINT, { timeout: 5000 })
-    .then((handle) => handle.getAttribute('data-dshone-clear-hint'))
-    .catch(() => null)
-  record('清空件：Esc ×2 后官方 composer 里出现自有提示（slot 条目真的渲染了）', hint !== null, String(hint))
+  const hint = await readBounded(async (ms) => {
+    const handle = await page.waitForSelector(HINT, { timeout: ms })
+    return await handle.getAttribute('data-dshone-clear-hint', { timeout: ms })
+  }, 5_000)
+  record(
+    '清空件：Esc ×2 后官方 composer 里出现自有提示（slot 条目真的渲染了）',
+    hint !== null,
+    hint === null ? '提示条没出现' : String(hint),
+  )
   const cleared = await composerText(page)
   record('清空件：第二次 Esc 真的清空了草稿（走官方 inputActions.setDraft）', cleared === '', JSON.stringify(cleared))
   await page.keyboard.press('Control+z')
@@ -457,19 +529,27 @@ async function assertComposerClear(page) {
 
 /** 端到端：会话导出——同一槽位里官方同名条目被 shadow，渲染出来的是自有按钮。 */
 async function assertSessionExport(page) {
+  // `locator.count()` 不等元素（现在在不在场就是它要读的），不会被卸载卡住。
   const ours = await page.locator('[data-dshone-export]').count()
   record('会话导出：官方会话头里渲染的是自有按钮（[data-dshone-export] 在场）', ours === 1, `count=${String(ours)}`)
   // 官方 `@deepseek-ai/dsh-session-log-export` 渲染的是一个**只有图标**的按钮，可及名
   // 是它词典里的 `header.more`（en「More actions」/ zh「更多操作」）。同名条目被 shadow
   // 之后它整个不渲染——这条断言就是「按 id 的 shadow 生效」的直接证据。
-  const officialMore = await page
-    .locator('[data-slot="conversation.session.header.utilities"] button[aria-label]')
-    .evaluateAll((els) => els.filter((el) => /More actions|更多操作/.test(el.getAttribute('aria-label') ?? '')).length)
-  record('会话导出：同槽位的官方同名条目不再渲染（list slot 按 id 的 shadow 生效）', officialMore === 0, `官方图标按钮数=${String(officialMore)}`)
+  const officialMore = await readBounded(() =>
+    page
+      .locator('[data-slot="conversation.session.header.utilities"] button[aria-label]')
+      .evaluateAll((els) => els.filter((el) => /More actions|更多操作/.test(el.getAttribute('aria-label') ?? '')).length),
+  )
+  record(
+    '会话导出：同槽位的官方同名条目不再渲染（list slot 按 id 的 shadow 生效）',
+    officialMore === 0,
+    officialMore === null ? '会话头槽位读不到' : `官方图标按钮数=${String(officialMore)}`,
+  )
 }
 
 /** 端到端：工作区树——官方 sidebar.workspaces 槽位里渲染的是自有树。 */
 async function assertWorkspaceTree(page) {
+  // 这一组只数元素个数，`locator.count()` 不等元素：元素不在场就是 0，不会卡住也不会抛。
   const rows = await page.locator('[data-slot="sidebar.workspaces"] [data-dshone-tree-row="workspace"]').count()
   record('工作区树：官方 sidebar.workspaces 槽位里渲染的是自有树的行', rows >= 1, `rows=${String(rows)}`)
   const filter = await page.locator('[data-dshone-tree="group-filter"]').count()
@@ -481,17 +561,27 @@ async function assertWorkspaceTree(page) {
  * git 查询（走官方网关 RPC）。这条同时证明「插件 + 宿主半」两端都在官方侧跑通了。
  */
 async function assertGitCard(page, hostHalfCalls) {
+  // `count()` 不等元素，不会被卸载卡住；下面每一步读元素都走有界读（#241 的现场）。
   const chip = page.locator('[data-dshone-commit]').first()
   const decorated = await chip.count()
   record('提交卡：助手消息里的提交号被装饰成可点标记', decorated === 1, `count=${String(decorated)}`)
   if (decorated === 0) return
-  await chip.hover()
+  const hovered =
+    (await readBounded(async (ms) => {
+      await chip.hover({ timeout: ms })
+      return true
+    })) === true
   const card = page.locator('[data-dshone-git-card]').first()
-  const appeared = await card
-    .waitFor({ timeout: 10_000 })
-    .then(() => true)
-    .catch(() => false)
-  record('提交卡：悬停弹出卡片', appeared)
+  const appeared =
+    (await readBounded(async (ms) => {
+      await card.waitFor({ timeout: ms })
+      return true
+    }, 10_000)) === true
+  record(
+    '提交卡：悬停弹出卡片',
+    appeared,
+    appeared ? undefined : hovered ? '悬停上去了，卡片没出现' : '提交号标记先被卸载了，没能悬停',
+  )
   if (!appeared) return
   // 卡片先渲染「查询中」，宿主半的回执到了才换成提交信息——等它换过来再读。
   const settled = await page
@@ -505,11 +595,14 @@ async function assertGitCard(page, hostHalfCalls) {
     )
     .then(() => true)
     .catch(() => false)
-  const text = (await card.innerText()).replace(/\s+/g, ' ')
+  // 卡片出现过、读的时候已经被卸载的话（0.1.7-alpha.2 上渲染到一半崩掉，根因 #236），
+  // 读到 null——记一条 FAIL 继续跑，不再等默认的 30 秒、也不再抛出去把整轮带走（#241）。
+  const text = await readBounded((ms) => card.innerText({ timeout: ms }))
+  const plain = text === null ? null : text.replace(/\s+/g, ' ')
   record(
     '提交卡：卡片内容来自宿主半的 git 查询（出现演示仓库的提交信息）',
-    settled && text.includes('feat(demo)'),
-    text.slice(0, 140),
+    settled && plain !== null && plain.includes('feat(demo)'),
+    plain === null ? '卡片已被卸载，读不到内容' : plain.slice(0, 140),
   )
   record(
     '提交卡：查询走的是宿主半的官方网关端点（dshOneHostCapabilities/gitShow）',
@@ -527,13 +620,22 @@ async function assertContextMenu(page) {
     record('行内码右键菜单：消息里找到了行内码（夹具）', false)
     return
   }
-  await code.click({ button: 'right' })
+  const clicked =
+    (await readBounded(async (ms) => {
+      await code.click({ button: 'right', timeout: ms })
+      return true
+    })) === true
   const menu = page.locator('[data-dshone-menu]').first()
-  const opened = await menu
-    .waitFor({ timeout: 10_000 })
-    .then(() => true)
-    .catch(() => false)
-  record('行内码右键菜单：右键行内码弹出自有菜单（官方 Menu 原语）', opened)
+  const opened =
+    (await readBounded(async (ms) => {
+      await menu.waitFor({ timeout: ms })
+      return true
+    }, 10_000)) === true
+  record(
+    '行内码右键菜单：右键行内码弹出自有菜单（官方 Menu 原语）',
+    opened,
+    opened ? undefined : clicked ? '右键点上了，菜单没出现' : '行内码先被卸载了，没能右键',
+  )
   const marked = await page.locator('[data-dshone-menu-target]').count()
   record('行内码右键菜单：被点的行内码被高亮标记', marked === 1, `count=${String(marked)}`)
   if (opened) {
@@ -544,14 +646,12 @@ async function assertContextMenu(page) {
   }
 }
 
-/** composer 里的纯文本（官方编辑器是 contenteditable，读 innerText 即所见内容）。 */
+/** composer 里的纯文本（官方编辑器是 contenteditable，读 innerText 即所见内容）；读不到给 null。 */
 async function composerText(page) {
-  return await page
-    .locator('[data-slot="conversation.composer.bar"] [contenteditable="true"]')
-    .first()
-    .innerText()
-    .then((text) => text.replace(/[\u200b\s]+/g, ''))
-    .catch(() => null)
+  const text = await readBounded((ms) =>
+    page.locator('[data-slot="conversation.composer.bar"] [contenteditable="true"]').first().innerText({ timeout: ms }),
+  )
+  return text === null ? null : text.replace(/[\u200b\s]+/g, '')
 }
 
 /** 轮询 dsh 日志等就绪行（`dsh web: http://127.0.0.1:<port>/?token=…`）。 */
