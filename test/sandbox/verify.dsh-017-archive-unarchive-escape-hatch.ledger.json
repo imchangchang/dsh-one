@@ -1,13 +1,13 @@
 {
   "title": "#239 归档之后的还原入口（树底「已归档」一节）验收报告",
   "branch": "agent/dsh-017-archive-unarchive-escape-hatch",
-  "commit": "b45c8a58ff999f70874b5a37e1378cdcdcdf0787",
+  "commit": "13a8d313a5ed7af41ebb982c2a944224c38ed64a",
   "environment": {
     "mode": "浏览器验证（装配实验室：仓库真实模块 + 实验室自起的隔离实例［临时 DSH_HOME / 随机端口 / 播种真数据 / 跑完按 PID 收］+ 假宿主）+ 单测（node --test）+ 两道静态自检 + 上游探针（离线扫 combo）",
-    "dsh": "0.1.6-alpha.2（本机安装，整轮与回归读数）；0.1.7-alpha.2（候选版本装到临时目录，只跑 F-72 / F-01）。分支已 rebase 到含 #236（图标名两代分叉）的 main（385964bd）之上",
+    "dsh": "0.1.6-alpha.2（本机安装，整轮与回归读数）；0.1.7-alpha.2（候选版本装到临时目录，只跑 F-72 / F-01）。分支已并入集成线（含 #236 图标名两代分叉、#240 的 F-71 与 #242 的 F-70）",
     "locale": "zh（隔离实例的设置文档钉死）",
     "theme": "dark",
-    "driver": "playwright chromium + test/assembly-lab/verify.ts（整轮 71 项，含新增的 F-72）",
+    "driver": "playwright chromium + test/assembly-lab/verify.ts（整轮 73 项，含新增的 F-72）",
     "date": "2026-09-23"
   },
   "coverageNote": "覆盖：装配页里这一节的行为（哪一代渲染、列出了哪些会话、那一枚按钮点下去会话回到列表）与上游探针里那条新依赖。不覆盖：真 VS Code 窗口 / webview 宿主层（CSP、剪贴板、原生菜单、多 webview 生命周期）——本条只动页面内的插件代码，宿主层一个字节没碰，也不碰图标（与 #236 无冲突）；沙盒（code-server 里装真 vsix 看观感）对本条不适用：本条的可见结果就是树底那一节与那一枚按钮，判据就是 F-72。**0.1.7-alpha.2 上的真机读数拿不到**：那一版上整个侧栏树被 #236（官方把图标导出名从尺寸后缀改成字重后缀）挡住，本套件只记一条带签名的事实（N-04），端到端由 N-02 的「就地声明那条槽位」夹具在 0.1.6 上承载；#236 落地后这一档自动变成真 0.1.7 上的验证。",
@@ -22,7 +22,7 @@
         "/tmp/dsh-sandbox-shots/f-72-after-sidebar-settings-generation.png",
         "/tmp/dsh-sandbox-shots/f-72-after-official-settings-section.png"
       ],
-      "notes": "读数（F-72 20/20，7.3 秒）：\n- 夹具会话 `session-e431b…`（标题 `Lab-Alpha task 2`），归档这一步走官方 RPC `workspace.archiveSession`，回执的归档集合里含它（夹具前提成立）。\n- 侧栏页：入口观测值 = `settings`；树底那一节 = **0** 个节点；这一条在树里的会话行 = **0**、整页出现 = **0** 次。\n- 设置页导航行 **5** 条，其中官方那一节在场 = **true**（`\"通用设置\", \"模型\", \"内置插件\", \"Agent 预设\", \"已归档会话\"`）。\n- 截图 `f-72-after-sidebar-settings-generation.png`：侧栏页——树里没有这一条会话，也没有树底那一节（这一代本来就不该有）。\n- 截图 `f-72-after-official-settings-section.png`：设置页导航里那一节「已归档会话」（0.1.6 的官方入口）。"
+      "notes": "读数（并入集成线之后重跑，F-72 **20/20**，7.2 秒）：\n- 夹具会话 `session-e431b…`（标题 `Lab-Alpha task 2`），归档这一步走官方 RPC `workspace.archiveSession`，回执的归档集合里含它（夹具前提成立）。\n- 侧栏页：入口观测值 = `settings`；树底那一节 = **0** 个节点；这一条在树里的会话行 = **0**、整页出现 = **0** 次。\n- 设置页导航行 **5** 条，其中官方那一节在场 = **true**（`\"通用设置\", \"模型\", \"内置插件\", \"Agent 预设\", \"已归档会话\"`）。\n- 截图 `f-72-after-sidebar-settings-generation.png`：侧栏页——树里没有这一条会话，也没有树底那一节（这一代本来就不该有）。\n- 截图 `f-72-after-official-settings-section.png`：设置页导航里那一节「已归档会话」（0.1.6 的官方入口）。"
     },
     {
       "id": "N-02",
@@ -34,7 +34,7 @@
         "/tmp/dsh-sandbox-shots/f-72-after-archived-section-fixture.png",
         "/tmp/dsh-sandbox-shots/f-72-after-unarchive-returned.png"
       ],
-      "notes": "读数（与 N-01 同一次运行，F-72 20/20）：\n- 夹具声明那条会话菜单槽位 = `declared` → 声明之后树底那一节**当场出现**、入口观测值从 `settings` 翻成 `inline`（判据跟注册表走，不是写死的版本号）。\n- 那一节恰好 **1** 节、列着刚归档的那一条 `session-e431b…`；这一条 id 整页只出现 **1** 次、其中在那一节里 **1** 次。\n- 那一行的「取消归档」：在场、几何非零（宽高 > 0）、`disabled = false`、读屏标签 `取消归档 Lab-Alpha task 2`、文案取自插件词典（zh / en 两份都认）。\n- 点它之后：这一条从那一节消失（`ids` 里不再有它）、树里出现它的会话行（**1** 行）、飘提示 `\"已取消归档 Lab-Alpha task 2\"`。\n- 截图 `f-72-after-archived-section-fixture.png`：树底「已归档 2」一节两行（`Lab-Alpha task 2` 与播种自带的 `Lab-States archived`），每行一枚「取消归档」。\n- 截图 `f-72-after-unarchive-returned.png`：点过之后那一节只剩一行，`Lab-Alpha task 2` 回到 `Lab-Alpha` 那一组的会话行里。"
+      "notes": "读数（与 N-01 同一次运行，并入集成线之后重跑，F-72 **20/20**）：\n- 夹具声明那条会话菜单槽位 = `declared` → 声明之后树底那一节**当场出现**、入口观测值从 `settings` 翻成 `inline`（判据跟注册表走，不是写死的版本号）。\n- 那一节恰好 **1** 节、列着刚归档的那一条 `session-e431b…`；这一条 id 整页只出现 **1** 次、其中在那一节里 **1** 次。\n- 那一行的「取消归档」：在场、几何非零（宽高 > 0）、`disabled = false`、读屏标签 `取消归档 Lab-Alpha task 2`、文案取自插件词典（zh / en 两份都认）。\n- 点它之后：这一条从那一节消失（`ids` 里不再有它）、树里出现它的会话行（**1** 行）、飘提示 `\"已取消归档 Lab-Alpha task 2\"`。\n- 截图 `f-72-after-archived-section-fixture.png`：树底「已归档 2」一节两行（`Lab-Alpha task 2` 与播种自带的 `Lab-States archived`），每行一枚「取消归档」。\n- 截图 `f-72-after-unarchive-returned.png`：点过之后那一节只剩一行，`Lab-Alpha task 2` 回到 `Lab-Alpha` 那一组的会话行里。"
     },
     {
       "id": "N-03",
@@ -56,16 +56,16 @@
       "screenshots": [
         "/tmp/dsh-sandbox-shots/f-72-017-blocked-root-boot.png"
       ],
-      "notes": "读数（`--from` 复用那棵候选版本树，F-72 **3/3**，2.8 秒）：侧栏页上自有树根节点节点数 = **0**（`data-dshone-tree=\"root\"` 一个都没有）；pageerror 命中签名 `renderSlot('root') before any 'root' registration (boot order)` → 这一版上那一节与那一枚按钮都量不到。\n- **这条口子与 #239 无关，判据是「改前改后逐字同值」**：不带本改动的主线基线（`main` 的源码）与带本改动的分支，在 0.1.7-alpha.2 上跑同一个 F-01，读数都是 **21 / 40**、侧栏页 pageerror 逐字相同；同一份 F-01 在 0.1.6-alpha.2 上是 **43/43、零 pageerror**。\n- 这条启动期问题**不是我们插件造成的**：#236 的验收台账（`test/sandbox/verify.icon-name-generation-fork.ledger.json` 的 F-03 那一项）已经逐条归因——官方对照页、chat 树、settings 树都有它，#236 改前也在，待另立 issue。\n- 端到端由 N-02 的夹具承载；那条启动期问题修掉之后这一档自动变成真 0.1.7 上的验证，这个口子要删掉（注释里写明了）。\n- 截图 `f-72-017-blocked-root-boot.png`：0.1.7 上那一页的样子（侧栏位置什么都没有）。"
+      "notes": "读数（`--from` 复用那棵候选版本树，F-72 **3/3**，2.9 秒；并入集成线之后又跑一次，读数逐字相同）：侧栏页上自有树根节点节点数 = **0**（`data-dshone-tree=\"root\"` 一个都没有）；pageerror 命中签名 `renderSlot('root') before any 'root' registration (boot order)` → 这一版上那一节与那一枚按钮都量不到。\n- **这条口子与 #239 无关，判据是「改前改后逐字同值」**：不带本改动的主线基线（`main` 的源码）与带本改动的分支，在 0.1.7-alpha.2 上跑同一个 F-01，读数都是 **21 / 40**、侧栏页 pageerror 逐字相同；同一份 F-01 在 0.1.6-alpha.2 上是 **43/43、零 pageerror**。\n- 这条启动期问题**不是我们插件造成的**：#236 的验收台账（`test/sandbox/verify.icon-name-generation-fork.ledger.json` 的 F-03 那一项）已经逐条归因——官方对照页、chat 树、settings 树都有它，#236 改前也在，待另立 issue。\n- 端到端由 N-02 的夹具承载；那条启动期问题修掉之后这一档自动变成真 0.1.7 上的验证，这个口子要删掉（注释里写明了）。\n- 截图 `f-72-017-blocked-root-boot.png`：0.1.7 上那一页的样子（侧栏位置什么都没有）。"
     },
     {
       "id": "R-01",
       "phase": "regression",
-      "name": "整轮 `npm run verify:lab` 在 0.1.6-alpha.2 上零回归（含新增的 F-72）",
+      "name": "整轮 `npm run verify:lab` 在 0.1.6-alpha.2 上零回归（并入集成线之后、含新增的 F-72）",
       "expect": "整轮全部套件（含新增的 F-72）在实测通过的版本上零红。",
       "result": "pass",
       "screenshots": [],
-      "notes": "读数：整轮 **72 项**（F-01…F-72 + R-06）**3682 / 3682 条断言全过、零红**，退出码 0（2026-09-23，`LAB_PORT=3219`，本机装的 0.1.6-alpha.2；分支已 rebase 到含 #236 的 main 之上，主线的 F-01 在本轮是 **43/43**）。其中本条新增的 **F-72 20/20**（另有一条 #242 的 F-70 10/10，与本条无关）。\n- 与「改前」的对照：同一份套件在撤掉产品改动之后于同一台实例上 2/12（见 N-03）。\n- rebase 之前那一轮（同一天、同一版 dsh、71 项 3672 / 3672）读数与它逐项一致；两轮都零红。"
+      "notes": "读数：整轮 **73 项**（F-01…F-72 + R-06）**3694 / 3694 条断言全过、零红**，退出码 0（2026-09-23，`LAB_PORT=3227`，本机装的 0.1.6-alpha.2；**分支已并入集成线**——含 #236 图标名两代分叉、#240 的 F-71 与 #242 的 F-70）。其中本条新增的 **F-72 20/20**；同一轮里 #240 的 F-71 **12/12**、F-01 **43/43**（都未被并列进来的另一个套件带坏）。\n- 与「改前」的对照：同一份套件在撤掉产品改动之后于同一台实例上 2/12（见 N-03）。\n- 本轮之前的两轮读数（同一天、同一版 dsh：rebase 后 72 项 3682 / 3682、rebase 前 71 项 3672 / 3672）与它逐项一致；三轮都零红。"
     },
     {
       "id": "R-02",
@@ -74,7 +74,7 @@
       "expect": "纯逻辑与源码扫描那批单测全过（含新增的 `deriveArchived` 4 条）。",
       "result": "pass",
       "screenshots": [],
-      "notes": "读数：**1156 / 1156**（本条在 rebase 前那一刻的基线是 1134，加本条新增的 4 条 `deriveArchived` 单测；其余增量来自同期合进 main 的 #236/#242 等条目）。本条新增的 4 条：只列归档集合里的会话并按最近更新倒序 / 子代理不列、快照里不存在的 id 跳过 / 标题与时刻（空白会话标题为空串）/ 归档集合为空时一条都不列。同一轮里跑着的还有 `sidebarStyleScale`（新样式逐项落档位表）与 `assemblyShellContract`（密度键消费点）——本条的样式改动没有引入档位表外的取值。"
+      "notes": "读数：**1165 / 1165**（并入集成线之后重跑；本条新增的 4 条 `deriveArchived` 单测在其中）（本条在 rebase 前那一刻的基线是 1134，加本条新增的 4 条 `deriveArchived` 单测；其余增量来自同期合进 main 的 #236/#242 等条目）。本条新增的 4 条：只列归档集合里的会话并按最近更新倒序 / 子代理不列、快照里不存在的 id 跳过 / 标题与时刻（空白会话标题为空串）/ 归档集合为空时一条都不列。同一轮里跑着的还有 `sidebarStyleScale`（新样式逐项落档位表）与 `assemblyShellContract`（密度键消费点）——本条的样式改动没有引入档位表外的取值。"
     },
     {
       "id": "R-03",
@@ -83,7 +83,7 @@
       "expect": "探针新增那一组依赖在两版 combo 上都在场（名字在 = 我们那条取用路径的契约还在）。",
       "result": "pass",
       "screenshots": [],
-      "notes": "读数（直接调 `scripts/dsh-upstream-watch/clientContract.mjs` 的 `checkClientContract`，喂两份 combo 原文）：0.1.6-alpha.2 与 0.1.7-alpha.2 上 `client-combo-index` / `client-slots` / `client-root-hooks` / `client-identifiers` 四类里，新增的 `unarchiveSession`（作用域 `@deepseek-ai/dsh-client-ui-workspace`）两版都过。\n- 顺带如实记一条**调用方式**的差别：这次是手工按「一个批的正文」喂进去的，0.1.7 上那条既有的 `byId`（作用域 `dsh-api-session-controller`）因此报缺——那一版把它挪进了**第二批** application 批，真探针（`probe.mjs` 的 `batchesToScan`）扫全部 application 批，所以那不是漂移，与本条新增项无关。"
+      "notes": "读数（直接调 `scripts/dsh-upstream-watch/clientContract.mjs` 的 `checkClientContract`，喂两份 combo 原文）：0.1.6-alpha.2 与 0.1.7-alpha.2 上 `client-combo-index` / `client-slots` / `client-root-hooks` / `client-identifiers` 四类里，新增的 `unarchiveSession`（作用域 `@deepseek-ai/dsh-client-ui-workspace`）两版都过。\n- 顺带如实记一条**调用方式**的差别：这次是手工按「一个批的正文」喂进去的，0.1.7 上那条既有的 `byId`（作用域 `dsh-api-session-controller`）因此报缺——那一版把它挪进了**第二批** application 批，真探针（`probe.mjs` 的 `batchesToScan`）扫全部 application 批，所以那不是漂移，与本条新增项无关。\n- 并入集成线之后这张表里另多了 #240 的两组（`pinnedSessionIds` 与 `pinSession` / `unpinSession`），它们由那一条自己负责，本条只认自己新增的 `unarchiveSession`。"
     },
     {
       "id": "R-04",
