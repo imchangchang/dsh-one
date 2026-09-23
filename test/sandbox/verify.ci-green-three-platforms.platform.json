@@ -1,0 +1,71 @@
+{
+  "branch": "agent/ci-green-three-platforms",
+  "slug": "ci-green-three-platforms",
+  "note": [
+    "本任务新增的平台相关代码全部落在 test/ 里，而门禁的扫描面排除 test/（platform-compat-rules.json 的 scan.excludePathRegex），",
+    "所以这份声明不是被门禁拦下来补的——是主动补的：这些行确实是只在某个平台上才走得到的分支，写清它们在哪验证过。",
+    "三平台读数来自 .github/workflows/ci.yml 的三个 job（ubuntu-latest / macos-latest / windows-latest），本任务把分支推到 origin 后逐轮看读数。"
+  ],
+  "platformCoverage": [
+    {
+      "file": "test/assembly-lab/portHolderWindows.ts",
+      "rule": "platform-command",
+      "path": "Windows 专属的占用者查询命令：netstat -ano -p tcp 取监听端口的 pid、tasklist 取进程名、powershell Get-CimInstance 取命令行（POSIX 那一支用 lsof + ps，在 test/assembly-lab/labServer.ts）",
+      "verifiedBy": "ci-runner",
+      "evidence": "ci.yml 的「ci (windows-latest)」job 里 npm test → test/assemblyLabPort.test.ts 的「portHolder：端口被占时报出占用进程的 pid 与命令行」「describeListenFailure：EADDRINUSE 报出端口、占用者与换端口提示」两条真起监听再查占用者；netstat 输出的解析另有本机单测 test/assemblyLabPort.test.ts「parseWindowsListeners：只认监听该端口的行，前缀相同的端口不算」（样本 netstat 输出）"
+    },
+    {
+      "file": "test/assembly-lab/portHolderWindows.ts",
+      "rule": "child-stdio",
+      "path": "Windows 上跑这三条命令时带 windowsHide: true，不弹控制台窗口",
+      "verifiedBy": "ci-runner",
+      "evidence": "同上两条用例（windows-latest 上这三条命令真跑过；本机 macOS 走不到这一支，只能靠 CI 读数）"
+    },
+    {
+      "file": "test/assembly-lab/labServer.ts",
+      "rule": "platform-branch",
+      "path": "portHolder 按 process.platform === 'win32' 分派：Windows 走 portHolderWindows.ts，其余平台仍走原来的 lsof + ps",
+      "verifiedBy": "ci-runner",
+      "evidence": "windows-latest 走 Windows 支（上面两条用例通过）；macos-latest / ubuntu-latest 与 macOS 真机（本机 npm test 同一文件）走 lsof 支，holder 里报得出自己的 pid"
+    },
+    {
+      "file": "test/assemblyShellContract.test.ts",
+      "rule": "line-endings",
+      "path": "读源码前把 CRLF 归一成 LF：Windows runner 上 checkout 出来是 CRLF，而判据用按行锚定的正则（/const CSS =\\n\\s*'/）",
+      "verifiedBy": "ci-runner",
+      "evidence": "ci.yml 的「ci (windows-latest)」job 里 npm test → test/assemblyShellContract.test.ts「官方侧栏根元素：按自有属性取，不按 DOM 层次（#178 C7+C9）」（修前红、修后绿）；macos-latest / 本机同文件同用例"
+    },
+    {
+      "file": "test/pluginLocales.test.ts",
+      "rule": "path-sep",
+      "path": "仓库相对路径统一成 /（repoRel）：Windows 上 path.relative 给 packages\\…，而判据按 packages/ 前缀认插件包",
+      "verifiedBy": "ci-runner",
+      "evidence": "ci.yml 的「ci (windows-latest)」job 里 npm test → test/pluginLocales.test.ts「装配插件词典：每个命名空间的 zh/en 键完全一致」（修前红、修后绿）；macos-latest / 本机同文件同用例"
+    }
+  ],
+  "branchMatrix": {
+    "trigger": "platform（脚本按 process.platform 分派）与「目录删得掉 / 瞬时删不掉」这一处状态分叉",
+    "rows": [
+      {
+        "condition": "process.platform === 'win32'",
+        "expected": "portHolder 走 netstat + tasklist/powershell，报出占用端口的 pid（拿不到命令行时只报 pid），端口空闲时返回 undefined",
+        "verification": "ci.yml「ci (windows-latest)」job 的 npm test → test/assemblyLabPort.test.ts 的 portHolder 两条用例"
+      },
+      {
+        "condition": "darwin / linux",
+        "expected": "portHolder 仍走 lsof + ps，报出 pid 与命令行；端口空闲时返回 undefined",
+        "verification": "本机 macOS npm test 同两条用例通过；ci.yml「ci (macos-latest)」「ci (ubuntu-latest)」job 同名用例"
+      },
+      {
+        "condition": "删 scratch 目录时 Windows 瞬时锁住目录（被杀的子进程句柄未放干净 / 杀软在扫）",
+        "expected": "按 fs.rm 的 maxRetries + retryDelay 退避重试，最终删掉；重试预算内一直删不掉则测试红（不放宽判据）",
+        "verification": "ci.yml「ci (windows-latest)」job 的 npm test → test/gitWorkspaceQuery.test.ts「时间预算耗尽 → 未找到 + truncated（不抛错）」与 test/scratchDirs.test.ts「跑完自检：隔离 $TMPDIR 里跑一遍建 scratch 的单测文件，新增残留 = 0」"
+      },
+      {
+        "condition": "POSIX（目录锁不常见）",
+        "expected": "第一次就删掉，重试参数不生效",
+        "verification": "本机 macOS npm test 全绿；ci.yml「ci (macos-latest)」「ci (ubuntu-latest)」job"
+      }
+    ]
+  }
+}
