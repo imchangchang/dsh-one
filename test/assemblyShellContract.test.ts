@@ -17,7 +17,15 @@ import * as path from 'node:path'
 
 const SHELL_DIR = path.join(import.meta.dirname, '..', 'src', 'ui', 'assembly', 'shell')
 
-const read = (file: string): string => fs.readFileSync(path.join(SHELL_DIR, file), 'utf8')
+/**
+ * 读源码前统一换行：Windows 的 checkout 是 CRLF（runner 上 `core.autocrlf` 开着），
+ * 而这里的判据大量用按行锚定的正则（`/const CSS =\n\s*'/` 这种，CRLF 下 `=` 后面是
+ * `\r\n`，静默不命中、读成空串）——2026-09-22 windows-latest 上就是这么红的。
+ * 源码文件的换行不是被测契约的一部分，读进来一律归一成 LF。
+ */
+const readSource = (file: string): string => fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n')
+
+const read = (file: string): string => readSource(path.join(SHELL_DIR, file))
 
 /**
  * 侧栏工作区树的全部源码：#99 把插件本体拆成 `workspaceTreePlugin.ts`（注册与组合）
@@ -29,8 +37,8 @@ const TREE_DIR = path.join(import.meta.dirname, '..', 'packages', 'dsh-workspace
 
 const TREE_SOURCE = ((): string => {
   const dir = path.join(TREE_DIR, 'workspaceTree')
-  const parts = [fs.readFileSync(path.join(TREE_DIR, 'workspaceTreePlugin.ts'), 'utf8')]
-  for (const name of fs.readdirSync(dir).sort()) parts.push(fs.readFileSync(path.join(dir, name), 'utf8'))
+  const parts = [readSource(path.join(TREE_DIR, 'workspaceTreePlugin.ts'))]
+  for (const name of fs.readdirSync(dir).sort()) parts.push(readSource(path.join(dir, name)))
   return parts.join('\n')
 })()
 
@@ -334,7 +342,7 @@ test('layout 服务：右栏呈现上报落进布局状态（官方 ILayout.open
  * 没反应」。
  */
 test('#109：未分组桶的 ＋ 走 sessions.create({})，不再对 undefined 直接 return', () => {
-  const plugin = fs.readFileSync(path.join(TREE_DIR, 'workspaceTreePlugin.ts'), 'utf8')
+  const plugin = readSource(path.join(TREE_DIR, 'workspaceTreePlugin.ts'))
   const start = plugin.indexOf('startSession: (workspaceId?: string)')
   assert.ok(start >= 0, 'workspaceTreePlugin 里要有 startSession 注入面')
   const block = plugin.slice(start)
@@ -364,7 +372,7 @@ test('#191：打开会话走官方两代都在的入口，不再调被删掉的 
     assert.ok(!callsSessionsOpen(read(file)), `${file} 不得再调 sessions.open（0.1.6-alpha.2 已被官方删掉）`)
     assert.match(read(file), /uiWorkspace/, `${file} 要走官方 uiWorkspace.openSession`)
   }
-  const plugin = fs.readFileSync(path.join(TREE_DIR, 'workspaceTreePlugin.ts'), 'utf8')
+  const plugin = readSource(path.join(TREE_DIR, 'workspaceTreePlugin.ts'))
   assert.match(plugin, /ui\.openSession\(sessionId\)/, 'workspaceTreePlugin 打开会话要走 uiWorkspace.openSession')
   // 树插件留了一条 uiWorkspace 缺席时的回落（只有 alpha.1 才可能成立）：那条必须**明确**
   // 是回落，不能是主路径——主路径在 openSession 的第一支。
@@ -377,7 +385,7 @@ test('#191：打开会话走官方两代都在的入口，不再调被删掉的 
 })
 
 test('#191：当前会话按 retainedBy.mainView 推（官方 0.1.6-alpha.2 起快照里没有 current）', () => {
-  const view = fs.readFileSync(path.join(import.meta.dirname, '..', 'src', 'pure', 'workspaceTreeView.ts'), 'utf8')
+  const view = readSource(path.join(import.meta.dirname, '..', 'src', 'pure', 'workspaceTreeView.ts'))
   assert.match(view, /export function withCurrentSession/, '两代字段的分叉点要留在 pure 层（单一事实源）')
   assert.match(view, /retainedBy\?\.mainView/, '新版本那一支按官方写法从 retainedBy.mainView 推')
   // 三个消费方都要走这个分叉点，谁自己读 current 谁就会在 alpha.2 上静默失效。
@@ -385,7 +393,7 @@ test('#191：当前会话按 retainedBy.mainView 推（官方 0.1.6-alpha.2 起�
   assert.match(bridge, /withCurrentSession\(/, '选择桥要归一当前会话，否则一条都不上报')
   const boot = read('sessionBootPlugin.ts')
   assert.match(boot, /withCurrentSession\(/, '对话面板启动注入要归一当前会话')
-  const tree = fs.readFileSync(path.join(TREE_DIR, 'workspaceTree', 'tree.ts'), 'utf8')
+  const tree = readSource(path.join(TREE_DIR, 'workspaceTree', 'tree.ts'))
   assert.match(tree, /withCurrentSession\(/, '侧栏树要归一当前会话（当前会话所在分组默认展开靠它）')
 })
 
