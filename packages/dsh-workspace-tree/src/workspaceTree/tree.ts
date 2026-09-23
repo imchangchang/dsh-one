@@ -1,6 +1,7 @@
 /** 树主组件（官方 WorkspaceBrowser 的同构复刻）：组合上面各件 + 状态与订阅。 */
 import { createElement as h, useEffect, useMemo, useRef, useState } from 'react'
-import { IconCloseFill14, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
+import { writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
+import { officialIcon } from '@dsh-one/dsh-plugin-kit/officialIcons'
 import { NO_PENDING, pendingSourceOf } from '../../../../src/pure/sessionPendingSource.ts'
 import { currentWorkspaceFirst, deriveFlat, deriveGroups, deriveRecycleGroups, groupSessionNodes, indexSubagentDescendants, owningGroupKey, sessionNode, UNGROUPED_KEY, visibleRecycleIds, withCompletedIds, withCurrentSession, withoutPanelOpenCompleted, workspaceActivityCounts, type ActivityCounts, type GroupNode, type SessionNode } from '../../../../src/pure/workspaceTreeView.ts'
 import { formatFileMention } from '../../../../src/pure/fileReference.ts'
@@ -98,6 +99,8 @@ import {
 } from './tagGroups.ts'
 import { TopBar } from './toolbar.ts'
 import type { AddedWorkspace, TreeProps } from './types.ts'
+
+const IconCloseFill = officialIcon('IconCloseFill')
 
 // ---------------------------------------------------------------------------
 // 主组件（官方 `WorkspaceBrowser` 的同构复刻）
@@ -1724,7 +1727,7 @@ export function WorkspaceTree(props: TreeProps): unknown {
                 'data-dshone-tree-action': 'dismiss-add-notice',
                 onClick: () => setAddNotice(null),
               },
-              h(IconCloseFill14, {}),
+              h(IconCloseFill, {}),
             ),
           ),
       h(

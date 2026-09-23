@@ -94,7 +94,7 @@ export const RECYCLE_ENTRY_TOGGLE_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '回收站入口行：主区图标是垃圾桶 + 点击是「展开 / 收起」（#114，RECYCLE-ENTRY-TOGGLE 套件）',
   expect:
-    '回收站入口行的两条改动在真实装配页上成立（真网关**只读** + 假宿主注入的 `recycle-bin`）：① **主区图标是垃圾桶**——按组件标记与渲染指纹核，不靠眼睛：图标位的 `data-dshone-tree-icon` 是 `IconTrashOutline16`，渲染出的 svg 是官方 16 号图标（`viewBox="0 0 16 16"`、宽高 16、单条 path），且它的 `path@d` 与同一行「清空」那枚**完全相同**（同一枚官方图标 = 垃圾桶）、与「恢复全部」那枚不同；换下去的那枚 `IconArchiveOutline20` 是 `0 0 20 20` 的两条 path，所以「不是归档箱」这件事有可判定的判据；② **点击是开合开关**——主区点一下抽屉出现且按钮的 `aria-expanded` / 自有标记翻成展开，再点一下抽屉消失、标记翻回收起（连点两次 = 展开→收起）；③ **与「点外面 / Esc 关闭」是同一份状态**：抽屉开着时点树区（抽屉外）或按 Esc 都收起，之后**再点主区是展开**（不会「点了没反应」），按钮的标记与屏幕上抽屉的真实状态始终一致；④ **计数 0 的行为不变**——注入空集合时整行仍是灰态、右侧两枚动作图标仍禁用，主区仍可点且照常开合；另在「抽屉里真有内容」的那一页重验一遍开合，证明 toggle 不是只在空态成立。全程零 pageerror，本套件不点归档确认、不写网关。',
+    '回收站入口行的两条改动在真实装配页上成立（真网关**只读** + 假宿主注入的 `recycle-bin`）：① **主区图标是垃圾桶**——按组件标记与渲染指纹核，不靠眼睛：图标位的 `data-dshone-tree-icon` 是 `IconTrashOutline`，渲染出的 svg 是官方那枚垃圾桶（它的 `path@d` 与同一行「清空」那枚**完全相同** = 同一枚官方图标、与「恢复全部」那枚不同；换下去的归档图标有可判定的不同指纹）。**注意渲染指纹（视框 / path 数）是 0.1.6 那代官方产物的形状**：0.1.7-alpha.2 起官方把这套图标重画了一遍（垃圾桶从 1 条实心 path 变成 5 条描边 path、视框不变），所以在 0.1.7 上跑这一套时那几条形状断言会红——那是判据钉在 0.1.6 形状上，不是功能坏了，见 issue #236；② **点击是开合开关**——主区点一下抽屉出现且按钮的 `aria-expanded` / 自有标记翻成展开，再点一下抽屉消失、标记翻回收起（连点两次 = 展开→收起）；③ **与「点外面 / Esc 关闭」是同一份状态**：抽屉开着时点树区（抽屉外）或按 Esc 都收起，之后**再点主区是展开**（不会「点了没反应」），按钮的标记与屏幕上抽屉的真实状态始终一致；④ **计数 0 的行为不变**——注入空集合时整行仍是灰态、右侧两枚动作图标仍禁用，主区仍可点且照常开合；另在「抽屉里真有内容」的那一页重验一遍开合，证明 toggle 不是只在空态成立。全程零 pageerror，本套件不点归档确认、不写网关。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const shot = async (page: OpenedPage['page'], name: string): Promise<string> => {
@@ -120,14 +120,14 @@ export const RECYCLE_ENTRY_TOGGLE_SUITE: LabSuite = {
       )
 
       // ---- ① 主区图标是垃圾桶 ----
-      check.eq('主区图标的标记是官方垃圾桶（IconTrashOutline16）', start.icon, 'IconTrashOutline16')
+      check.eq('主区图标的标记是官方垃圾桶（IconTrashOutline）', start.icon, 'IconTrashOutline')
       check.ok(
-        '渲染出来的是官方 16 号图标（viewBox 0 0 16 16、宽高 16、单条 path）',
+        '渲染出来的是官方那枚垃圾桶（viewBox 0 0 16 16、宽高 16、单条 path —— path 数是 0.1.6 那代的形状）',
         start.viewBox === '0 0 16 16' && start.width === '16' && start.height === '16' && start.iconPaths === '1',
         `viewBox=${start.viewBox} ${start.width}×${start.height} paths=${start.iconPaths}`,
       )
       check.ok(
-        '换下去的那枚 IconArchiveOutline20 有可判定的不同指纹（viewBox 0 0 20 20）——主区不再是归档箱',
+        '换下去的归档图标有可判定的不同指纹（0.1.6 那代是 viewBox 0 0 20 20）——主区不再是归档箱',
         start.viewBox !== '0 0 20 20',
         `viewBox=${start.viewBox}`,
       )

@@ -1,0 +1,50 @@
+{
+  "branch": "agent/icon-name-generation-fork",
+  "slug": "icon-name-generation-fork",
+  "platformCoverage": [],
+  "branchMatrix": {
+    "trigger": "state-probe",
+    "rows": [
+      {
+        "condition": "官方前端产物目录读得到、且里面有 .js 产物（`fs.readdirSync(<root>/dsh-web-frontend/dist/assets)` 成功且过滤出至少一个 .js）",
+        "expected": "把每个 .js 读成一整段文本，逐枚查「这一代的名字（`<基名><档位>`）或上一代的名字（尺寸后缀名）」至少一个按整词在场；全在场 → pass，detail 里写清读的是哪棵树、几个产物、多少 KB",
+        "verification": "探针实跑（本机 0.1.6-alpha.2 的 profile 树：26 枚全部在场，读 2 个 js 产物 1322 KB）；单测 test/upstreamIconExports.test.ts「本机官方产物里 26 枚齐全 → pass」与「上一代的名字在场也算通过」"
+      },
+      {
+        "condition": "目录读不到（`readdirSync` 抛错，例如官方换了前端产物的打包方式 / 这棵树里没有 dsh-web-frontend）",
+        "expected": "fail，detail 里写出读的是哪个路径、哪棵树——取不到就不许显示成「没问题」",
+        "verification": "单测 test/upstreamIconExports.test.ts「产物目录读不到也 fail（不许降级成「没问题」）」"
+      },
+      {
+        "condition": "目录在、但里面一个 .js 都没有（官方换了产物文件名或扩展名）",
+        "expected": "fail 并说明取法要跟着改（不是「名字都不在场」）",
+        "verification": "与上一条同一条取法分支的姐妹分支，由 `files.length === 0` 那一支覆盖；实跑取到的树上该分支不成立（0.1.6-alpha.2 与 0.1.7-alpha.2 两棵树都有 2 个 js 产物），判据本身由该分支的代码位置与 fail 文案固定"
+      },
+      {
+        "condition": "某一枚图标两代名字都不在场（官方又换了一代命名，或删掉了这枚图标）",
+        "expected": "fail，并逐枚点出是哪一枚、这一代要什么名、上一代要什么名——名字消失时页面上的表现是渲染崩成 React #130，那句话看不出是哪枚图标，这一项的意义就是当场报名字",
+        "verification": "单测 test/upstreamIconExports.test.ts「少一枚就 fail，且当场报出是哪一枚、两代各要什么名」（合成产物里抹掉 IconTrashOutlineRegular ⇒ detail 含 IconTrashOutline / IconTrashOutlineRegular / IconTrashOutline16 / 「缺 1 枚」）"
+      },
+      {
+        "condition": "运行时取图标：官方模块命名空间里有这一代的名字（`<基名>Regular`，0.1.7-alpha.2 及以后）",
+        "expected": "取它，插件正常渲染",
+        "verification": "单测「命名空间里是这一代的名字时取到它（两档都在时取表里那一档）」；浏览器验证 `node scripts/verify-lab-version.mjs 0.1.7-alpha.2 --suite F-01`（改前有 `slot entry crashed in 'sidebar.workspaces': Minified React error #130`、改后该类崩溃消失）"
+      },
+      {
+        "condition": "运行时取图标：命名空间里没有这一代的名字、只有上一代的名字（尺寸后缀，0.1.6-alpha.2 及以前）",
+        "expected": "取上一代那一个，插件在两代 dsh 上都能渲染",
+        "verification": "单测「命名空间里是上一代的名字时取到它」；浏览器验证 `npm run verify:lab -- --suite F-01`（本机 0.1.6-alpha.2 装配页：43/43 全过，console error 为空）"
+      },
+      {
+        "condition": "运行时取图标：两代名字都不在场（官方又换了一代命名，或这枚图标没了）",
+        "expected": "当场抛错（不是静默返回 undefined）——错误里写出这枚图标的两代名字与出处，让它在插件加载时就可见，而不是等到渲染时炸成 React #130",
+        "verification": "单测「两代名字都不在场时抛错，且错误里写明这一代与上一代各要什么名」（逐项断言错误文案里有 IconTrashOutline / IconTrashOutlineRegular / IconTrashOutline16）"
+      },
+      {
+        "condition": "运行时取图标：这一代只剩另一档（表里要 Regular，命名空间里只有 `<基名>Medium`）",
+        "expected": "抛错，并在文案里提示「另一档在场、把表里这枚的 weight 改成它即可」——档位是照官方插件代码的取用选的，漂了要有人知道，不许悄悄换一档",
+        "verification": "单测「命名空间里是这一代的名字时取到它（两档都在时取表里那一档）」里那条 mediumOnly 断言（assert.throws 匹配 IconTrashOutlineRegular）"
+      }
+    ]
+  }
+}

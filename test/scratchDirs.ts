@@ -35,6 +35,7 @@ export const SCRATCH_PREFIXES: readonly string[] = [
   // test/*.test.ts
   'dsh-cap-',
   'dsh-blocklist-',
+  'dsh-icon-exports-',
   'dsh-lab-bundle-',
   'dsh-lab-doctor-e2e-',
   'dsh-lab-doctor-judge-',

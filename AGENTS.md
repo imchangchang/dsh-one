@@ -39,7 +39,7 @@
 - 起了就**一次跑完立刻收掉**：`pkill -f "user-data-dir=/tmp/dsh-uidev/<slug>"`，不许反复起停（用户看到的是「一直弹出来」）；
 - 隔离实例只写 `/tmp/dsh-uidev/<slug>/`，不碰用户的日常 VS Code 设置与扩展。
 
-**上游契约面由每日探针覆盖（2026-09-16）**：`scripts/dsh-upstream-watch/` 的探针现含 23 项，其中**客户端契约面 4 项**（关键 slot 名、root 级 hooks 及其 `use*` props、我们取用过的官方标识符）与**官方产物面 2 项**（本机已安装官方包里的内部标识符；三棵树 block list 的服务依赖补全——少了哪一条会让整页 boot 失败，#227）——失败信息带版本、缺失名、期望出处与我方使用点。每次上游发版另跑 `npm run verify:lab` 与 `npm run verify:host-half`。结论：**契约漂移由探针在 CI 发现，而不是由用户日常使用撞见**。已实测版本见 README 的「dsh version tracking」表，三种状态分开写：**实测通过** = 0.1.6-alpha.1（整轮零红，版本门下界）/ 0.1.6-alpha.2；**实测不通** = 0.1.2-rc.1、0.1.5-rc.2、0.1.7-alpha.2；**未验过** = 其余（含 npm `next` 指的 0.1.5-rc.3）。逐版本读数与红项见 `docs/dsh-compat-checklist.md` 的「支持的 dsh 版本」。
+**上游契约面由每日探针覆盖（2026-09-16）**：`scripts/dsh-upstream-watch/` 的探针现含 24 项，其中**客户端契约面 4 项**（关键 slot 名、root 级 hooks 及其 `use*` props、我们取用过的官方标识符）与**官方产物面 3 项**（本机已安装官方包里的内部标识符；我们取用的 26 枚图标的导出名——官方 0.1.7-alpha.2 把图标名整批换了一代写法，按老名字取用会静默变 `undefined`、渲染时才炸成 React #130，见 #236；三棵树 block list 的服务依赖补全——少了哪一条会让整页 boot 失败，#227）——失败信息带版本、缺失名、期望出处与我方使用点。每次上游发版另跑 `npm run verify:lab` 与 `npm run verify:host-half`。结论：**契约漂移由探针在 CI 发现，而不是由用户日常使用撞见**。已实测版本见 README 的「dsh version tracking」表，三种状态分开写：**实测通过** = 0.1.6-alpha.1（整轮零红，版本门下界）/ 0.1.6-alpha.2；**实测不通** = 0.1.2-rc.1、0.1.5-rc.2、0.1.7-alpha.2；**未验过** = 其余（含 npm `next` 指的 0.1.5-rc.3）。逐版本读数与红项见 `docs/dsh-compat-checklist.md` 的「支持的 dsh 版本」。
 
 **集成线**：默认 `main`。`#11` 系列（Preact 迁移 + 对齐官方 dsh web）已于 2026-09-10 归档关闭：改动整线保留在 `develop/dsh-web-alignment`（远端同名分支），**仅作参考代码，不再开发、不再合入**；该系列 issue（#2/#11/#29/#40-#58 中相关条目）已关闭，真实问题重新梳理顶层结构后另立新 issue。`scripts/dev-merge.sh` 的 `MERGE_TARGET=<分支>` 能力保留（默认 `main`），两道静态自检（`check-i18n.sh` / `check-platform-compat.sh`）的合并基点都跟随目标分支。
 
