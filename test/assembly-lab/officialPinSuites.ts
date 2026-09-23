@@ -323,6 +323,13 @@ export const OFFICIAL_PIN_SUITE: LabSuite = {
     try {
       await expandOwn(own.page)
       await expandOfficial(official.page)
+      check.fact(
+        `官方那一页的会话行（分组|标题|置顶标记）：${JSON.stringify(
+          (await officialRows(official.page)).map(
+            (row) => `${row.group}|${row.title}${row.pinned ? '|pin' : ''}`,
+          ),
+        )}`,
+      )
 
       // ---- ① 补写迁移 ----
       const officialAfterMigration = await waitFor(
