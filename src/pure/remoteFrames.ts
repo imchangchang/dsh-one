@@ -141,7 +141,7 @@ export function parseControlStreamFrame(value: unknown): ControlStreamFrame | nu
 
 /** `workspace/follow` frames. */
 export type WorkspaceStreamFrame =
-  | { type: 'baseline'; items: unknown[]; archivedSessionIds: string[]; pinnedSessionIds: string[] }
+  | { type: 'baseline'; items: unknown[]; archivedSessionIds: string[]; pinnedSessionIds?: string[] }
   | { type: 'upsert'; workspace: Record<string, unknown> }
   | { type: 'remove'; workspaceId: string }
   | { type: 'order'; workspaceIds: string[] }
@@ -180,9 +180,11 @@ export function parseWorkspaceStreamFrame(value: unknown): WorkspaceStreamFrame 
       archivedSessionIds: Array.isArray(baseline.archivedSessionIds)
         ? (baseline.archivedSessionIds as string[]).filter((id): id is string => typeof id === 'string')
         : [],
-      // 0.1.6 及以下的基线里没有这一格：给空表而不是 undefined，读的人不必各自判空
-      // （「这一代有没有这份状态」看的是页面快照那一格在不在，见 sessionPinSource.ts）。
-      pinnedSessionIds: idList(baseline.pinnedSessionIds),
+      // **这一格在不在，就是「这一代网关有没有官方置顶集合」这个事实**（0.1.6 及以下的
+      // 基线里没有它），所以缺席时**不给空表**——空表与「没有这一格」在消费方是不同的
+      // 意思（前者 = 有这份状态但一条都没有）。消费方按 `undefined` 判这一代在不在，
+      // 与页面侧 `pure/sessionPinSource.ts` 的判据同一口径。
+      ...(Array.isArray(baseline.pinnedSessionIds) ? { pinnedSessionIds: idList(baseline.pinnedSessionIds) } : {}),
     }
   }
   return null

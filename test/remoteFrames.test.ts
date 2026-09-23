@@ -77,11 +77,15 @@ test('workspace/follow frames', () => {
     type: 'baseline',
     items: [{ workspaceId: 'w1' }],
     archivedSessionIds: ['s9'],
-    // 0.1.6 及以下的基线里没有这一格：给空表（#240）。
-    pinnedSessionIds: [],
+    // 「这一代网关有没有官方置顶集合」= 基线里有没有那一格：0.1.6 及以下没有它，
+    // 于是这一格缺席（不是空表，#240）。
   })
   assert.deepEqual(
-    parseWorkspaceStreamFrame({ type: 'baseline', value: { items: [], archivedSessionIds: [], pinnedSessionIds: ['s1', 's2'] } }),
+    parseWorkspaceStreamFrame({ type: 'baseline', value: { items: [], archivedSessionIds: [], pinnedSessionIds: [] } }),
+    { type: 'baseline', items: [], archivedSessionIds: [], pinnedSessionIds: [] },
+  )
+  assert.deepEqual(
+    parseWorkspaceStreamFrame({ type: 'baseline', value: { items: [], archivedSessionIds: [], pinnedSessionIds: ['s1', '', 7, 's2'] } }),
     { type: 'baseline', items: [], archivedSessionIds: [], pinnedSessionIds: ['s1', 's2'] },
   )
   assert.deepEqual(parseWorkspaceStreamFrame({ type: 'upsert', workspace: { workspaceId: 'w1' } }), {

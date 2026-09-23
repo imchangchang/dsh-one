@@ -128,9 +128,10 @@ export interface TreeProps extends PendingHookProps {
    * 键，没有任何第二份存储。
    *
    * #240：0.1.7 起**置顶那份归官方注册表**（上面 `WorkspaceSnapshotLike` 的
-   * `pinnedSessionIds`），这里的 `pinned` 只剩两个用处——官方这一代没到齐时（快照里
-   * 没有那一格）它仍是权威，以及它是要**一次性补写进官方**的那份旧数据（见
-   * {@link adoptLegacyPins}）。`unread` 两代都住这里。
+   * `pinnedSessionIds`），这里的 `pinned` 只剩一个用处——官方这一代没到齐时（快照里
+   * 没有那一格）它仍是权威。它里面已有的置顶由**插件侧**一次性补写进官方
+   * （`workspaceTreePlugin.ts` 的 `watchLegacyPinAdoption`，挂在工作区快照的订阅上，
+   * 与渲染无关），树不需要知道这一页是哪一代。`unread` 两代都住这里。
    */
   loadMarks: () => Promise<SessionMarksState>
   /**
@@ -144,16 +145,6 @@ export interface TreeProps extends PendingHookProps {
   savePinned: (ids: readonly string[]) => Promise<unknown>
   /** 写回手动未读 id 集合（宿主能力口 `stateWrite('unread')`；失败静默）。 */
   saveUnread: (ids: readonly string[]) => void
-  /**
-   * #240：把自有 `pinned` 键里已有的置顶**一次性补写进官方状态**（官方没有的补进去，
-   * 补完把自有键划掉），此后以官方为准。旧代（没有官方那一格）是空操作——自有键就是
-   * 权威，没有要迁的。
-   *
-   * 调用时机由树那一侧定：工作区快照 `phase === 'ready'` 之后调一次（官方那份 pin
-   * 集合随基线一次到齐，读早了会把「还没到」当成「官方没有」）。判据、写入与自有键的
-   * 划账全在插件侧，树不需要知道这一页是哪一代。
-   */
-  adoptLegacyPins: () => Promise<void>
   /**
    * #107：会话标签组的持久状态读回（宿主能力口 `stateRead('tags')` 的封装，见
    * `pure/sessionTagGroups.ts`）。键名 `tags` 就是旧侧栏的文件名

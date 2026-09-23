@@ -125,7 +125,6 @@ export function WorkspaceTree(props: TreeProps): unknown {
     loadMarks,
     savePinned,
     saveUnread,
-    adoptLegacyPins,
     loadTagGroups,
     saveTagGroups,
     openInNewTab,
@@ -348,22 +347,6 @@ export function WorkspaceTree(props: TreeProps): unknown {
       cancelled = true
     }
   }, [loadMarks])
-
-  /**
-   * #240：自有 `pinned` 键里已有的置顶**一次性补写**进官方状态（把官方没有的置进去、
-   * 补完把自有键划掉），此后以官方为准。旧代（快照里没有 `pinnedSessionIds`）是空操作。
-   *
-   * 为什么等 `phase === 'ready'` 才做：官方那份 pin 集合随工作区基线一次到齐，读早了
-   * 会看到一份空集合，于是把「还没到」当成「官方没有」——那样每次开页都会把用户后来在
-   * 官方那边取消掉的置顶重新置上。补写与自有键的划账都在插件侧
-   * （`workspaceTreePlugin.ts` 的 `adoptLegacyPins`），这里只出触发点。
-   */
-  const legacyPinsAdopted = useRef(false)
-  useEffect(() => {
-    if (legacyPinsAdopted.current || workspacePhase !== 'ready') return
-    legacyPinsAdopted.current = true
-    adoptLegacyPins().catch((reason: unknown) => console.warn('[dsh-one] legacy pinned sessions not adopted:', reason))
-  }, [workspacePhase, adoptLegacyPins])
 
   // 标签组（#107）：与分组同一条路（宿主能力口 `tags` 键，= 旧侧栏的 tags.json 文件）。
   // 读一次（ref 守门，理由同上）；读失败保持空状态——树照常可用，只是没有标签组，

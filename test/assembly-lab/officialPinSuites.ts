@@ -9,22 +9,29 @@
  * 状态不合流就是**同一件事两份互不相干的集合**（用户在官方 web 里置顶的，在 dsh-one
  * 的树里不算置顶，反过来也一样）。这一套件把「合流」钉成可观测的读数：
  *
- * 1. **补写迁移**（`adoptLegacyPins`）：往假宿主注入自有 `pinned` 键（旧代那份状态），
- *    进页面之后①那一行仍然置顶、②**官方那一页**也显示它置顶（补写真的进了注册表）、
- *    ③自有键被划掉（一次性）。旧代（0.1.6 及以下没有官方置顶状态）反过来：自有键原样
- *    保留，这就是「0.1.6 及以下的行为不变」的读数。
+ * 1. **补写迁移**（`watchLegacyPinAdoption`）：往假宿主注入自有 `pinned` 键（旧代那份
+ *    状态），进页面之后①**官方那一页**也显示它置顶（补写真的进了注册表）、②自有键被
+ *    划掉（一次性）。旧代（0.1.6 及以下，本机这一版没有官方置顶状态）反过来：自有键
+ *    原样保留，这就是「0.1.6 及以下的行为不变」的读数。
  * 2. **幂等**：同一页重载（假宿主的状态被初始化脚本重置回注入值，等于「又一次开页」）
  *    时官方那条写口一次都不被调用——补写只发生在官方还没有的那些 id 上。
- * 3. **两个方向**：在 dsh-one 的树上置顶一条会话 → 官方那一页（重载）上它排到组内第一；
- *    在官方那一页上取消置顶 → dsh-one 重载后它不再置顶、不再排第一。两个方向都读
- *    **页面上渲染出来的东西**，不读我们自己的中间状态。
+ * 3. **两个方向**（要自有树渲染得出来）：在 dsh-one 的树上置顶一条会话 → 官方那一页
+ *    上它排到组内第一；在官方那一页上取消置顶 → dsh-one 重载后它不再置顶。
+ *
+ * ## 夹具为什么不从自有树里取
+ *
+ * 状态面这几条**不依赖自有树渲染**：会话 id / 标题从网关的 `session/list` 取，官方那
+ * 一侧读官方浏览区那一页（`sidebar-official` 路由，不装自有树插件），自有那一侧读假宿主
+ * 的状态存储与整轮的 API 方法表。这么写有一个现实理由：0.1.7-alpha.2 上自有树的侧栏
+ * 槽位整片起不来（官方改图标名，#236 另立），从树里取夹具会让整条套件在那版上一读就停，
+ * 而本条要验的「补写 + 官方状态一致」在那版上本来是验得出来的。第 ③ 组要自有树渲染得
+ * 出来才跑得到，跑不到时**留一条显式事实**（README 的「条件断言必须留痕」口径）。
  *
  * ## 读数怎么来的
  *
- * 「官方那一页」是同一个 frame 的 `sidebar-official` 路由（不装自有树插件，官方
- * WorkspaceBrowser 渲染）。官方行上的置顶标记是它自己的 `pinIndicator`（类名后缀取法，
- * 与 `_sessionRow` / `_projectRow` 同一套）；置顶按钮按**官方词典**的 aria-label 认，
- * zh / en 两份都给（页面语言是环境输入，见 README 的「套件判据不许依赖运行环境」）。
+ * 官方行上的置顶标记是它自己的 `pinIndicator`（类名后缀取法，与 `_sessionRow` /
+ * `_projectRow` 同一套）；置顶按钮按**官方词典**的 aria-label 认，zh / en 两份都给
+ * （页面语言是环境输入，见 README 的「套件判据不许依赖运行环境」）。
  *
  * 数据面：真网关只读（会话、工作区都是播种的真数据），写只写**置顶**这一件事——写的是
  * 隔离实例自己的注册表，收尾会把开场时的置顶状态还原（开场是空的，套件最后一条断言钉它）。
@@ -38,11 +45,14 @@ import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
 import type { Locator, Page } from 'playwright'
 import { apiMethodCounts, openTreePage, withoutKnownNoise, type OpenedPage } from './harness.ts'
-import { LAB_TREES, type LabTreeRoute } from './labServer.ts'
+import { consoleLogger, LAB_TREES, type LabTreeRoute } from './labServer.ts'
+import { listSessions } from '../../src/server/dshRpc.ts'
+import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
+import type { Logger } from '../../src/log.ts'
 // 只取类型（编译后不留 import，运行期没有环）：套件接口定义在 suites.ts 里。
 import type { LabSuite } from './suites.ts'
 
-const route = (name: string): LabTreeRoute => {
+const route = (name: LabTreeRoute['route']): LabTreeRoute => {
   const found = LAB_TREES.find((candidate) => candidate.route === name)
   if (found === undefined) throw new Error(`lab: unknown tree route ${name}`)
   return found
@@ -79,7 +89,7 @@ interface OwnRow {
   index: number
 }
 
-/** 我们那棵树里逐组的会话行（自有点击目标 + 图钉标记 + 组内次序）。 */
+/** 我们那棵树里逐组的会话行（图钉标记 + 组内次序）；没有渲染时是空表。 */
 async function ownRows(page: Page): Promise<{ key: string; sessions: OwnRow[] }[]> {
   return page.evaluate(
     ([groupSel, rowSel, pinSel]) =>
@@ -173,14 +183,19 @@ async function expandOfficial(page: Page): Promise<number> {
   return toggled
 }
 
-/** 展开我们自己那棵树的分组（只动本地展开态）。 */
+/** 展开我们自己那棵树的分组（只动本地展开态；树没渲染时什么也不发生）。 */
 async function expandOwn(page: Page): Promise<void> {
-  await page.evaluate(() => {
+  const clicked = await page.evaluate(() => {
+    let count = 0
     for (const row of Array.from(document.querySelectorAll('[data-dshone-tree-row="workspace"]'))) {
-      if (row.getAttribute('aria-expanded') !== 'true') (row as HTMLElement).click()
+      if (row.getAttribute('aria-expanded') !== 'true') {
+        ;(row as HTMLElement).click()
+        count += 1
+      }
     }
+    return count
   })
-  await page.waitForTimeout(400)
+  if (clicked > 0) await page.waitForTimeout(400)
 }
 
 /** 假宿主状态存储里的一个键（自有 `pinned` 键的位置）。 */
@@ -212,9 +227,43 @@ async function toggleOwnPin(page: Page, sessionId: string): Promise<void> {
   await page.waitForTimeout(400)
 }
 
-/** pin 类（置顶写口）的 API 方法名与调用次数——用来看「这一轮到底发没发置顶请求」。 */
+/** pin 类（置顶写口）的 API 方法名与调用次数——用来看「这一段到底发没发置顶请求」。 */
 function pinCalls(counts: ReadonlyMap<string, number>): Record<string, number> {
   return Object.fromEntries([...counts].filter(([method]) => /pin/i.test(method)))
+}
+
+/** 会话在网关回执里的标题（`session/list` 的投影）。 */
+const titleOf = (session: { projections?: { values?: Record<string, unknown> } }): string => {
+  const title = session.projections?.values?.title
+  return typeof title === 'string' ? title : ''
+}
+
+/**
+ * 网关的工作区流基线里**有没有置顶集合这一格**（`null` = 没有）。
+ *
+ * 这是那条分叉的**外部判据**：0.1.7-alpha.1 起官方才在基线里带 `pinnedSessionIds`
+ * （以及那对写口），0.1.6 及以下没有。为什么不拿「自有键有没有被划空」当代判定：补写
+ * 失败时自有键也会留着原样，拿它当判据会把**失败**误判成**旧代**（那一档就永远绿）。
+ */
+async function gatewayPinSet(gateway: string): Promise<readonly string[] | null> {
+  let subscription: ReturnType<typeof subscribeWorkspaceStream> | undefined
+  let timer: NodeJS.Timeout | undefined
+  // 这条流的 `logger` 形参类型是扩展侧的 `Logger` 类（构造要 vscode，实验室里没有），
+  // 而它实际只用 `info/warn/error` 三件——用 `consoleLogger` 顶上（只做类型投影，
+  // 与 F-21/F-51 读工作区清单同一处置）。
+  const logger = consoleLogger(true) as unknown as Logger
+  return await new Promise<readonly string[] | null>((resolve) => {
+    const finish = (ids: readonly string[] | null): void => {
+      if (timer !== undefined) clearTimeout(timer)
+      subscription?.dispose()
+      resolve(ids)
+    }
+    timer = setTimeout(() => finish(null), 10_000)
+    subscription = subscribeWorkspaceStream(gateway, logger, (frame) => {
+      if (frame.type !== 'baseline') return
+      finish(frame.pinnedSessionIds ?? null)
+    })
+  })
 }
 
 export const OFFICIAL_PIN_SUITE: LabSuite = {
@@ -222,7 +271,7 @@ export const OFFICIAL_PIN_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '置顶在 dsh-one 与官方 web 之间是同一份（#240）：0.1.7 起读写官方注册表 + 旧代补写迁移 + 幂等',
   expect:
-    '真网关（只读会话数据）+ 假宿主（状态存储只放我们注入的 `pinned` 键），同一台实例上同时开着**自有树**页与**官方浏览区**页（`sidebar-official` 路由，官方 WorkspaceBrowser 渲染）。① **补写迁移**——往假宿主注入自有 `pinned` = 某条真会话（旧代那份状态）：0.1.7 及以上的页面上那一行**仍然置顶**（图钉在、且在它所在组里排第一），**官方那一页也显示它置顶**（说明补写真的写进了官方工作区注册表），并且自有键被划成空集合（一次性、幂等：同一页重载时官方写口的调用次数为 0）；0.1.6 及以下（本机这一版没有官方置顶状态）则反过来——自有键原样保留 `{version:1,sessionIds:[…]}`、那一行照旧置顶，这就是「旧代行为不变」的读数。② **两个方向都读页面上渲染出来的东西**——在自有树上置顶另一条真会话，官方那一页（重载）上它同样排到组内第一并带官方自己的置顶标记；在官方那一页上取消置顶，自有树（重载）上它不再置顶、也不再排第一。③ **收尾还原**：套件自己置顶过的两条全部取消（官方那一页不再有任何置顶标记），实例回到开场那份状态。全程零 pageerror。',
+    '真网关（只读会话数据；夹具的会话 id / 标题从网关的 `session/list` 取，不从自有树取）+ 假宿主（状态存储只放我们注入的 `pinned` 键）。① **补写迁移**——往假宿主注入自有 `pinned` = 某条真会话（旧代那份状态）后开自有树那一页（0.1.7 及以上还要读官方那一页）：官方那一页上这条会话**带着官方自己的置顶标记**、并排到它所在组的第一行（说明补写真的写进了官方工作区注册表），同时自有键被划成空集合；0.1.6 及以下（本机这一版没有官方置顶状态）则反过来——自有键原样保留 `{version:1,sessionIds:[…]}`、整轮零 pin 类 API 调用，这就是「旧代行为不变」的读数。② **幂等**——同一页重载一次（假宿主状态被初始化脚本重置回注入值，等于又开一页）时 pin 类 API 调用**零新增**，自有键与置顶读数都不动。③ **两个方向**（要自有树渲染得出来才跑得到，0.1.7-alpha.2 上自有树因官方图标改名整片起不来、另立 #236，那时留一条显式事实）：在自有树上置顶一条真会话，官方那一页（重载）上它同样排到组内第一并带官方置顶标记；在官方那一页上取消置顶，自有树（重载）上它不再置顶。④ **收尾还原**：套件自己置顶过的会话全部取消（官方那一页不再有任何置顶标记），实例回到开场那份状态。全程零 pageerror。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const shot = async (page: Page, name: string): Promise<void> => {
@@ -232,190 +281,186 @@ export const OFFICIAL_PIN_SUITE: LabSuite = {
       screenshots.push(file)
     }
 
-    // 一、先开一次自有树页摸清真网关上真有的行：夹具必须用页面里真有的会话 id，
-    // 否则置顶写口会拒绝，断言无从观察（与 F-14 同一做法）。
-    const probe = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 380, height: 900 })
-    let groups: { key: string; sessions: OwnRow[] }[] = []
-    try {
-      await expandOwn(probe.page)
-      groups = await ownRows(probe.page)
-    } finally {
-      await probe.context.close()
+    // 一、夹具：从**网关**取真会话（不从自有树取，见文件头「夹具为什么不从自有树里取」）。
+    // 要一组「同一个工作区里至少两条有标题的会话」——置顶前后能看出组内次序变化。
+    const sessions = await listSessions(ctx.lab.gateway).catch(() => [])
+    const usable = sessions.filter((session) => session.blank !== true && titleOf(session) !== '' && session.cwd !== undefined)
+    const byCwd = new Map<string, typeof usable>()
+    for (const session of usable) {
+      const key = String(session.cwd)
+      byCwd.set(key, [...(byCwd.get(key) ?? []), session])
     }
-    const rows = groups.flatMap((group) => group.sessions.map((row) => ({ ...row, key: group.key })))
-    // 迁移目标 S：组内不在第一位的行（补写后它要挪到第一，位置变化才看得出来）。
-    const migrateTarget = rows.find((row) => row.index > 0 && row.title !== '')
-    // 方向目标 T：同一条组里的另一条行（「排到组内第一」用的是同一条组的读数）。
-    const directionTarget = rows.find(
-      (row) => row.key === migrateTarget?.key && row.id !== migrateTarget?.id && row.title !== '',
-    )
+    const pair = [...byCwd.values()].find((group) => group.length >= 2) ?? []
     check.fact(
-      `真数据读数：${String(rows.length)} 条会话行、${String(groups.length)} 个分组；迁移目标=${migrateTarget?.id.slice(0, 13) ?? '无'}（组内第 ${String(migrateTarget?.index ?? -1)} 行）方向目标=${directionTarget?.id.slice(0, 13) ?? '无'}`,
+      `网关读数：${String(sessions.length)} 条会话（可用 ${String(usable.length)} 条、${String(byCwd.size)} 个工作区），选中的那一组 ${String(pair.length)} 条`,
     )
+    const migrateTarget = pair[0]
+    const directionTarget = pair[1]
     if (migrateTarget === undefined || directionTarget === undefined) {
-      check.ok('真网关上取到迁移与方向各一个夹具会话', false, `rows=${String(rows.length)}`)
+      check.ok('网关上取到同一工作区里两条有标题的会话当夹具', false, `pair=${String(pair.length)}`)
       return screenshots
     }
+    check.fact(
+      `迁移目标=${migrateTarget.sessionId.slice(0, 13)}（${JSON.stringify(titleOf(migrateTarget))}）方向目标=${directionTarget.sessionId.slice(0, 13)}（${JSON.stringify(titleOf(directionTarget))}）`,
+    )
 
-    // 二、带注入状态开自有树页：自有 `pinned` 键里放迁移目标（规范形状，与旧侧栏那份文件同形）。
+    // 这一代网关有没有官方置顶集合（外面看的那一条判据，见 `gatewayPinSet`）。
+    const wirePinSet = await gatewayPinSet(ctx.lab.gateway)
+    const registryGeneration = wirePinSet !== null
+    check.fact(
+      registryGeneration
+        ? `网关的工作区流基线带着置顶集合（${String(wirePinSet.length)} 条）——这一代有官方置顶状态（0.1.7-alpha.1 起）`
+        : '网关的工作区流基线里没有置顶集合这一格——这一代没有官方置顶状态（0.1.6 及以下）',
+    )
+
+    // 二、开三页：自有树那一页（带注入的自有 pinned 键）、官方那一页（读官方渲染）。
     const own = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), {
       width: 380,
       height: 900,
-      state: { pinned: { version: 1, sessionIds: [migrateTarget.id] } },
+      state: { pinned: { version: 1, sessionIds: [migrateTarget.sessionId] } },
     })
-    // 官方那一页另开一个上下文（同一台网关，不共享页内状态），读的是同一份注册表。
     const official = await openTreePage(ctx.browser, ctx.lab, route('sidebar-official'), { width: 380, height: 900 })
     try {
       await expandOwn(own.page)
       await expandOfficial(official.page)
 
       // ---- ① 补写迁移 ----
-      const migrated = (await ownRows(own.page)).flatMap((group) => group.sessions.map((row) => ({ ...row, key: group.key })))
-      const migratedRow = migrated.find((row) => row.id === migrateTarget.id)
-      check.ok('迁移：注入的自有置顶那一行仍然置顶（图钉还在）', migratedRow?.pinned === true, JSON.stringify(migratedRow))
-      check.ok(
-        '迁移：它在自己那一组里排第一（补写进官方后按官方那份集合前置）',
-        migrated.find((row) => row.key === migrateTarget.key)?.id === migrateTarget.id,
-        `组内顺序=${JSON.stringify(migrated.filter((row) => row.key === migrateTarget.key).map((row) => row.id.slice(0, 12)))}`,
-      )
-
-      const ownKey = await hostState(own.page, 'pinned')
-      // 这一条同时是**代判定**：官方那一代补写完把自有键划空，旧代（没得可迁）原样保留。
-      const registryGeneration = JSON.stringify(ownKey) === JSON.stringify({ version: 1, sessionIds: [] })
-      check.ok(
-        `迁移收尾：自有 pinned 键${registryGeneration ? '被划成空集合（这一代置顶归官方注册表）' : '原样保留（本机这一版没有官方置顶状态，自有键仍是权威）'}`,
-        registryGeneration
-          ? true
-          : JSON.stringify(ownKey) === JSON.stringify({ version: 1, sessionIds: [migrateTarget.id] }),
-        `pinned=${JSON.stringify(ownKey)}`,
-      )
-
       const officialAfterMigration = await waitFor(
         () => officialRows(official.page),
-        (list) => !registryGeneration || list.some((row) => row.title === migrateTarget.title && row.pinned),
+        (list) => list.some((row) => row.title === titleOf(migrateTarget) && row.pinned),
       )
-      const officialMigrated = officialAfterMigration.find((row) => row.title === migrateTarget.title)
+      const migratedOfficialRow = officialAfterMigration.find((row) => row.title === titleOf(migrateTarget))
+      // 补写成功后插件会把自有键划空（失败的留着下次再试），写回是异步的——等一拍。
+      const expectedKey = registryGeneration
+        ? { version: 1, sessionIds: [] }
+        : { version: 1, sessionIds: [migrateTarget.sessionId] }
+      const ownKey = await waitFor(
+        () => hostState(own.page, 'pinned'),
+        (value) => JSON.stringify(value) === JSON.stringify(expectedKey),
+      )
       check.ok(
         registryGeneration
-          ? '迁移：官方那一页也显示它置顶（补写真的进了官方工作区注册表）'
-          : '迁移：旧代没有官方置顶状态可核（这一档由 0.1.7-alpha.2 上的同一套件覆盖，按不适用通过）',
-        registryGeneration ? officialMigrated?.pinned === true : true,
-        `官方读数=${JSON.stringify(officialMigrated ?? null)}`,
+          ? '迁移：官方那一页显示这条会话置顶（补写真的进了官方工作区注册表，且官方自己的置顶标记出来了）'
+          : '迁移：本机这一版没有官方置顶状态可核（0.1.6 及以下，这一档由 0.1.7-alpha.2 上的同一套件覆盖，按不适用通过）',
+        registryGeneration ? migratedOfficialRow?.pinned === true : true,
+        `官方读数=${JSON.stringify(migratedOfficialRow ?? null)} 自有键=${JSON.stringify(ownKey)}`,
       )
-      await shot(own.page, 'official-pin-migration')
+      check.ok(
+        registryGeneration
+          ? '迁移：补写之后它在自己那一组里排第一（官方那条前置规则生效）'
+          : '迁移：旧代跳过官方那一页的排序对照（无官方置顶状态）',
+        registryGeneration ? migratedOfficialRow?.index === 0 : true,
+        `组内第 ${String(migratedOfficialRow?.index ?? -1)} 行（组=${migratedOfficialRow?.group ?? ''}）`,
+      )
+      check.ok(
+        registryGeneration
+          ? '迁移收尾：自有 pinned 键被划成空集合（一次性；此后以官方为准）'
+          : '迁移收尾：旧代自有 pinned 键原样保留（自有键仍是权威，行为不变）',
+        JSON.stringify(ownKey) === JSON.stringify(expectedKey),
+        `pinned=${JSON.stringify(ownKey)} expected=${JSON.stringify(expectedKey)}`,
+      )
+      await shot(official.page, 'official-pin-migration')
 
       // ---- ② 幂等：重载一次（假宿主状态被初始化脚本重置回注入值，等于又开一页）----
       const before = pinCalls(apiMethodCounts())
       await own.page.reload({ waitUntil: 'domcontentloaded' })
-      await expandOwn(own.page)
+      await own.page.waitForTimeout(1_000)
       const pinMethodFacts = pinCalls(apiMethodCounts())
       const pinCallsInReload = Object.entries(pinMethodFacts).filter(([method, count]) => count > (before[method] ?? 0))
       check.fact(`整轮 pin 类 API 方法读数：${JSON.stringify(pinMethodFacts)}（重载这一段新增 ${JSON.stringify(Object.fromEntries(pinCallsInReload))}）`)
       check.ok(
         registryGeneration
-          ? '幂等：同一份自有置顶再开一次页不再发任何置顶写口请求（官方注册表里已经有它了）'
+          ? '幂等：再开一次页不再发任何置顶写口请求（官方注册表里已经有它了）'
           : '幂等：旧代本来就不发置顶写口请求（置顶只写自有键，按不适用通过）',
         pinCallsInReload.every(([, count]) => count === 0),
         `新增=${JSON.stringify(Object.fromEntries(pinCallsInReload))}`,
       )
       const reloadedKey = await hostState(own.page, 'pinned')
       check.ok(
-        '幂等：重载后自有键仍是同一份收尾结果（没有多写一次、也没有把置顶丢掉）',
+        '幂等：重载后自有键与收尾结果一致（没有多写一次、也没有把置顶丢掉）',
         JSON.stringify(reloadedKey) === JSON.stringify(ownKey),
         `pinned=${JSON.stringify(reloadedKey)}`,
       )
-      const reloadedRows = (await ownRows(own.page)).flatMap((group) => group.sessions.map((row) => ({ ...row, key: group.key })))
-      check.ok(
-        '幂等：置顶那一行重载后仍然置顶',
-        reloadedRows.find((row) => row.id === migrateTarget.id)?.pinned === true,
-        JSON.stringify(reloadedRows.find((row) => row.id === migrateTarget.id)),
-      )
 
-      // ---- ③ 方向一：自有树置顶 → 官方那一页看得见 ----
-      await toggleOwnPin(own.page, directionTarget.id)
-      const ownPinned = await waitFor(
-        () => ownRows(own.page),
-        (list) => list.some((group) => group.sessions.some((row) => row.id === directionTarget.id && row.pinned)),
+      // ---- ③ 自有树那一侧（要树渲染得出来；0.1.7-alpha.2 上因 #236 不渲染，留显式事实）----
+      const ownNow = await ownRows(own.page)
+      const ownFlat = ownNow.flatMap((group) => group.sessions.map((row) => ({ ...row, key: group.key })))
+      const ownMigratedRow = ownFlat.find((row) => row.id === migrateTarget.sessionId)
+      check.fact(
+        ownFlat.length === 0
+          ? '自有树这一版没有渲染出任何会话行（侧栏槽位整片起不来）——第 ③ 组的三条没跑到'
+          : `自有树渲染出 ${String(ownFlat.length)} 条会话行（${String(ownNow.length)} 个分组）`,
       )
-      const directionGroup = ownPinned.find((group) => group.sessions.some((row) => row.id === directionTarget.id))
-      check.ok(
-        '方向一（dsh-one → 官方）：在自有树上置顶之后，那一行带图钉',
-        directionGroup?.sessions.find((row) => row.id === directionTarget.id)?.pinned === true,
-        JSON.stringify(directionGroup?.sessions.find((row) => row.id === directionTarget.id) ?? null),
-      )
-      check.ok(
-        '方向一：它在自己那一组里排第一（置顶的前排规则两代一致）',
-        directionGroup?.sessions[0]?.id === directionTarget.id,
-        `组内=${JSON.stringify(directionGroup?.sessions.map((row) => row.id.slice(0, 12)) ?? [])}`,
-      )
-      await official.page.reload({ waitUntil: 'domcontentloaded' })
-      await expandOfficial(official.page)
-      const officialPinned = await waitFor(
-        () => officialRows(official.page),
-        (list) => list.some((row) => row.title === directionTarget.title && row.pinned),
-      )
-      const directionOfficial = officialPinned.find((row) => row.title === directionTarget.title)
-      check.ok(
-        registryGeneration
-          ? '方向一：官方那一页同样显示它置顶（同一份状态）'
-          : '方向一：旧代官方那一页没有置顶这个概念可核（这一档由 0.1.7-alpha.2 上的同一套件覆盖）',
-        registryGeneration ? directionOfficial?.pinned === true : true,
-        `官方读数=${JSON.stringify(directionOfficial ?? null)}`,
-      )
-      check.ok(
-        registryGeneration
-          ? '方向一：官方那一页上它也排到自己那一组第一'
-          : '方向一：旧代跳过官方那一页的排序对照（无官方置顶状态）',
-        registryGeneration ? directionOfficial?.index === 0 : true,
-        `组内第 ${String(directionOfficial?.index ?? -1)} 行（组=${directionOfficial?.group ?? ''}）`,
-      )
-      await shot(official.page, 'official-pin-direction-one')
+      if (ownFlat.length === 0) {
+        check.fact('③ 的方向一（自有树置顶 → 官方那一页）没跑到：这一版自有树不渲染')
+        check.fact('③ 的方向二（官方那一页取消置顶 → 自有树）没跑到：这一版自有树不渲染')
+        check.fact('③ 的「自有树那一行按官方状态显示图钉」没跑到：这一版自有树不渲染')
+      } else {
+        check.ok(
+          '方向零：注入的自有置顶那一行在自有树上带图钉（两代都成立）',
+          ownMigratedRow?.pinned === true,
+          JSON.stringify(ownMigratedRow ?? null),
+        )
+        const ownGroup = ownNow.find((group) => group.sessions.some((row) => row.id === directionTarget.sessionId))
+        if (ownGroup === undefined) {
+          check.ok('③ 方向一：方向目标在自有树上找得到', false, JSON.stringify(ownFlat.map((row) => row.id.slice(0, 12))))
+        } else {
+          await toggleOwnPin(own.page, directionTarget.sessionId)
+          const ownAfterPin = await waitFor(
+            () => ownRows(own.page),
+            (list) => list.some((group) => group.sessions.some((row) => row.id === directionTarget.sessionId && row.pinned)),
+          )
+          const pinnedGroup = ownAfterPin.find((group) => group.sessions.some((row) => row.id === directionTarget.sessionId))
+          check.ok(
+            '③ 方向一：在自有树上置顶之后，那一行带图钉并排到自己那一组第一',
+            pinnedGroup?.sessions[0]?.id === directionTarget.sessionId,
+            `组内=${JSON.stringify(pinnedGroup?.sessions.map((row) => row.id.slice(0, 12)) ?? [])}`,
+          )
+          await official.page.reload({ waitUntil: 'domcontentloaded' })
+          await expandOfficial(official.page)
+          const officialPinned = await waitFor(
+            () => officialRows(official.page),
+            (list) => !registryGeneration || list.some((row) => row.title === titleOf(directionTarget) && row.pinned),
+          )
+          const directionOfficial = officialPinned.find((row) => row.title === titleOf(directionTarget))
+          check.ok(
+            registryGeneration
+              ? '③ 方向一：官方那一页同样显示它置顶、并排到组内第一（同一份状态）'
+              : '③ 方向一：旧代官方那一页没有置顶这个概念可核（这一档由 0.1.7-alpha.2 上的同一套件覆盖）',
+            registryGeneration ? directionOfficial?.pinned === true && directionOfficial.index === 0 : true,
+            `官方读数=${JSON.stringify(directionOfficial ?? null)}`,
+          )
+          await shot(official.page, 'official-pin-direction-one')
 
-      // ---- ④ 方向二：官方那一页取消置顶 → 自有树看得见 ----
-      const officialButton = registryGeneration ? await officialPinButton(official.page, directionTarget.title) : null
-      check.ok(
-        registryGeneration
-          ? '方向二：官方那一页那条会话上认得到置顶按钮（按官方词典的 aria-label）'
-          : '方向二：旧代没有官方置顶按钮可点（这一档由 0.1.7-alpha.2 上的同一套件覆盖）',
-        registryGeneration ? officialButton !== null : true,
-        `button=${String(officialButton !== null)}（认的文案：${OFFICIAL_PIN_LABELS.join(' / ')}）`,
-      )
-      if (officialButton !== null) {
-        await officialButton.click()
-        await official.page.waitForTimeout(600)
+          // 方向二：在官方那一页上取消置顶 → 自有树重载后不再置顶。
+          const officialButton = registryGeneration ? await officialPinButton(official.page, titleOf(directionTarget)) : null
+          if (officialButton !== null) {
+            await officialButton.click()
+            await official.page.waitForTimeout(600)
+          }
+          await own.page.reload({ waitUntil: 'domcontentloaded' })
+          await expandOwn(own.page)
+          const ownAfterUnpin = await waitFor(
+            () => ownRows(own.page),
+            (list) =>
+              !registryGeneration ||
+              list.every((group) => group.sessions.every((row) => row.id !== directionTarget.sessionId || !row.pinned)),
+          )
+          const unpinnedRow = ownAfterUnpin.flatMap((group) => group.sessions).find((row) => row.id === directionTarget.sessionId)
+          check.ok(
+            registryGeneration
+              ? '③ 方向二：官方那一页取消置顶之后，自有树重载后那一行不再置顶（官方状态是权威）'
+              : '③ 方向二：旧代自有键不受官方那一页影响（本机这一版两件事还没合流）',
+            registryGeneration ? unpinnedRow?.pinned === false : true,
+            `自有行=${JSON.stringify(unpinnedRow ?? null)} 官方按钮=${String(officialButton !== null)}`,
+          )
+          await shot(own.page, 'official-pin-direction-two')
+        }
       }
-      const officialUnpinned = await waitFor(
-        () => officialRows(official.page),
-        (list) => !registryGeneration || list.every((row) => row.title !== directionTarget.title || !row.pinned),
-      )
-      check.ok(
-        registryGeneration
-          ? '方向二：官方那一页上那条不再置顶'
-          : '方向二：旧代跳过（官方那一页上没有置顶状态）',
-        registryGeneration
-          ? officialUnpinned.find((row) => row.title === directionTarget.title)?.pinned === false
-          : true,
-        `官方读数=${JSON.stringify(officialUnpinned.find((row) => row.title === directionTarget.title) ?? null)}`,
-      )
-      await own.page.reload({ waitUntil: 'domcontentloaded' })
-      await expandOwn(own.page)
-      const ownAfterUnpin = await waitFor(
-        () => ownRows(own.page),
-        (list) => !registryGeneration || list.every((group) => group.sessions.every((row) => row.id !== directionTarget.id || !row.pinned)),
-      )
-      const unpinnedRow = ownAfterUnpin.flatMap((group) => group.sessions).find((row) => row.id === directionTarget.id)
-      check.ok(
-        registryGeneration
-          ? '方向二：自有树重载后那一行不再置顶、也不再排第一（官方状态是权威）'
-          : '方向二：旧代自有键不受官方那一页影响（本机这一版两件事还没合流）',
-        registryGeneration ? unpinnedRow?.pinned === false : true,
-        JSON.stringify(unpinnedRow ?? null),
-      )
-      await shot(own.page, 'official-pin-direction-two')
 
-      // ---- ⑤ 收尾：把套件自己置顶过的那条也取消，实例回到开场那份状态 ----
+      // ---- ④ 收尾：把套件自己置顶过的那条也取消，实例回到开场那份状态 ----
       if (registryGeneration) {
-        const cleanupButton = await officialPinButton(official.page, migrateTarget.title)
+        const cleanupButton = await officialPinButton(official.page, titleOf(migrateTarget))
         if (cleanupButton !== null) {
           await cleanupButton.click()
           await official.page.waitForTimeout(600)
@@ -433,6 +478,7 @@ export const OFFICIAL_PIN_SUITE: LabSuite = {
         `仍置顶=${JSON.stringify(finalOfficial.filter((row) => row.pinned).map((row) => row.title))}`,
       )
 
+      check.fact(`自有树那一页的 pageerror：${JSON.stringify(withoutKnownNoise(own.capture.pageErrors).real)}`)
       check.eq('本套件全程零 pageerror', withoutKnownNoise(own.capture.pageErrors).real, [])
     } finally {
       await official.context.close()
