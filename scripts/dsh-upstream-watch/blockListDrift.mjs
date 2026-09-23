@@ -184,9 +184,12 @@ export function profilesRootOf(root) {
  * 为什么不能只扫 `<profile>/node_modules` 目录：那里还有一堆是依赖（react / katex / …），
  * 以及装过又没进层列表的包；按包清单读才是「真装进这一层的插件」。
  *
+ * 同一个 id 装在多个 profile 层里时**只算一次**（本机实测：`plan-test` 与 `web` 两层都装着
+ * `@dsh-one/dsh-llm-provider`）：同一个 id 的服务面只有一份语义，重复报只会把同一件事说两遍。
+ *
  * 返回 `{ faces, problems, profiles }`：
  * - `faces` 是第三方插件的服务面；
- * - `problems` 是「清了却没进层列表 / 读不到 / 解析不出」的逐条说明（非空即这一面没核实，调用方报红）；
+ * - `problems` 是「层列表点了名却没有 / 读不到 / 解析不出」的逐条说明（非空即这一面没核实，调用方报红）；
  * - `profiles` 是读过的 profile 目录名（写进结果行的 detail，说明读的是哪一份）。
  *
  * 一件 profile 层里的包没有 `dsh.client`（宿主半插件，没有浏览器半）时跳过——它不参与页面装配，
@@ -196,6 +199,7 @@ export function collectProfilePluginFaces(profilesRoot) {
   const faces = []
   const problems = []
   const profiles = []
+  const seen = new Set()
   let entries = []
   try {
     entries = fs.readdirSync(profilesRoot).sort()
@@ -215,6 +219,8 @@ export function collectProfilePluginFaces(profilesRoot) {
     profiles.push(name)
     for (const id of bundles) {
       if (typeof id !== 'string' || id.startsWith('@deepseek-ai/')) continue
+      // 同一件装在多个 profile 层里时只算一次（见函数头）。
+      if (seen.has(id)) continue
       // 装在 profile 自己的 node_modules 下；pnpm/npm 把依赖提到 `<profilesRoot>/node_modules`
       // 时也从那里找（同样的 id 在网关那边也是同一个包）。
       const dir = [path.join(profileDir, 'node_modules', id), path.join(profilesRoot, 'node_modules', id)].find((candidate) =>
@@ -245,6 +251,7 @@ export function collectProfilePluginFaces(profilesRoot) {
         problems.push(`${id}（${file} 里找不到导出的 inject 服务表）`)
         continue
       }
+      seen.add(id)
       faces.push(face)
     }
   }
