@@ -327,7 +327,11 @@ async function fetchFilteredGatewayCombo(
   let unidentified = 0
   const idPattern = legacyIds ? SEGMENT_ID_RE_LEGACY : SEGMENT_ID_RE
   for (const app of appBatches) {
-    const comboRes = await fetch(`${gateway}${app.url}`, { headers })
+    // 批的 URL 按**相对**方式解析，不能字符串拼 `gateway + url`（#232）：官方给的是
+    // 路径而不是绝对地址，且写法随版本变——0.1.6-alpha.2 是 `/plugins/??…`（带前导斜杠，
+    // 拼接恰好成立），0.1.7-alpha.2 起是 `plugins/??…`（不带前导斜杠），拼接会得到
+    // `http://127.0.0.1:61091plugins/??…` 这种解析不了的地址，整页的整包全废。
+    const comboRes = await fetch(new URL(app.url, gateway).toString(), { headers })
     if (!comboRes.ok) throw new Error(`local UI proxy: official combo HTTP ${comboRes.status}`)
     const text = await comboRes.text()
     for (const { segment, id } of splitComboSegments(text, idPattern)) {
