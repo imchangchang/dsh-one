@@ -209,6 +209,11 @@ function candidateReleaseCutoff(resolved, timesCache) {
 /**
  * 期望版本表这一层的构造：同族包钉候选那一版（彼此同版本），同期上游包钉候选发布窗口内
  * 最新的一版。发布时刻表按包名缓存，同一次运行里不重复查。
+ *
+ * 返回 `undefined` 表示**这个包在候选的发布窗口里还没有任何版本**——那是比候选更新的批次
+ * 才引入的包（实测：`@deepseek-ai/libreoffice-kit` 的首个版本比 0.1.6-alpha.1 晚 2.7 小时
+ * 发布，只出现在「按最新解析」的那棵树上），候选那一版根本依赖不到它，所以**不钉**：
+ * 它要是真被装进了树（说明有谁依赖它），校验那一关会把它当「没钉到的上游包」拦下来。
  */
 function makeTargetsBuilder(resolved) {
   const timesCache = new Map()
@@ -218,20 +223,23 @@ function makeTargetsBuilder(resolved) {
     if (cutoff === undefined) cutoff = candidateReleaseCutoff(resolved, timesCache)
     const times = timesCache.get(name) ?? packageTimes(name)
     timesCache.set(name, times)
-    const picked = pickAsOfVersion(times, cutoff)
-    if (picked === undefined) {
-      throw new Error(`查不到 ${name} 在 ${cutoff} 之前发布过哪一版（候选 ${resolved} 的依赖里却有它），装不下去。`)
-    }
-    return picked
+    return pickAsOfVersion(times, cutoff)
   }
 }
 
-/** `--from` 那一路：拿一份已有的树算期望版本表（树里没有候选本体时给不出期望，返回空表）。 */
+/**
+ * `--from` 那一路：拿一份已有的树算期望版本表（树里没有候选本体时给不出期望，返回空表）。
+ * 窗口里没有版本的包名照 {@link makeTargetsBuilder} 的口径跳过——树里真有它的话，
+ * 校验会把它当「没钉到的上游包」拦下来。
+ */
 async function targetsForExistingTree(packages, resolved) {
   const targets = {}
   if (resolved === undefined) return targets
   const expectedFor = makeTargetsBuilder(resolved)
-  for (const name of [...new Set(packages.map((each) => each.name))].sort()) targets[name] = expectedFor(name)
+  for (const name of [...new Set(packages.map((each) => each.name))].sort()) {
+    const expected = expectedFor(name)
+    if (expected !== undefined) targets[name] = expected
+  }
   return targets
 }
 
@@ -255,7 +263,15 @@ async function installPinnedCandidate(dir, spec) {
   }
   const expectedFor = makeTargetsBuilder(resolved)
   const targets = {}
-  for (const name of vendorNamesFromLock(lock)) targets[name] = expectedFor(name)
+  const outOfWindow = new Set()
+  const addTargets = (names) => {
+    for (const name of names) {
+      const expected = expectedFor(name)
+      if (expected === undefined) outOfWindow.add(name)
+      else targets[name] = expected
+    }
+  }
+  addTargets(vendorNamesFromLock(lock))
   const siblingCount = Object.keys(targets).filter((name) => !isFamilyName(name)).length
   process.stderr.write(
     `[lab-version] 候选版本 = ${resolved}；钉住 ${String(Object.keys(targets).length)} 个上游包（其中同期上游包 ${String(siblingCount)} 个按候选发布窗口取版本）后真装…\n`,
@@ -266,12 +282,14 @@ async function installPinnedCandidate(dir, spec) {
     fs.rmSync(path.join(dir, 'package-lock.json'), { force: true })
     runNpm(['install', '--no-audit', '--no-fund', '--loglevel=error'], dir)
     const installed = await readInstalledPackages(dir)
-    const missing = [...new Set(installed.map((each) => each.name).filter((name) => targets[name] === undefined))]
-    if (missing.length === 0) return { resolved, targets }
-    process.stderr.write(
-      `[lab-version] 这一轮又出现 ${String(missing.length)} 个上游包，一并钉住后重装：${missing.join('、')}\n`,
+    const fresh = [...new Set(installed.map((each) => each.name))].filter(
+      (name) => targets[name] === undefined && !outOfWindow.has(name),
     )
-    for (const name of missing) targets[name] = expectedFor(name)
+    if (fresh.length === 0) return { resolved, targets, outOfWindow: [...outOfWindow] }
+    process.stderr.write(
+      `[lab-version] 这一轮又出现 ${String(fresh.length)} 个上游包，一并钉住后重装：${fresh.join('、')}\n`,
+    )
+    addTargets(fresh)
   }
   throw new Error('上游包清单连着四轮都在变（每一轮装完都多出没钉到的包），这棵树的形状不对劲，停下来。')
 }
@@ -312,11 +330,15 @@ try {
   let packages = await readInstalledPackages(installDir)
   let targets = {}
   if (options.from === undefined) {
-    targets = (await installPinnedCandidate(tmp, version)).targets
+    const installed = await installPinnedCandidate(tmp, version)
+    targets = installed.targets
     packages = await readInstalledPackages(installDir)
+    for (const name of installed.outOfWindow) {
+      process.stderr.write(`[lab-version] ${name} 在候选的发布窗口里还没有版本，不钉（候选那一版依赖不到它）。\n`)
+    }
   } else {
-    const installed = packages.find((each) => each.name === NPM_PKG)?.version
-    targets = await targetsForExistingTree(packages, installed)
+    const installedCandidate = packages.find((each) => each.name === NPM_PKG)?.version
+    targets = await targetsForExistingTree(packages, installedCandidate)
   }
   const verdict = checkVendorVersions(packages, targets)
   for (const line of versionReportLines(verdict, { targets })) process.stderr.write(`${line}\n`)
