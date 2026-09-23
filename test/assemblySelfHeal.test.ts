@@ -9,16 +9,20 @@
  *   不浪费那一次重载——官方 `parseBootManifest` 会拒绝空批与「不属于任何批的条目」；
  * - **本页清单三处一起摘**（entries / 批 entries / 批的 combo URL），其中 URL 那一段在
  *   实验室的现场里没法真的走到（合成 id 不进 URL，进了镜像就整包 404）；
- * - **只认审计文本里的 id**：文本不是那个形状时一个字节都不动。
+ * - **只认审计文本里的 id**：文本不是那个形状时一个字节都不动；
+ * - **一次点名太多就不摘**（#237 的规模阈值）：那类现场在真页面上要造出几十条
+ *   合成条目才像，这里直接给一段 49 条的审计文本；
+ * - **记录用完要清**（#237）：`#root` 渲染出子节点、而审计没报 → 记录删掉；审计报了
+ *   → 记录留着（这一轮还在需要那次摘除）。
  *
  * 跑法：把 `selfHealJs()` 的产物丢进 `node:vm` 的上下文里（页面里它是内联 `<script>`，
- * 全局就是它的作用域），外面给 `sessionStorage` / `console` / `document` / `location`
- * 一套替身，然后看它写了什么、调没调 reload。
+ * 全局就是它的作用域），外面给 `sessionStorage` / `console` / `document` / `location` /
+ * `MutationObserver` 一套替身，然后看它写了什么、删了什么、调没调 reload。
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as vm from 'node:vm'
-import { SELF_HEAL_MARK, SELF_HEAL_STORAGE_KEY, selfHealJs } from '../src/ui/assembly/selfHeal.ts'
+import { SELF_HEAL_MARK, SELF_HEAL_MAX_IDS, SELF_HEAL_STORAGE_KEY, selfHealJs } from '../src/ui/assembly/selfHeal.ts'
 import { PAGE_FAILURE_API } from '../src/ui/assembly/failureNotice.ts'
 
 /** 审计原文的形状（与 `verify:lab` 的 F-01 同一条口径：`web boot: N entry … did not activate`）。 */
@@ -70,6 +74,13 @@ interface RunResult {
   wire: { entries: { id: string }[]; batches: { phase: string; url: string; entries: string[] }[] } | undefined
   notices: string[]
   noticeShown: number
+  /**
+   * 让页面上「渲染出东西」那一拍发生（`#root` 有了子节点），并把假定时器往前推
+   * `ticks` 拍（`watchForBoot` 的判据 = 内容连续在 `BOOT_QUIET_TICKS` 拍里都在、审计没报）。
+   */
+  renderRoot: (ticks?: number) => void
+  /** 这一轮排过多少次定时器（判「没记录的那一轮不排」用）。 */
+  timers: () => number
 }
 
 function run(options: RunOptions = {}): RunResult {
@@ -81,6 +92,17 @@ function run(options: RunOptions = {}): RunResult {
   let noticeShown = 0
   let reloads = 0
   let mark: string | null = null
+  const repeats: { callback: () => void; disconnected: boolean }[] = []
+  let timerCount = 0
+  const rootChildren: unknown[] = []
+  const root = { childNodes: rootChildren }
+  /** 推 `count` 拍假定时器（每拍把当拍排下的回调都跑掉，回调里再排的下一拍接着跑）。 */
+  const advance = (count: number): void => {
+    for (let i = 0; i < count; i++) {
+      const queue = repeats.splice(0)
+      for (const entry of queue) entry.callback()
+    }
+  }
   const sandbox: Record<string, unknown> = {
     __DSH_BOOT__: options.wire === undefined ? bootWire() : options.wire,
     console: {
@@ -93,8 +115,21 @@ function run(options: RunOptions = {}): RunResult {
         if (options.storageBroken === true) throw new Error('storage unavailable')
         storage[key] = value
       },
+      removeItem: (key: string) => {
+        delete storage[key]
+      },
     },
-    document: { documentElement: { setAttribute: (name: string, value: string) => { if (name === SELF_HEAL_MARK) mark = value } } },
+    document: {
+      documentElement: { setAttribute: (name: string, value: string) => { if (name === SELF_HEAL_MARK) mark = value } },
+      getElementById: (id: string) => (id === 'root' ? root : null),
+    },
+    // 页面里 `watchForBoot` 靠定时器一拍一拍地看 `#root`（沙箱里由测试自己推拍子）：
+    // 第一次调用进队列，测试 `advance()` 时执行它、并把回调里再排的下一拍也接住。
+    setTimeout: (callback: () => void) => {
+      timerCount += 1
+      repeats.push({ callback, disconnected: false })
+      return repeats.length
+    },
     location: { reload: () => { reloads += 1 } },
     window: { addEventListener: () => undefined },
   }
@@ -120,6 +155,11 @@ function run(options: RunOptions = {}): RunResult {
     wire: sandbox.__DSH_BOOT__ as RunResult['wire'],
     notices,
     noticeShown,
+    renderRoot: (ticks = 5) => {
+      rootChildren.push({ tag: 'div' })
+      advance(ticks)
+    },
+    timers: () => timerCount,
   }
 }
 
@@ -176,10 +216,12 @@ test('重载之后（记录已在）：本页清单三处一起摘掉，不再�
 test('重载之后再失败：不再摘、不再重载，落到失败提示条', () => {
   const first = run({ emit: [audit([PENDING])] })
   const stored = first.storage[SELF_HEAL_STORAGE_KEY] ?? ''
-  const result = run({ stored, emit: [audit([IMPORT_FAILED])] })
+  // 第二轮点名的那条**就是**记录里摘掉的那条（= 那次摘除仍然对得上眼前的失败）：
+  // 记录要原样留着。「点名的是别人」那一档（#237：记录被清）在下面单独测。
+  const result = run({ stored, emit: [audit([PENDING])] })
   assert.equal(result.reloads, 0, '只试一次：第二次不再重载')
   assert.deepEqual(record(result)?.removed, ['@deepseek-ai/dsh-client-ui-plan'], '记录一个字节不改（没有第二次摘）')
-  assert.deepEqual(result.storage[SELF_HEAL_STORAGE_KEY], stored, 'sessionStorage 里那份记录原样')
+  assert.equal(result.storage[SELF_HEAL_STORAGE_KEY], stored, 'sessionStorage 里那份记录原样')
   assert.equal(result.noticeShown, 1, '落到失败提示条')
   assert.match(result.notices[0] ?? '', /did not activate/, '提示条拿到的是官方那段审计原文')
   assert.match(
@@ -261,4 +303,75 @@ test('多条审计条目：点名的都摘（只认文本里点出来的那些�
   const result = run({ emit: [audit([PENDING, IMPORT_FAILED])] })
   assert.equal(result.reloads, 1)
   assert.deepEqual(record(result)?.removed, ['@deepseek-ai/dsh-client-ui-plan', '@deepseek-ai/dsh-client-lab-drift'])
+})
+
+test('一次点名太多（#237 的规模阈值）：一条都不摘，落到失败提示条', () => {
+  // 现场是「整批没到、几十条一起报」：把 49 条点名的审计文本原样喂进去。
+  const many = Array.from({ length: 49 }, (_, i) => `@deepseek-ai/dsh-client-lab-drift-${String(i)}: import failed (see console for the import error)`)
+  const result = run({ emit: [audit(many)] })
+  assert.equal(result.reloads, 0, '系统性故障不重载（摘了也救不回来）')
+  assert.equal(record(result), null, '一条都不摘，也就没有记录')
+  assert.ok(
+    result.warns.some((line) => line.includes('a systematic failure rather than one broken entry')),
+    `留痕：写明为什么不摘（${result.warns.join(' | ').slice(0, 200)}）`,
+  )
+  assert.match(result.warns[0] ?? '', /did not activate/, '日志里带「因为什么」（官方审计原文）')
+  assert.equal(result.noticeShown, 1, '落到失败提示条')
+  assert.match(result.notices[0] ?? '', /^force:/, '显式交过去时带 force')
+  assert.deepEqual(ids(result.wire?.batches[1]?.entries), ['@deepseek-ai/dsh-client-ui-plan', '@deepseek-ai/dsh-client-lab-drift', '@dsh-one/vscode-sidebar-ui-layout'], '本页清单一个字节没动')
+  assert.equal(result.mark, null, '没摘过就留不下「摘过谁」的痕迹')
+})
+
+test(`一次点名恰好 ${SELF_HEAL_MAX_IDS} 条（阈值之内）：照常摘、照常重载`, () => {
+  // 与上面那条配对：判据是**规模**，阈值之内仍走 #228 的补救。
+  const rows = Array.from({ length: SELF_HEAL_MAX_IDS }, () => PENDING)
+  const result = run({ emit: [audit(rows)] })
+  assert.equal(result.reloads, 1)
+  assert.equal(record(result)?.removed?.length, SELF_HEAL_MAX_IDS)
+})
+
+test('记录用完要清（#237 之一）：这一页渲染出内容、审计静了一个窗口 → 记录删掉', () => {
+  const first = run({ emit: [audit([PENDING])] })
+  const stored = first.storage[SELF_HEAL_STORAGE_KEY] ?? ''
+  const result = run({ stored })
+  assert.notEqual(result.storage[SELF_HEAL_STORAGE_KEY], undefined, '起步时记录还在（这一轮还靠它摘）')
+  // 内容连续在 4 拍里都在、期间审计没报 → 认定这一页起来了。
+  result.renderRoot()
+  assert.equal(result.storage[SELF_HEAL_STORAGE_KEY], undefined, '真的起来了 → 记录清掉（根因消失后不再摘）')
+  assert.ok(
+    result.warns.some((line) => line.includes('the retry record is cleared') && line.includes('stayed quiet')),
+    `留痕：写明为什么清（${result.warns.join(' | ').slice(0, 240)}）`,
+  )
+})
+
+test('记录用完要清（#237 之二）：审计点名的那几条都不是我们摘掉的 → 记录删掉（那次摘除不是解药）', () => {
+  const first = run({ emit: [audit([PENDING])] })
+  const stored = first.storage[SELF_HEAL_STORAGE_KEY] ?? ''
+  const result = run({ stored, emit: [audit([IMPORT_FAILED])] })
+  assert.equal(result.storage[SELF_HEAL_STORAGE_KEY], undefined, '点名的是别人 → 那次摘除不解决问题，不再沿用')
+  assert.ok(
+    result.warns.some((line) => line.includes('named none of the entries this page dropped')),
+    `留痕：写明为什么清（${result.warns.join(' | ').slice(0, 240)}）`,
+  )
+  assert.ok(
+    result.warns.some((line) => line.includes('failed again after the single retry')),
+    '「不再摘」那行照旧在（只试一次这条不变）',
+  )
+  assert.equal(result.noticeShown, 1, '照旧落到失败提示条')
+})
+
+test('记录不清的一档：这一页没起来、审计点名的就是我们摘掉的那条 → 记录留着', () => {
+  const first = run({ emit: [audit([PENDING])] })
+  const stored = first.storage[SELF_HEAL_STORAGE_KEY] ?? ''
+  const result = run({ stored, emit: [audit([PENDING])] })
+  assert.equal(result.storage[SELF_HEAL_STORAGE_KEY], stored, '点名还是那一条 → 那次摘除仍有意义，记录保留')
+  assert.ok(!result.warns.some((line) => line.includes('the retry record is cleared')), '没有任何「记录被清」的行')
+})
+
+test('带记录的这一轮才装定时器；没记录的那一轮一个定时器都不排', () => {
+  const withoutRecord = run({ emit: [audit([PENDING])] })
+  assert.equal(withoutRecord.timers(), 0, '没有记录：不装（无谓的轮询一条都不要）')
+  const first = run({ emit: [audit([PENDING])] })
+  const withRecord = run({ stored: first.storage[SELF_HEAL_STORAGE_KEY] ?? '' })
+  assert.equal(withRecord.timers(), 1, '带记录：第一拍排下一次检查')
 })
