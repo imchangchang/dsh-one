@@ -7,7 +7,7 @@ import { sanitize, type Logger } from '../log.ts'
 import { startAssemblyMirror, type AssemblyMirror } from '../server/assemblyMirror.ts'
 import { localBundleRev } from '../server/localBundleRev.ts'
 import { cookieHeader, dshVersion } from '../server/serverAuth.ts'
-import { parse as parseSemver, compare as compareSemver } from '../pure/semver.ts'
+import { inPrereqRange, installCommand, prereqRangeLabel } from '../pure/versionGate.ts'
 import { assemblyPageHtml } from './assembly/pageHtml.ts'
 import { defaultHostBridgeDeps, subscribeHostCalls, type HostBridgeDeps } from './assembly/hostBridge.ts'
 import { createGatewayWorkspaceRoots } from './assembly/hostWorkspaceRoots.ts'
@@ -57,7 +57,8 @@ import { openInstallGuide } from './installGuide.ts'
  * 过滤（application 批重指 mirror /plugins-local，mirror 拉官方原 combo 剥
  * blocked 段后伺服），追加该树自有 frame 插件，内联进装配页。
  *
- * 版本门：网关 dsh 版本不在 [0.1.2-rc.1, 0.2.0) 时页面顶部加信息条，不阻断。
+ * 版本门：网关 dsh 版本不在 [0.1.6-alpha.1, 0.2.0) 时页面顶部加信息条（带一条能装出
+ * 受支持版本的安装命令），不阻断。
  *
  * 面板恢复（#169）：chat 面板注册了 WebviewPanelSerializer（view type 见
  * pure/chatPanelState.ts），窗口重载 / 扩展宿主重启后由它把标签页装回原来的
@@ -114,10 +115,6 @@ interface GatewayAssembly {
   assets: GatewayAssets
 }
 
-/** 版本门区间（低于下限缺 browser-session 认证/装载协议，高于上限行为无保证）。 */
-const PREREQ_MIN = '0.1.2-rc.1'
-const PREREQ_MAX = '0.2.0'
-
 /**
  * 自有插件产物目录（`dist/assembly/plugins`，构建期落盘）：mirror 读本地 bundle 的
  * 就是它，`localBundleRev` 也按它算本地产物的内容版本。
@@ -161,15 +158,14 @@ async function loadGatewayAssembly(
 
 /** 版本门：区间内/无法取得版本来源时返回信息条文本（undefined = 放行不显示）。 */
 function versionBanner(version: string | undefined): string | undefined {
-  const inRange = (v: string): boolean => {
-    const parsed = parseSemver(v)
-    return parsed !== null && compareSemver(v, PREREQ_MIN) >= 0 && compareSemver(v, PREREQ_MAX) < 0
-  }
-  if (version !== undefined && inRange(version)) return undefined
-  const range = `${PREREQ_MIN} ≤ version < ${PREREQ_MAX}`
+  if (version !== undefined && inPrereqRange(version)) return undefined
+  // 信息条不只说「期望区间」——没告诉用户该装哪一版时，用户看到区间也不知道下一步做
+  // 什么（#234）。所以两条文案都带一条能装出受支持版本的命令。
+  const range = prereqRangeLabel()
+  const install = installCommand()
   return version === undefined
-    ? vscode.l10n.t('The dsh version is unknown; this chat UI expects {0}.', range)
-    : vscode.l10n.t('The connected dsh is {0}, which may not match this chat UI (expects {1}).', version, range)
+    ? vscode.l10n.t('The dsh version is unknown; this chat UI was verified against {0}. Install a verified dsh with: {1}', range, install)
+    : vscode.l10n.t('The connected dsh is {0}, outside the range this chat UI was verified against ({1}). Install a verified dsh with: {2}', version, range, install)
 }
 
 /** 跟随 VS Code 当前主题（装配页起来后由官方 ThemePresenter 接管）。 */

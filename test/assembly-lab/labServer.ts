@@ -37,12 +37,8 @@ import { registerVersion } from '../../src/server/serverAuth.ts'
 import { defaultOwnedPath, readOwnedRecord } from '../../src/server/ownedRecord.ts'
 import { bootstrapUrlOf, extractBootWire, extractFrontendAssets, filterWire, WORKSPACE_TREE_PLUGIN_ID, type BootWire } from '../../src/ui/assembly/wireFilter.ts'
 import { ASSEMBLY_TREES, CHAT_TREE, SETTINGS_TREE, SIDEBAR_TREE, localPluginIdsOf, type AssemblyTree } from '../../src/ui/assembly/trees.ts'
-import { compare as compareSemver, parse as parseSemver } from '../../src/pure/semver.ts'
+import { inPrereqRange, installCommand, prereqRangeLabel } from '../../src/pure/versionGate.ts'
 import type { LogSink } from '../../src/log.ts'
-
-/** 版本门区间（与 ui/assemblyView.ts 同一口径：区间内不显示信息条）。 */
-const PREREQ_MIN = '0.1.2-rc.1'
-const PREREQ_MAX = '0.2.0'
 
 /** 页面查询参数名：`?retryThrottle=off` = 这一页的传输层不装重试限流与失败日志限频（#229 的负向对照用）。 */
 export const RETRY_THROTTLE_QUERY = 'retryThrottle'
@@ -222,14 +218,6 @@ export function defaultPluginsDir(): string {
   return path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'dist', 'assembly', 'plugins')
 }
 
-/** 该版本是否落在版本门区间内（与 ui/assemblyView.ts 的判定同口径）。 */
-function inPrereqRange(version: string | undefined): boolean {
-  if (version === undefined) return false
-  return (
-    parseSemver(version) !== null && compareSemver(version, PREREQ_MIN) >= 0 && compareSemver(version, PREREQ_MAX) < 0
-  )
-}
-
 /**
  * 取网关 launch token：显式给的优先，否则读 `~/.dsh/dsh-owned.json` 里该端口那份
  * （扩展 spawn/adopt 的实例都记在这里）。取不到返回 undefined，由调用方决定报错
@@ -332,13 +320,13 @@ export async function startLabServer(options: LabServerOptions): Promise<LabServ
       bootWire: drifted,
       bootstrapUrl: bootstrapUrlOf(drifted),
       theme,
-      // 版本门与生产同口径：只有网关版本落在区间外才显示信息条（实验室不做
-      // 本地化，文案与 ui/assemblyView.ts 的英文档一致）。
+      // 版本门与生产同口径：区间取值与判定都从 src/pure/versionGate.ts 来（两处共用一个
+      // 事实源，常量改了不会一边动一边不动）。实验室不做本地化，文案是英文档。
       banner: inPrereqRange(dshVersion)
         ? undefined
         : dshVersion === undefined
-          ? `The dsh version is unknown; this chat assembly expects ${PREREQ_MIN} <= version < ${PREREQ_MAX}.`
-          : `The connected dsh is ${dshVersion}, which may not match this chat assembly (expects ${PREREQ_MIN} <= version < ${PREREQ_MAX}).`,
+          ? `The dsh version is unknown; this chat assembly was verified against ${prereqRangeLabel()}. Install a verified dsh with: ${installCommand()}`
+          : `The connected dsh is ${dshVersion}, outside the range this chat assembly was verified against (${prereqRangeLabel()}). Install a verified dsh with: ${installCommand()}`,
       ...(sessionId === null || sessionId === '' ? {} : { bootSessionId: sessionId }),
       // `?selfHeal=off` = 这一页不装启动自愈（#228 的负向对照）；其余一切值照常装。
       ...(query.get(SELF_HEAL_QUERY) === SELF_HEAL_OFF ? { selfHeal: false } : {}),
