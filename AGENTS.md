@@ -117,6 +117,8 @@ CHANGELOG 写法见 skill **`changelog-conventions`**（正本在 `.agents/skill
 ## 提交与 CI
 
 - **提交标题不许带 `[skip ci]`**（发布、合并、功能提交一律不许）：它只属于上游监控那种纯回写提交（`scripts/dsh-upstream-watch/watch.mjs` 的徽章回写）。带上它，那次 push 的 CI 会被**整个静默跳过**——2026-09-22 发布 v2.0.3 的合并提交标题照抄了它，那个 commit 的 CI run 数是 0（`gh api …/actions/runs?head_sha=46a3fcded3a4…`），看着像「CI 没跑」而不是「CI 失败」。
+- **判断范围是「这次推送里的每一条提交标题」，不只是最上面那条**：2026-09-23 又踩了一次——为写这条规矩而提交的那条标题里把这几个字写了进去，于是同批推送（含两个功能合并）的 CI 一起被跳过。**写这条规矩、或写任何提到它的文档时，提交标题里要把标记拆开写**（例如写成「skip-ci 标记」不加方括号），否则自己把自己跳掉。
+- 排查「CI 好像没跑」时先查这个：`gh api "repos/<owner>/<repo>/actions/runs?head_sha=<完整 40 位 sha>"` 的 `total_count` 是 0（而不是失败），基本就是被跳过了。
 - CI 的三平台矩阵（ubuntu / macos / windows）**推送到任何分支都跑**，开发分支可以推到 origin 拿平台读数。装 dsh 那一步的版本钉在 `.github/workflows/ci.yml` 的 `env.DSH_SMOKE_VERSION`，**别改回 `@next` 或浮动范围**（上游整批没发全时它们会 `notarget`）。细节见 `docs/development.md` 的「CI（GitHub Actions）」。
 
 ## backlog 维护
