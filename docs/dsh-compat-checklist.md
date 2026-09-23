@@ -94,12 +94,28 @@ dsh-one 是 dsh 的客户端（gateway HTTP/WS RPC + webview 嵌入），上游�
 ```bash
 npm run verify:lab-version 0.1.6-alpha.2                  # 缺省跑 F-01 CONTRACT
 npm run verify:lab-version next --suite F-01,F-10,F-11    # 也可以点套件
+npm run verify:lab-version 0.1.2-rc.1 --suite all         # all = 整轮（全部套件）
 ```
 
-脚本（`scripts/verify-lab-version.mjs`）只做两件事：`npm install --prefix <临时目录>
-@deepseek-ai/dsh@<版本>`（**不动本机已装的 dsh**），再把那个目录的 `.bin` 放到 `PATH` 前面跑
-`npm run verify:lab`（实验室按默认跑法起自己的隔离实例：独立 `DSH_HOME`、随机端口、跑完按
-PID 收）。退出码就是实验室的：0 = 四棵树零崩溃、零装载未激活、预期槽位有内容。
+脚本（`scripts/verify-lab-version.mjs`）做三件事，**不动本机已装的 dsh**：
+
+1. 把候选装到临时目录，并**按确切版本钉住整棵同族依赖树**（#231）：先
+   `npm install --package-lock-only` 解析一次（只取元数据、不下载），从锁文件里拿到整棵树的
+   同族包名与解析出来的确切版本，再把同族子包（`@deepseek-ai/dsh-*`）按那个确切版本写进
+   `overrides` 真装。不钉的话会被 npm 混装——`dsh` 自己的依赖写的是 `^0.1.6-alpha.1` 这种
+   范围，alpha.2 一发版，子包就被装成 alpha.2 而 `dsh` 还是 alpha.1，那种树上 `dsh web`
+   起不来（`SyntaxError: … '@deepseek-ai/dsh-app-boot' does not provide an export named
+   'watchUserPatches'`），套件却照跑照出读数——那读数既不代表候选版也不代表现网。
+2. 装完读一遍树里的版本清单，**同族包必须同版本**；不一致就打印是哪几个包、什么版本、
+   期望哪一版，然后**报错停下、不跑套件**（宁可红，不要假绿）。
+3. 把那个目录的 `.bin` 放到 `PATH` 前面跑 `npm run verify:lab`（实验室按默认跑法起自己的
+   隔离实例：独立 `DSH_HOME`、随机端口、跑完按 PID 收）。退出码就是实验室的：0 = 四棵树
+   零崩溃、零装载未激活、预期槽位有内容。
+
+另外两个口子：`--from <目录>` 跳过安装、直接核一份已有的装的树（负向对照用：喂一棵混装的
+树进去，它必须在第 2 步停下）；`--check-only` 只核版本、不跑套件。网关起不来时那份完整输出
+会留在 `<系统临时目录>/dsh-lab-gateway-<端口>.log`，报错里给出路径（#231：原来只留 8 KB
+尾巴，真正的异常常被前面那串启动日志挤出窗口）。
 
 ### 这样抓到的（0.1.6-alpha.2，2026-09-18）
 

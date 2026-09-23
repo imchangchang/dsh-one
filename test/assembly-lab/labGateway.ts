@@ -36,6 +36,7 @@ import * as path from 'node:path'
 import { scratchDir } from '../scratchDirs.ts'
 import { exchangeToken } from '../../src/server/assemblyMirror.ts'
 import type { LogSink } from '../../src/log.ts'
+import { appendGatewayOutput, defaultFailureLogPath, gatewayFailureDetail, writeGatewayOutput } from './gatewayLog.ts'
 import { startLabLlm, type MockLlm } from './labLlm.ts'
 import { seedLabInstance, type LabSeed } from './seed.ts'
 
@@ -232,11 +233,17 @@ export async function startLabGateway(log: LogSink, options: StartLabGatewayOpti
   }
   let llm: MockLlm | undefined
   let child: ChildProcess | undefined
-  let log1 = ''
+  let output = ''
+  // 收尾时主动杀掉网关不算「半路退出」：那条路上不吐诊断，免得每轮正常收尾都倒一大段日志。
+  let stopping = false
+  // 失败时那份完整输出落在哪：给了 `logPath` 就指它（那边全程在写），否则用它自己的兜底文件。
+  const failureLogPath = options.logPath ?? defaultFailureLogPath(requested)
   // 调试日志（`logPath`，见 StartLabGatewayOptions）：全程留一份，缺省不给就不留。
   const debugLog = options.logPath === undefined ? undefined : fsp.open(options.logPath, 'a').catch(() => undefined)
   const onData = (chunk: Buffer): void => {
-    log1 = (log1 + chunk.toString('utf8')).slice(-8_000)
+    // 窗口是 #231 放大的：原来只留 8 KB，而「网关一起来就崩」这种现场里真正的异常恰好被
+    // 前面那一长串启动日志挤出了窗口（见 gatewayLog.ts 的文件头）。
+    output = appendGatewayOutput(output, chunk.toString('utf8'))
     if (debugLog !== undefined) {
       void debugLog.then((handle) => {
         if (handle !== undefined) void handle.write(chunk).catch(() => undefined)
@@ -244,6 +251,7 @@ export async function startLabGateway(log: LogSink, options: StartLabGatewayOpti
     }
   }
   const dispose = async (): Promise<void> => {
+    stopping = true
     if (debugLog !== undefined) {
       const handle = await debugLog.catch(() => undefined)
       await handle?.close().catch(() => undefined)
@@ -270,22 +278,25 @@ export async function startLabGateway(log: LogSink, options: StartLabGatewayOpti
     child.once('exit', (code, signal) => {
       exited = true
       // 跑到一半这个网关自己没了的话，整轮剩下的套件都会红成「连不上网关」——那不是判据
-      // 的问题，而是环境没了。把退出码、信号与它最后几行输出如实打出来，别让人对着
-      // 一屏 ECONNREFUSED 猜（第 4 轮实测踩到过一次）。
-      const tail = log1.trim().split('\n').slice(-6).join(' | ')
-      log.warn(
-        `隔离实例网关退出了（code=${String(code ?? 'null')} signal=${String(signal ?? 'null')}）：${tail === '' ? '没有输出' : tail}`,
-      )
+      // 的问题，而是环境没了。把退出码、信号与**真正的异常**如实打出来，别让人对着
+      // 一屏 ECONNREFUSED 猜（第 4 轮实测踩到过一次；「真正的异常被尾巴截掉」是 #231）。
+      const where = `code=${String(code ?? 'null')} signal=${String(signal ?? 'null')}`
+      if (stopping) {
+        log.warn(`隔离实例网关已收掉（${where}）。`)
+        return
+      }
+      if (options.logPath === undefined) writeGatewayOutput(output, failureLogPath)
+      log.warn(`隔离实例网关退出了（${where}）。${gatewayFailureDetail(output, { logPath: failureLogPath })}`)
     })
     while (Date.now() < deadline) {
       if (exited) break
-      token = /token=([A-Za-z0-9_-]+)/.exec(log1)?.[1]
-      if (token !== undefined && log1.includes('dsh web:')) break
+      token = /token=([A-Za-z0-9_-]+)/.exec(output)?.[1]
+      if (token !== undefined && output.includes('dsh web:')) break
       await new Promise((resolve) => setTimeout(resolve, 250))
     }
     if (token === undefined) {
-      const tail = log1.trim().split('\n').slice(-5).join(' | ')
-      throw new Error(`隔离实例网关没起来（${String(requested)}）：${tail === '' ? '没有输出' : tail}`)
+      if (options.logPath === undefined) writeGatewayOutput(output, failureLogPath)
+      throw new Error(`隔离实例网关没起来（${String(requested)}）。${gatewayFailureDetail(output, { logPath: failureLogPath })}`)
     }
     const gateway = `http://127.0.0.1:${String(requested)}`
     const port = requested
