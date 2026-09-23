@@ -26,7 +26,7 @@
  * 的假失败」。三棵树的 block list 同理（#227）：直接从 `src/ui/assembly/wireFilter.ts`
  * import，探针里不复制一份。
  */
-import { checkClientContract } from './clientContract.mjs'
+import { batchesToScan, checkClientContract } from './clientContract.mjs'
 import { checkBlockListDrift } from './blockListDrift.mjs'
 import { checkOfficialIdentifiers, resolveRealpath } from './officialIdentifiers.mjs'
 import { commandsExecuteArgs } from '../../src/pure/dshWire.ts'
@@ -514,11 +514,21 @@ async function probeBootSurface(baseUrl, cookie) {
  * 客户端契约面四项（#79）：取网关 `/` 的 `__DSH_BOOT__` → application 批 combo →
  * 交给 clientContract.mjs 查 slot / root hook / 字段名。combo 是官方发给浏览器的
  * 原样产物（不经我们的 mirror/过滤），所以它反映的是**上游契约本身**。
+ *
+ * **全部 application 批都要查，不能只看第一批**（#232）。官方按 combo URL 的长度上限
+ * 把 application 阶段切成若干批，切几批随上游版本变：0.1.6-alpha.2 是一批，
+ * 0.1.7-alpha.2 起是两批（第二批装 `dsh-api-workspace-controller` /
+ * `dsh-api-session-controller` / `dsh-client-ui-directory-picker-native`）。名字落在
+ * 哪一批都在契约内，只看第一批会把第二批里的名字误报成「上游删了」——#232 那条
+ * `byId` 假红就是这么来的（`byId` 一直在第二批的 session-controller 段里，18 处）。
+ * 我们的 mirror 与 `wireFilter` 从 #165 起就是按全部批求并集过滤的，这里跟它们对齐。
+ *
  * 取不到 combo 时四项全 fail（不能因为取不到就让这一面显示为「没问题」）。
  */
 async function probeClientContract(baseUrl, cookie, version) {
   let comboText = null
   let failure = null
+  let sourceNote = null
   try {
     const res = await fetch(`${baseUrl}/`, { headers: cookie ? { cookie } : {} })
     if (!res.ok) throw new Error(`GET /: HTTP ${res.status}`)
@@ -526,17 +536,28 @@ async function probeClientContract(baseUrl, cookie, version) {
     const m = /globalThis\["__DSH_BOOT__"\] = (\{[\s\S]*?\})<\/script>/.exec(html)
     if (m === null) throw new Error('gateway HTML has no __DSH_BOOT__ injection')
     const wire = JSON.parse(m[1])
-    const batch = (wire.batches ?? []).find((b) => b.phase === 'application') ?? (wire.batches ?? []).at(-1)
-    if (batch === undefined) throw new Error('__DSH_BOOT__ has no batch to fetch')
-    const comboRes = await fetch(new URL(batch.url, baseUrl), { headers: cookie ? { cookie } : {} })
-    if (!comboRes.ok) throw new Error(`GET combo (${batch.phase}): HTTP ${comboRes.status}`)
-    comboText = await comboRes.text()
+    const all = Array.isArray(wire.batches) ? wire.batches : []
+    const picked = batchesToScan(all)
+    if (picked.length === 0) throw new Error('__DSH_BOOT__ has no batch to fetch')
+    const parts = []
+    for (const batch of picked) {
+      const comboRes = await fetch(new URL(batch.url, baseUrl), { headers: cookie ? { cookie } : {} })
+      if (!comboRes.ok) throw new Error(`GET combo (${batch.phase}): HTTP ${comboRes.status}`)
+      parts.push(await comboRes.text())
+    }
+    comboText = parts.join('')
+    // 诊断注：把「这一段 combo 是怎么拼出来的」带进报告——批数随上游版本变（#232），
+    // 下次再有人只看一批时报红，这一行能当场说明名字是不是落在没扫的批里。
+    const split = all
+      .map((b) => `${String(b.phase ?? '?')}（${String(Array.isArray(b.entries) ? b.entries.length : '?')} 条条目）`)
+      .join(' + ')
+    sourceNote = `扫了 ${String(picked.length)} 个 application 批、${String(Math.round(comboText.length / 1024))} KB；清单的批次构成 = ${split}`
   } catch (e) {
     failure = String(e?.message ?? e)
   }
 
   if (comboText === null) return checkClientContract({ comboText: null, version, unavailableReason: failure })
-  return checkClientContract({ comboText, version })
+  return checkClientContract({ comboText, version, sourceNote })
 }
 
 /** WS 三项：建连 + session/follow snapshot + session/control baseline。 */

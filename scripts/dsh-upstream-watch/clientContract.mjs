@@ -471,12 +471,34 @@ const ROW = {
 }
 
 /**
+ * `__DSH_BOOT__.batches` 里**该扫哪些批**（#232）：全部 application 批。官方按 combo
+ * URL 的长度上限把 application 阶段切成若干批，切几批随上游版本变——0.1.6-alpha.2 是
+ * 一批，0.1.7-alpha.2 起是两批（第二批装 `dsh-api-workspace-controller` /
+ * `dsh-api-session-controller` / `dsh-client-ui-directory-picker-native`）。三类断言
+ * 查的名字落在哪一批都在契约内，扫第一批会把第二批的名字误报成「上游删了」：`byId`
+ * 的那次假红就是这么来的。
+ *
+ * 一个 application 批都没有时退回**最后一个批**——那是「批的 phase 名换了」这类上游
+ * 改动的兜底：至少把「取到了东西」变成读数，而不是四条一起报取不到。
+ */
+export function batchesToScan(batches) {
+  const all = Array.isArray(batches) ? batches : []
+  const application = all.filter((b) => b.phase === 'application')
+  return application.length > 0 ? application : all.slice(-1)
+}
+
+/**
  * 跑客户端契约面四类断言，返回 probe.mjs 的结果行
  * [{ id, name, status: 'pass'|'fail', detail }]。纯函数：不做网络与文件 IO。
  * `comboText` 为空 = combo 没取到（`unavailableReason` 记原因）：四行全 fail——
  * 取不到就不能让这一面显示成「没问题」。
+ *
+ * `sourceNote` 是可选的一段诊断注（这段 combo 是从几个 application 批拼出来的、
+ * 清单的批次构成是什么），由 probe.mjs 传进来、附在 `client-combo-index` 那一行上。
+ * 有它是因为批数随上游版本变（#232 起第二批装 session-controller），只看一批会把
+ * 第二批的名字误报成缺失；把批次构成印在报告里，下次一眼能看出是不是这个原因。
  */
-export function checkClientContract({ comboText, version, unavailableReason }) {
+export function checkClientContract({ comboText, version, unavailableReason, sourceNote }) {
   if (typeof comboText !== 'string' || comboText === '') {
     const detail = `combo 取不到（${unavailableReason ?? 'unknown'}）——客户端契约面未核实`
     return Object.values(ROW).map((row) => ({ ...row, status: 'fail', detail }))
@@ -487,6 +509,7 @@ export function checkClientContract({ comboText, version, unavailableReason }) {
   const catalog = extractSlotCatalog(comboText)
   const mentions = extractSlotMentions(comboText, segments)
   const versionLabel = version ?? 'unknown'
+  const source = typeof sourceNote === 'string' && sourceNote !== '' ? `；${sourceNote}` : ''
 
   // 1. 提取前提：combo 结构与官方契约目录都在（不在 = 本类断言取法失效，需人工核对）
   {
@@ -495,9 +518,9 @@ export function checkClientContract({ comboText, version, unavailableReason }) {
     results.push({
       ...ROW.index,
       status: ok ? 'pass' : 'fail',
-      detail: ok
+      detail: (ok
         ? `dsh ${versionLabel}：${segments.length} 个插件段（id 全可读）、契约目录 ${catalog.size} 条 slot`
-        : `dsh ${versionLabel}：段 ${segments.length}（可读 id ${segmentIds.length}）、契约目录 ${catalog.size} 条（阈值 ${MIN_SEGMENTS}/${MIN_CATALOG_ENTRIES}）——官方改了 combo 结构或契约目录取法失配，按 scripts/dsh-upstream-watch/clientContract.mjs 的提取注释核对`,
+        : `dsh ${versionLabel}：段 ${segments.length}（可读 id ${segmentIds.length}）、契约目录 ${catalog.size} 条（阈值 ${MIN_SEGMENTS}/${MIN_CATALOG_ENTRIES}）——官方改了 combo 结构或契约目录取法失配，按 scripts/dsh-upstream-watch/clientContract.mjs 的提取注释核对`) + source,
     })
   }
 

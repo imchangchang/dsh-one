@@ -67,7 +67,8 @@ interface ClientContractModule {
   extractSlotMentions(text: string, segments: unknown): Map<string, { count: number; kinds: Set<string>; plugins: Set<string> }>
   extractRootHooks(text: string, segments: unknown): { hook: string; channel: string; plugin: string | null }[]
   observeCombo(opts: { comboText: string }): { segments: number; catalogSlots: string[]; rootHooks: string[] }
-  checkClientContract(opts: { comboText: string | null; version?: string; unavailableReason?: string }): CheckRow[]
+  checkClientContract(opts: { comboText: string | null; version?: string; unavailableReason?: string; sourceNote?: string }): CheckRow[]
+  batchesToScan(batches: unknown): { phase?: string; url?: string; entries?: string[] }[]
 }
 
 // 说明符走 file:// URL（Windows 绝对路径不能直接喂给 ESM loader，见 test/esmImportSpecifiers.test.ts）。
@@ -332,4 +333,31 @@ test('combo 结构变了（段数/契约目录骤减）时先响 meta 行，而�
   assert.equal(row.status, 'fail')
   assert.ok(row.detail.includes('契约目录 0 条') || row.detail.includes('段 1'), row.detail)
   assert.ok(row.detail.includes('clientContract.mjs'), `要指到取法所在文件：${row.detail}`)
+})
+
+test('要扫的批 = 全部 application 批（#232：0.1.7-alpha.2 起是两批）', () => {
+  const batches = [
+    { phase: 'bootstrap', url: '/plugins/??a', entries: ['a'] },
+    { phase: 'application', url: '/plugins/??b', entries: ['b'] },
+    { phase: 'application', url: '/plugins/??c', entries: ['c'] },
+  ]
+  assert.deepEqual(contract.batchesToScan(batches).map((b) => b.url), ['/plugins/??b', '/plugins/??c'])
+})
+
+test('一个 application 批都没有时退回最后一个批（phase 名换了也还有读数）', () => {
+  const batches = [{ phase: 'bootstrap', url: '/plugins/??a' }, { phase: 'chunked', url: '/plugins/??b' }]
+  assert.deepEqual(contract.batchesToScan(batches).map((b) => b.url), ['/plugins/??b'])
+  assert.deepEqual(contract.batchesToScan([]), [])
+  assert.deepEqual(contract.batchesToScan(undefined), [])
+})
+
+test('sourceNote 附在 client-combo-index 那一行上（报告里看得出扫了几个批）', () => {
+  const withNote = rowOf(contract.checkClientContract({
+    comboText: buildCombo(),
+    version: '0.1.7-alpha.2',
+    sourceNote: '扫了 2 个 application 批、5000 KB',
+  }), 'client-combo-index')
+  assert.ok(withNote.detail.includes('扫了 2 个 application 批'), withNote.detail)
+  const without = rowOf(contract.checkClientContract({ comboText: buildCombo(), version: '0.1.7-alpha.2' }), 'client-combo-index')
+  assert.ok(!without.detail.includes('扫了'), without.detail)
 })
