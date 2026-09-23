@@ -377,8 +377,20 @@ test('取数：第三方产物的服务表写法（模板字面量 id、`n.injec
 test('取数：从 profile 的层列表读第三方包；不是 profile 的层静默跳过，层列表点名却装不上就报红', () => {
   const { dir } = writeFixture()
   writeProfileThirdParty(dir, { needs: ['slots'] })
-  // 同一棵 profile 树里的另一条：没有清单（不是 profile 目录）→ 跳过，不算问题。
+  // 同一棵 profile 树里的另外两条：没有清单的目录、有清单但没写 dsh.profile.bundles 的目录
+  // ——都跳过，不算问题、也不算「读过这份 profile」。
   fs.mkdirSync(path.join(dir, 'profiles', 'not-a-profile'), { recursive: true })
+  fs.mkdirSync(path.join(dir, 'profiles', 'no-bundles'), { recursive: true })
+  fs.writeFileSync(path.join(dir, 'profiles', 'no-bundles', 'package.json'), JSON.stringify({ name: 'dsh-profile-no-bundles' }))
+  // 层列表里再有件没有 `dsh.client` 的包（宿主半插件，没有浏览器半）：跳过，不进服务面。
+  const installed = JSON.parse(fs.readFileSync(path.join(dir, 'profiles', 'web', 'package.json'), 'utf8'))
+  installed.dsh.profile.bundles.push('@dsh-external/dsh-lab-host-only')
+  fs.writeFileSync(path.join(dir, 'profiles', 'web', 'package.json'), JSON.stringify(installed))
+  fs.mkdirSync(path.join(dir, 'profiles', 'web', 'node_modules', '@dsh-external', 'dsh-lab-host-only'), { recursive: true })
+  fs.writeFileSync(
+    path.join(dir, 'profiles', 'web', 'node_modules', '@dsh-external', 'dsh-lab-host-only', 'package.json'),
+    JSON.stringify({ name: '@dsh-external/dsh-lab-host-only', version: '0.0.1', main: 'lib/index.js' }),
+  )
   const read = mod.collectProfilePluginFaces(path.join(dir, 'profiles'))
   assert.deepEqual(read.problems, [])
   assert.deepEqual(read.profiles, ['web'])
@@ -389,16 +401,58 @@ test('取数：从 profile 的层列表读第三方包；不是 profile 的层�
   // 形状对得上时能推出 profile 根；读的是安装树（`<anc>/node_modules/@deepseek-ai`）时推不出来。
   assert.equal(mod.profilesRootOf(path.join(dir, 'profiles', 'node_modules', '@deepseek-ai')), path.join(dir, 'profiles'))
   assert.equal(mod.profilesRootOf(path.join(dir, 'install', 'node_modules', '@deepseek-ai')), null)
+  // 连 profile 目录都读不到（目录不存在）→ 报红，不静默当成「没有第三方插件」。
+  const unreadable = mod.collectProfilePluginFaces(path.join(dir, 'profiles-nope'))
+  assert.equal(unreadable.faces.length, 0)
+  assert.equal(unreadable.problems.length, 1)
+  assert.match(unreadable.problems[0], /读不到 profile 目录/)
 
-  // 取不到就报红：层列表里点了名、两个 node_modules 下都没有这个包。
+  // 取不到就报红：层列表里点了名、两个 node_modules 下都没有这个包（这一轮有两件）。
   fs.rmSync(path.join(dir, 'profiles', 'web', 'node_modules'), { recursive: true })
   const missing = mod.collectProfilePluginFaces(path.join(dir, 'profiles'))
   assert.equal(missing.faces.length, 0)
-  assert.equal(missing.problems.length, 1)
-  assert.match(missing.problems[0], /层列表里有它，但两个 node_modules 下都没有/)
+  assert.equal(missing.problems.length, 2)
+  assert.match(missing.problems.join('；'), new RegExp(`${THIRD_PARTY}.*层列表里有它`))
+  assert.match(missing.problems.join('；'), /dsh-lab-host-only.*层列表里有它/)
   const row = CHECK(path.join(dir, 'profiles', 'node_modules', '@deepseek-ai'), [CONVERSATION, PLAN, CHAT])
   assert.equal(row.status, 'fail')
   assert.match(row.detail, /层列表里有它，但两个 node_modules 下都没有/)
+})
+
+test('取数：同一个包装在两层 profile 里只算一次；清单坏 / 客户端半读不到 / inject 表解析不出都报红', () => {
+  const { dir } = writeFixture()
+  const profilesRoot = path.join(dir, 'profiles')
+  const client = path.join(profilesRoot, 'web', 'node_modules', THIRD_PARTY, 'lib', 'client.js')
+  const manifest = path.join(profilesRoot, 'web', 'node_modules', THIRD_PARTY, 'package.json')
+  writeProfileThirdParty(dir, { needs: ['slots'], profile: 'plan-test' })
+  writeProfileThirdParty(dir, { needs: ['sessions'] })
+
+  // 同一个 id 装在两层里：只算一次，脸取先读到的那一层（`plan-test` 排在 `web` 前）。
+  const deduped = mod.collectProfilePluginFaces(profilesRoot)
+  assert.deepEqual(deduped.problems, [])
+  assert.deepEqual(deduped.profiles, ['plan-test', 'web'])
+  assert.deepEqual(deduped.faces.map((f) => f.needs), [['slots']])
+
+  // 下面三档只看 `web` 那一份（`plan-test` 那份先撤掉，否则它会把同一个 id 顶上来）。
+  fs.rmSync(path.join(profilesRoot, 'plan-test'), { recursive: true })
+
+  // 客户端半读不到（清单在、文件不在）→ 报红并点名文件。
+  fs.rmSync(client)
+  const noClient = mod.collectProfilePluginFaces(profilesRoot)
+  assert.equal(noClient.faces.length, 0)
+  assert.match(noClient.problems.join('；'), /读不到 lib\/client\.js/)
+
+  // inject 表解析不出（文件在、没有服务表）→ 报红，不许静默算成「它什么都不需要」。
+  fs.writeFileSync(client, 'export const apply = () => {}')
+  const noTable = mod.collectProfilePluginFaces(profilesRoot)
+  assert.equal(noTable.faces.length, 0)
+  assert.match(noTable.problems.join('；'), /lib\/client\.js 里找不到导出的 inject 服务表/)
+
+  // 清单坏（目录在、JSON 读不出）→ 报红并点名它。
+  fs.writeFileSync(client, 'n.inject=[`slots`];')
+  fs.writeFileSync(manifest, '{ 这不是 JSON')
+  const badManifest = mod.collectProfilePluginFaces(profilesRoot)
+  assert.match(badManifest.problems.join('；'), /读不到它的 package\.json/)
 })
 
 test('正向：第三方插件等得到服务时默认保留——不算少挡、不算放不下，读数里写出读了几件', () => {
