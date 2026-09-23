@@ -89,6 +89,13 @@ export interface AssemblyPageOptions {
    * 0.1.6-alpha.2 起页面会采纳宿主经那条流下发的全量 roster，不带过滤就会把页面
    * 洗成未过滤的官方插件集（#191 的整页白）。顺序有含义：第一个必须是 frame 插件 id
    * ——mirror 按它取该树的 block list。
+   *
+   * 改道时页面还会带上**本页 boot 那份清单的 `id → rev`**（`revs` 查询参数，#230，
+   * 见 `wireFilter.ts` 的 `alignRosterRevs`）：mirror 拿它把推来的 roster 里每条的
+   * `rev` 对齐回这一页 boot 时的值。网关重启过一次之后，官方推来的每条 rev 都是新的
+   * 每进程随机值，不对齐就会被客户端读成「整份名册都变了」（每一条先拆后建 → 会话 scope
+   * 的对接件被撤销 → 官方渲染器抛装配错 → 整页白）——那份基线只有页面自己有，所以由
+   * 页面编进请求（`transportJs` 里现读 `globalThis.__DSH_BOOT__`，不打进 HTML）。
    */
   localPluginIds: readonly string[]
   /**
@@ -115,6 +122,7 @@ import { assemblyProbeJs } from './probe.ts'
 import { failureNoticeJs } from './failureNotice.ts'
 import { selfHealJs } from './selfHeal.ts'
 import { hostSdkJs } from './hostSdk.ts'
+import { ROSTER_REVS_PARAM } from './wireFilter.ts'
 import { FAILURE_LOG_WINDOW_MS, failureLogJs } from '../../pure/logThrottle.ts'
 
 function escapeHtml(text: string): string {
@@ -190,6 +198,16 @@ const QUEUE_FACADE_JS = `(() => {
  * Models 提供方目录降级「settings are unavailable in this browser」、
  * Open configuration file 缺席。声明后三树等价官方 loopback 形态（#70）。
  *
+ * **名册事件流改道与版本对齐（#191 / #230）**：官方客户端会开一条 SSE
+ * （`/plugins/events`）并在 0.1.6-alpha.2 起**采纳**每一帧 `type: "graph"` 里的完整
+ * roster。这条流在这里被改道到镜像的过滤版（`/plugins-local/events`，否则我们 block 掉
+ * 的官方插件会被装回来、自有插件被卸掉，整页白——#191），同时把**本页 boot 那份清单的
+ * `id → rev`**（`revs` 参数）一并带上：镜像拿它把推来的 roster 里每条的 `rev` 对齐回这一页
+ * boot 时的值，网关重启（rev 是每进程随机值、重启即全变）就不会再被读成「整份名册都变了」
+ * （先拆后建 → 会话 scope 的对接件被撤销 → 官方渲染器抛装配错 → **整页白**，#230）。
+ * 基线现读 `globalThis.__DSH_BOOT__`（不打进 HTML），理由与细节见
+ * `wireFilter.ts` 的 `alignRosterRevs`。
+ *
  * **失败退避与失败日志限频（#229）**：网关不可达时，官方客户端会对同一目标**无退避**
  * 地重试（现场实测 ≈280 次/秒、40 秒里 2 MB 日志翻转两轮）。查清的调用方是官方
  * `dsh-client-ui-commands` 那一处（`CommandDirectory` → `ctx.remote.commands.list`），
@@ -242,9 +260,34 @@ export function transportJs(mirrorOrigin: string, localPluginIds: readonly strin
   // mirror's filtered twin — otherwise the blocked official plugins come back and our own
   // entries are dropped. The path is absolute, so it resolves against the base href (mirror).
   const LOCAL_PLUGIN_IDS = ${JSON.stringify(localPluginIds)}
+  const ROSTER_REVS_PARAM = ${JSON.stringify(ROSTER_REVS_PARAM)}
   const EVENTS_URL = LOCAL_PLUGIN_IDS.length === 0
     ? null
     : "/plugins-local/events?ids=" + LOCAL_PLUGIN_IDS.map(encodeURIComponent).join(",")
+  // Roster revisions this page booted with (#230, see wireFilter's alignRosterRevs): the mirror
+  // rewrites every pushed graph frame's per-entry "rev" to these values, so a gateway restart -
+  // where every revision is a fresh per-process value - stops reading as "every entry changed"
+  // (the client would tear all entries down and the page would end up blank). Read lazily from
+  // the manifest this page actually booted with, which is the only authority on those values.
+  // Ids and revisions are ASCII from [A-Za-z0-9@/._-] only, and neither "/" nor "@" needs
+  // escaping in a query string, so the pairs go in raw - percent-encoding them would triple the
+  // length for nothing (no "&", "=", "#", "+" or "," ever appears inside one).
+  const rosterRevs = () => {
+    try {
+      const wire = globalThis.__DSH_BOOT__
+      const entries = wire !== null && typeof wire === "object" ? wire.entries : null
+      if (!Array.isArray(entries)) return ""
+      const pairs = []
+      for (const entry of entries) {
+        if (entry !== null && typeof entry === "object" && typeof entry.id === "string" && typeof entry.rev === "string") {
+          pairs.push(entry.id + ":" + entry.rev)
+        }
+      }
+      return pairs.length === 0 ? "" : "&" + ROSTER_REVS_PARAM + "=" + pairs.join(",")
+    } catch (ignored) {
+      return ""
+    }
+  }
   const NativeEventSource = globalThis.EventSource
   if (EVENTS_URL !== null && typeof NativeEventSource === "function") {
     globalThis.EventSource = new Proxy(NativeEventSource, {
@@ -253,7 +296,7 @@ export function transportJs(mirrorOrigin: string, localPluginIds: readonly strin
         if (typeof first === "string" || first instanceof URL) {
           try {
             if (new URL(String(first), document.baseURI).pathname === "/plugins/events") {
-              return Reflect.construct(target, [EVENTS_URL, args[1]], newTarget)
+              return Reflect.construct(target, [EVENTS_URL + rosterRevs(), args[1]], newTarget)
             }
           } catch (ignored) {}
         }

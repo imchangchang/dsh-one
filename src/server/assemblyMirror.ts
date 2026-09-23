@@ -8,12 +8,15 @@ import { cookieHeader } from './serverAuth.ts'
 import { localBundleRev } from './localBundleRev.ts'
 import { createFailureLog } from '../pure/logThrottle.ts'
 import {
+  alignRosterRevs,
   blockedIdsOf,
   extractBootWire,
   filterWire,
+  parseRosterRevs,
   projectGraphFrame,
   CHAT_BLOCK_LIST,
   CHAT_FRAME_PLUGIN_ID,
+  ROSTER_REVS_PARAM,
   type BlockedPlugin,
   type BootWire,
 } from '../ui/assembly/wireFilter.ts'
@@ -367,6 +370,14 @@ async function serveCombo(
  * 的自有插件 id（投影要把它们补回 roster）。为什么不从 mirror 自己那份树表里取追加
  * id：实验室的「官方浏览区对照档」与 sidebar 树**共用同一个 frame 插件 id**（只差装不装
  * 自有工作区树插件），按 framePluginId 查会张冠李戴。
+ *
+ * `revs` 也由页面给（#230）：这一页 boot 那份清单的 `id → rev`。投影因此是两步——
+ * 先按该树 block list 过一遍（`filterWire`），再把每条的 `rev` 对齐到这份基线
+ * （`alignRosterRevs`）。网关一重启，官方推来的 roster 里每条的 rev 都是新的每进程随机值，
+ * 不对齐就会被客户端读成「每一条都变了」（先拆后建 → 会话 scope 的对接件被撤销 → 官方
+ * 渲染器抛装配错 → 整页白）。基线为什么由页面带、为什么不放在 mirror 里头取一份：见
+ * `wireFilter.ts` 的 `alignRosterRevs` 与 `ROSTER_REVS_PARAM`。缺这条参数 = 只过滤、
+ * 不对齐，与它出现之前的行为逐字相同（alpha.1 上这条流本来就是空转）。
  */
 async function serveGraphEvents(
   req: IncomingMessage,
@@ -424,8 +435,15 @@ async function serveGraphEvents(
   }
   // 投影用的本地那半版本与页面 boot 时那份一致（同一个 pluginsDir，同一个函数）。
   const localRev = await localBundleRev(pluginsDir)
-  const project = (graph: BootWire): BootWire =>
-    filterWire(graph, treeBlockList, ids[0] ?? '', ids.slice(1), localRev, (line) => logger.warn(line))
+  // 这一页 boot 那一刻那份清单的 `id → rev`（#230）：页面把它编在 `revs` 查询参数里带过来
+  // （见 wireFilter 的 ROSTER_REVS_PARAM 与 pageHtml 的 transportJs）。**基线必须跟着连接
+  // 走、不能由 mirror 自己取一份**：同一台 mirror 上重启前后各开一个页面，两页的基线不同。
+  // 没带 / 解析不出来（老页面、别的调用方）= 只过滤、不对齐，与这条参数出现之前逐字相同。
+  const baseline = parseRosterRevs(url.searchParams.get(ROSTER_REVS_PARAM) ?? '')
+  const project = (graph: BootWire): BootWire => {
+    const filtered = filterWire(graph, treeBlockList, ids[0] ?? '', ids.slice(1), localRev, (line) => logger.warn(line))
+    return baseline.size === 0 ? filtered : alignRosterRevs(filtered, baseline)
+  }
   res.writeHead(200, {
     'content-type': 'text/event-stream; charset=utf-8',
     'cache-control': 'no-cache',

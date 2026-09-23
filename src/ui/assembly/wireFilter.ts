@@ -469,6 +469,78 @@ export function projectGraphFrame(frame: string, project: (graph: BootWire) => B
   return `${frame.slice(0, first)}data: ${projected}\n\n`
 }
 
+/**
+ * 事件流请求里带**这一页 boot 基线**的查询参数名（#230）：值是本页清单的 `id:rev` 对，
+ * 逗号分隔（`?ids=…&revs=<id>:<rev>,<id>:<rev>`）。编码端在 `pageHtml.ts` 的 `transportJs`
+ * （页面把自己的 `__DSH_BOOT__` 编进去），解码端是下面的 {@link parseRosterRevs}。
+ *
+ * 为什么两端不共用一份实现：编码端只能活在页面内联脚本里（它读的 `globalThis.__DSH_BOOT__`
+ * 在宿主的 node 侧不存在），所以共享的是**格式**（就这一行），实现各写一份。
+ */
+export const ROSTER_REVS_PARAM = 'revs'
+
+/**
+ * 解析 {@link ROSTER_REVS_PARAM}（形状不对的段跳过）。
+ *
+ * 宽容的理由：这个参数的唯一用途是「对齐」，解析不出来时退化成不对齐（= 改前的行为），
+ * 而不是让页面连事件流都开不出来。长度上限只是护栏（node 自己的请求头上限是 64KB 量级，
+ * 正常一份清单 ≈ 4KB）。
+ */
+export function parseRosterRevs(raw: string): Map<string, string> {
+  const revs = new Map<string, string>()
+  if (raw === '' || raw.length > MAX_ROSTER_REVS_CHARS) return revs
+  for (const pair of raw.split(',')) {
+    const split = pair.indexOf(':')
+    if (split <= 0) continue
+    const id = pair.slice(0, split)
+    const rev = pair.slice(split + 1)
+    if (rev === '') continue
+    revs.set(id, rev)
+  }
+  return revs
+}
+
+/** `revs` 参数的长度上限（见 {@link parseRosterRevs}）。 */
+const MAX_ROSTER_REVS_CHARS = 64 * 1024
+
+/**
+ * 名册版本对齐（#230）：把投影出来的 roster 里**每条的 `rev`** 换成这一页 boot 时那份
+ * 清单里的值——**名册没变，就不该告诉页面「条目变了」**。
+ *
+ * 为什么必须对齐：条目的 `rev` 是**每进程随机**的（`dsh-client-modules/lib/index.js` 的
+ * `randomBytes(8)` 与 `allocateInitialRevision()`），所以网关一重启，官方经事件流推来的
+ * 那份 roster 里**每一条**的 rev 都是新值。0.1.6-alpha.2 起客户端采纳这份 roster
+ * （`ctx.modules.entries.sync` → `reconcile`：`revisions.get(id) !== row.rev` 就
+ * `replace()`，先拆后建），于是每一条官方插件都被拆掉重建——`dsh-client-ui-session` 的
+ * `installScope("session", …)` 随之被撤销，官方渲染器抛
+ * `scope 'session-maybe' rendered without an installed adapter`（`SlotAssemblyError`），
+ * 而官方 `SlotErrorBoundary` **故意不兜**装配错 → React root 卸载 → 整页白。
+ *
+ * 这个 rev 本来就不携带内容信息（同一进程内复启动一次就换一批值），对齐它不丢任何信息：
+ * 页面的那份清单是它自己 boot 时读的，而内容真的变了（网关重启后插件增删）时** id 集合**
+ * 会跟着变，那时本函数原样放行、不插手。
+ *
+ * 只对齐 `rev`：客户端判「这一条变了没有」只读这个字段（`revisions.get(row.id) !== row.rev`，
+ * 以及 `entryTargets()` 里的 `[id, rev, inject, external]`）。`url`、批表与顶层 `rev` 保持
+ * 投影后的原样——`url` 只是取字节的模板（`atRevision()` 会用条目自己的 rev 重写它的 rev
+ * 查询段），留着当前那份才是重启后唯一还能取到字节的地址。
+ *
+ * @param projected - 已按该树 block list 过滤过的 roster（`filterWire` 的产物）。
+ * @param baseline - 这一页 boot 那刻的 `id → rev`（见 {@link parseRosterRevs}）。
+ * @returns id 集合相同 = 对齐后的 roster；集合不同 = 原样返回 `projected`。
+ */
+export function alignRosterRevs(projected: BootWire, baseline: ReadonlyMap<string, string>): BootWire {
+  if (baseline.size === 0 || projected.entries.length !== baseline.size) return projected
+  const entries: BootWireEntry[] = []
+  for (const entry of projected.entries) {
+    const rev = baseline.get(entry.id)
+    // 集合不同（网关真的增删了插件）：页面该听到这个变化，一个字都不改。
+    if (rev === undefined) return projected
+    entries.push({ ...entry, rev })
+  }
+  return { ...projected, entries }
+}
+
 /** 从网关 `/` 注入 HTML 提取 __DSH_BOOT__ JSON（官方把 `<` 转义成 \u003c，JSON.parse 直接还原)。 */
 export function extractBootWire(html: string): BootWire {
   const m = /globalThis\["__DSH_BOOT__"\] = (\{[\s\S]*?\})<\/script>/.exec(html)
