@@ -16,6 +16,13 @@
  *   `sidebar.workspaces.session.menu.item` / `...row.action`）——而 `sidebar.workspaces`
  *   被自有树遮蔽（shadow）。于是取消归档两截都断，自有树在**树底**补一节「已归档」
  *   （数据面是官方工作区快照的归档 id 集合，动作走官方 `uiWorkspace.unarchiveSession`）。
+ * - **0.1.5 及以前：官方**根本没有**取消归档这件事**（2026-09-23 实测 0.1.5-rc.2：
+ *   `@deepseek-ai/dsh-client-ui-settings-unarchive-sessions` 一件都没有、会话菜单那两个槽名
+ *   不存在，服务端 `@deepseek-ai/dsh-api-workspace-controller` 只有 `archiveSession`、**没有**
+ *   `unarchiveSession`）——那一代归档是**单向门**，官方的设置页与官方 web 都没有退路。
+ *   自有树也**不给**入口：这一节的渲染前提是官方服务上有 `unarchiveSession` 这个动作
+ *   （`workspaceTreePlugin.ts` 的 `unarchivePort()`），没有动作时给入口就是一枚死按钮。
+ *   这一档因此只判**负向不变量**（不渲染空壳、不翻出归档会话、零报错），端到端那一档不跑。
  *
  * 套件分两段：
  *
@@ -86,6 +93,15 @@ const OFFICIAL_SESSION_MENU_SLOT = 'sidebar.workspaces.session.menu.item'
  * 它不在我们那份词典里（那是官方插件自己的命名空间），所以这里逐字引用而不是走 `texts()`。
  */
 const OFFICIAL_UNARCHIVE_SECTION_LABELS = ['已归档会话', 'Archived sessions'] as const
+
+/**
+ * 官方设置页那一节的**插件 id**（`@deepseek-ai/dsh-client-ui-settings-unarchive-sessions`）。
+ * 用它判「这一代官方产物里有没有自己的取消归档入口」——**不按版本号猜**：这一件在
+ * 0.1.6-alpha.2 的官方清单里、在 0.1.5-rc.2 的清单里一件都没有（2026-09-23 实测两棵候选树）。
+ * 与设置页那一节的**页面读数**（{@link OFFICIAL_UNARCHIVE_SECTION_LABELS}）互补：页面读数
+ * 说明「这一节此刻渲染出来没有」，清单读数说明「这一代官方**有没有**这一节」。
+ */
+const OFFICIAL_SETTINGS_UNARCHIVE_ID = '@deepseek-ai/dsh-client-ui-settings-unarchive-sessions'
 
 /**
  * **0.1.7-alpha.2 上「整棵侧栏树渲染不出来」的签名**——只有命中其中一条才允许记事实跳过；
@@ -230,7 +246,7 @@ export const ARCHIVED_RESTORE_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '归档之后的还原入口：树底「已归档」一节与官方设置页那一节的关系（#239）',
   expect:
-    '实验室自起的隔离实例 + 假宿主 + 真装配页（归档与取消归档**真的写这台实例**——还原入口可用的唯一可信证据就是会话真的回到列表里；用户那台实例全程只被只读探测）。① **这一代真实的形状**（不装夹具的那一页）：归档之后那条会话在树里**没有任何会话行**（它从列表里消失）；树根上那一格观测值（`data-dshone-tree-unarchive-entry`）说 `settings` ⟺ 设置页导航行里真有官方那一节（节名取自官方词典 `nav`：「已归档会话」/「Archived sessions」）、且树底那一节一个节点都不渲染、这条 id 在整页一个节点都没有（官方入口还在设置页里，自有树不该多出第二个入口）；说 `inline` ⟺ 设置页上**已经没有**官方那一节、而树底那一节在场。② **端到端的还原**（这一代是 `inline` 时直接跑；否则由夹具就地声明那条会话菜单槽位、把 0.1.7 那一代的形状造出来再跑，理由与自守见本文件文件头）：树底那一节恰好一节、列着刚归档的那一条、这条 id 整页只出现一次且就落在这一节里（= 官方那套会话行菜单在 dsh-one 的侧栏里一条都不渲染，「翻不出它」的可执行版本）；那一行上的「取消归档」常显、可点、几何非零、读屏标签带着这条会话的标题（文案取自插件词典，两种页面语言都认）；点它之后这一条从那一节消失、**回到它所属工作区的会话行上**，并飘一条「已取消归档 {标题}」的回执。③ 全程零 pageerror、零槽位崩溃、零装载未激活；**从不点归档确认弹窗**（归档这一步经官方 RPC 直接做，弹窗那一路由 F-15 / F-16 / F-17 判）。本机 0.1.7-alpha.2 上侧栏树整棵渲染不出来（`Minified React error #130` 已随 #236 修掉；剩下的是同一版上另一条未修的启动期问题 `renderSlot(\'root\') before any \'root\' registration`，四棵树含官方对照页都有），那一版上本套件只记一条带签名的事实（见 `BLOCKED_017_SIGNATURES`），端到端由第 ② 段夹具承载。',
+    '实验室自起的隔离实例 + 假宿主 + 真装配页（归档与取消归档**真的写这台实例**——还原入口可用的唯一可信证据就是会话真的回到列表里；用户那台实例全程只被只读探测）。① **这一代真实的形状**（不装夹具的那一页）：归档之后那条会话在树里**没有任何会话行**（它从列表里消失）；树根上那一格观测值（`data-dshone-tree-unarchive-entry`）说 `settings` ⟺ 设置页导航行里真有官方那一节（节名取自官方词典 `nav`：「已归档会话」/「Archived sessions」）、且树底那一节一个节点都不渲染、这条 id 在整页一个节点都没有（官方入口还在设置页里，自有树不该多出第二个入口）；说 `inline` ⟺ 设置页上**已经没有**官方那一节、而树底那一节在场；说 `none` 时分两种，**拿官方清单里有没有 `@deepseek-ai/dsh-client-ui-settings-unarchive-sessions` 这一件当判据、不按版本号猜**——清单里也没有（0.1.5 线实测：那一代官方产物里根本没有取消归档这件事，服务端连 `unarchiveSession` 都没有，归档是单向门），那就判**负向不变量**（不渲染空壳、不翻出归档会话、零报错），端到端那一档在那一代不跑；清单里有、设置页上却没有（现象对不上）当场判红。② **端到端的还原**（这一代是 `inline` 时直接跑；否则由夹具就地声明那条会话菜单槽位、把 0.1.7 那一代的形状造出来再跑，理由与自守见本文件文件头）：树底那一节恰好一节、列着刚归档的那一条、这条 id 整页只出现一次且就落在这一节里（= 官方那套会话行菜单在 dsh-one 的侧栏里一条都不渲染，「翻不出它」的可执行版本）；那一行上的「取消归档」常显、可点、几何非零、读屏标签带着这条会话的标题（文案取自插件词典，两种页面语言都认）；点它之后这一条从那一节消失、**回到它所属工作区的会话行上**，并飘一条「已取消归档 {标题}」的回执。③ 全程零 pageerror、零槽位崩溃、零装载未激活；**从不点归档确认弹窗**（归档这一步经官方 RPC 直接做，弹窗那一路由 F-15 / F-16 / F-17 判）。本机 0.1.7-alpha.2 上侧栏树整棵渲染不出来（`Minified React error #130` 已随 #236 修掉；剩下的是同一版上另一条未修的启动期问题 `renderSlot(\'root\') before any \'root\' registration`，四棵树含官方对照页都有），那一版上本套件只记一条带签名的事实（见 `BLOCKED_017_SIGNATURES`），端到端由第 ② 段夹具承载。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const gateway = ctx.lab.gateway
@@ -330,14 +346,35 @@ export const ARCHIVED_RESTORE_SUITE: LabSuite = {
         officialSection,
       )
 
-      if (reading.entry === 'settings' || reading.entry === 'none') {
-        // 老一代（官方入口在设置页里）或两侧都没有：自有树不该多出第二个入口。
+      // 这一代官方产物里**有没有**自己的取消归档入口：看官方清单里那一件在不在
+      // （`gatewayPluginIds()` 是当天网关下发的官方清单，读它就是读官方自己的产物）。
+      const officialCarrierExists = (await ctx.lab.gatewayPluginIds()).has(OFFICIAL_SETTINGS_UNARCHIVE_ID)
+      // 「这一代官方根本没有取消归档这件事」——两侧入口都没有，而且官方清单里连那件都没有。
+      // 实测 0.1.5-rc.2：`@deepseek-ai/dsh-client-ui-settings-unarchive-sessions` 一件都没有、
+      // 侧栏会话菜单槽名也不存在（0.1.7 才有），连服务端都只有 `archiveSession`、**没有**
+      // `unarchiveSession`（`@deepseek-ai/dsh-api-workspace-controller` 的 `lib/index.js`）——
+      // 那一代归档是**单向门**，不是我们少做了一个入口。
+      const generationHasNoUnarchive = reading.entry === 'none' && !officialCarrierExists
+      check.fact(
+        `这一代官方的取消归档载体：设置页那一件在官方清单里=${String(officialCarrierExists)}、设置页那一节此刻渲染=${String(officialSection)}；` +
+          `观测值=${String(reading.entry)}${generationHasNoUnarchive ? '（这一代官方产物里没有取消归档这一件事：归档是单向门）' : ''}`,
+      )
+
+      if (reading.entry === 'settings' || (reading.entry === 'none' && !generationHasNoUnarchive)) {
+        // 官方入口在设置页里（0.1.6 及以前），或「现象对不上」（这一代明明有那件、页面上却两侧都没有）：
+        // 自有树都不该多出第二个入口。后者会落到下面那条硬断言上判红。
         check.eq('树底那一节一个节点都不渲染（这一代不由我们出这一节）', reading.section, 0)
         check.eq('这一条在整页一个节点都没有（归档的会话不翻出来）', reading.idOccurrences, 0)
         if (reading.entry === 'settings') {
           check.ok('这一代的官方入口确实在设置页那一节里（就是它，上面那条关系已判）', officialSection)
         } else {
-          check.fact('这一代两侧都没有取消归档入口（观测值 none）——页面上确实没有退路，这一格把它记成事实')
+          // 这一代清单里有那一件、设置页上也该有它，却两侧都没有——不是「官方的入口在别处」，
+          // 是判据/渲染出了问题。别放过去。
+          check.ok(
+            '这一代官方清单里有取消归档那一件时，设置页上就该有它（两侧都没有是异常，不是「官方入口在别处」）',
+            officialSection,
+            `官方清单里在=${String(officialCarrierExists)}、设置页那一节在场=${String(officialSection)}、观测值=${String(reading.entry)}`,
+          )
         }
         screenshots.push(await shot(ctx, sidebar.page, 'archived-restore-before-fixture'))
 
@@ -354,60 +391,80 @@ export const ARCHIVED_RESTORE_SUITE: LabSuite = {
         // 这一档的形状是夹具摆的（真 0.1.7 上它本来就是真的），所以只记事实 + 一条
         // 「判据对槽位声明有反应」的断言：声明之后那一节必须出现。
         check.ok('声明那条槽位之后，树底那一节当场出现（判据跟着注册表走，不是写死的版本号）', flipped)
+      } else if (generationHasNoUnarchive) {
+        // **这一代官方根本没有取消归档**（0.1.5 线实测）：判据在那一格是 `none`，而且**必须**
+        // 是 none——我们这节的渲染前提是「官方服务上有 `unarchiveSession` 这个方法」
+        // （`workspaceTreePlugin.ts` 的 `unarchivePort()`），那一代连方法都没有，给入口就是一枚
+        // 死按钮。所以这一档判的是**负向不变量的三条**（不渲染空壳、不翻出归档会话、零报错），
+        // 并把「这一代归档是单向门」记成事实——它是那一代的固有限制，不是我们的缺口。
+        // 端到端那一档（真去取消归档）在那一代**跑不了**：官方没有这个动作可调。
+        check.eq('树底那一节一个节点都不渲染（这一代官方没有取消归档，我们不给死按钮）', reading.section, 0)
+        check.eq('这一条在整页一个节点都没有（归档的会话不翻出来）', reading.idOccurrences, 0)
+        check.eq('这一代官方清单里确实没有「取消归档」那一件（上面那条 none 的前提，实测 0.1.5-rc.2）', officialCarrierExists, false)
+        check.fact(
+          '这一代（0.1.5 线）官方产物里没有取消归档：`@deepseek-ai/dsh-client-ui-settings-unarchive-sessions` 一件都没有、' +
+            '侧栏会话菜单槽名（0.1.7 才有）也不存在，服务端只有 `archiveSession`、没有 `unarchiveSession`——' +
+            '那一代归档之后在界面上没有退路（官方的设置页、官方 web 都一样）；本套件的端到端那一档在这一代不跑（没有动作可调）',
+        )
+        screenshots.push(await shot(ctx, sidebar.page, 'archived-restore-before-fixture'))
+        check.fact('这一档到此为止：端到端（真取消归档）在 0.1.5 线跑不了，树底那一节的机制由 0.1.6 上那一档夹具承载')
       }
 
       // -------------------------------------------------------------------
-      // 端到端的还原（这一代是 inline 时直接跑；老一代走上面那一段夹具）
+      // 端到端的还原（这一代是 inline 时直接跑；老一代走上面那一段夹具；
+      // 「这一代官方根本没有取消归档」那一档不跑——没有动作可调，理由见上面）
       // -------------------------------------------------------------------
-      const inline = await readArchived(sidebar.page, target.sessionId)
-      check.eq('此刻这一页的入口是 inline（树底那一节由我们出）', inline.entry, 'inline')
-      check.eq('树底「已归档」一节在场（恰好一节）', inline.section, 1)
-      check.ok('这一节列着刚归档的那一条', inline.ids.includes(target.sessionId), JSON.stringify(inline.ids))
-      check.ok(
-        '这一条整页只出现一次、且就落在这一节里（官方那套菜单一条都没渲染）',
-        inline.idOccurrences === 1 && inline.idInsideSection === 1,
-        `出现 ${String(inline.idOccurrences)} 次、其中在那一节里 ${String(inline.idInsideSection)} 次`,
-      )
+      if (!generationHasNoUnarchive) {
+        const inline = await readArchived(sidebar.page, target.sessionId)
+        check.eq('此刻这一页的入口是 inline（树底那一节由我们出）', inline.entry, 'inline')
+        check.eq('树底「已归档」一节在场（恰好一节）', inline.section, 1)
+        check.ok('这一节列着刚归档的那一条', inline.ids.includes(target.sessionId), JSON.stringify(inline.ids))
+        check.ok(
+          '这一条整页只出现一次、且就落在这一节里（官方那套菜单一条都没渲染）',
+          inline.idOccurrences === 1 && inline.idInsideSection === 1,
+          `出现 ${String(inline.idOccurrences)} 次、其中在那一节里 ${String(inline.idInsideSection)} 次`,
+        )
 
-      const button = `[data-dshone-tree-row="archived"][data-dshone-tree-session="${target.sessionId}"] [data-dshone-tree-action="unarchive"]`
-      const ui = await sidebar.page.evaluate((sel: string) => {
-        const el = document.querySelector(sel) as HTMLElement | null
-        const box = el?.getBoundingClientRect()
-        return {
-          present: el !== null,
-          text: el?.textContent ?? '',
-          aria: el?.getAttribute('aria-label') ?? '',
-          disabled: (el as HTMLButtonElement | null)?.disabled ?? null,
-          width: box?.width ?? 0,
-          height: box?.height ?? 0,
-        }
-      }, button)
-      check.ok(
-        '那一行上「取消归档」这一枚在场且可点（几何非零、不禁用）',
-        ui.present && ui.width > 0 && ui.height > 0 && ui.disabled === false,
-        JSON.stringify(ui),
-      )
-      check.ok('那一枚的文案取自插件词典（zh / en 任一份）', hasText(ui.text, '取消归档'), JSON.stringify(ui.text))
-      check.ok('那一枚的读屏标签带着这条会话的标题', hasText(ui.aria, `取消归档 ${title}`), JSON.stringify(ui.aria))
-      screenshots.push(await shot(ctx, sidebar.page, 'archived-restore-inline-section'))
+        const button = `[data-dshone-tree-row="archived"][data-dshone-tree-session="${target.sessionId}"] [data-dshone-tree-action="unarchive"]`
+        const ui = await sidebar.page.evaluate((sel: string) => {
+          const el = document.querySelector(sel) as HTMLElement | null
+          const box = el?.getBoundingClientRect()
+          return {
+            present: el !== null,
+            text: el?.textContent ?? '',
+            aria: el?.getAttribute('aria-label') ?? '',
+            disabled: (el as HTMLButtonElement | null)?.disabled ?? null,
+            width: box?.width ?? 0,
+            height: box?.height ?? 0,
+          }
+        }, button)
+        check.ok(
+          '那一行上「取消归档」这一枚在场且可点（几何非零、不禁用）',
+          ui.present && ui.width > 0 && ui.height > 0 && ui.disabled === false,
+          JSON.stringify(ui),
+        )
+        check.ok('那一枚的文案取自插件词典（zh / en 任一份）', hasText(ui.text, '取消归档'), JSON.stringify(ui.text))
+        check.ok('那一枚的读屏标签带着这条会话的标题', hasText(ui.aria, `取消归档 ${title}`), JSON.stringify(ui.aria))
+        screenshots.push(await shot(ctx, sidebar.page, 'archived-restore-inline-section'))
 
-      await sidebar.page.click(button)
-      await sidebar.page.waitForTimeout(1_500)
-      const after = await readArchived(sidebar.page, target.sessionId)
-      const rowBack = await sidebar.page.evaluate(
-        (sel: string) => document.querySelectorAll(sel).length,
-        `[data-dshone-tree-row="session"][data-dshone-tree-session="${target.sessionId}"]`,
-      )
-      const flash = await sidebar.page.evaluate(
-        () => document.querySelector('[data-dshone-tree="flash"]')?.textContent ?? '',
-      )
-      check.fact(
-        `点过「取消归档」之后：这一节=${String(after.section)}（列 ${String(after.count)} 条）；这一条在树里的会话行=${String(rowBack)}、整页出现=${String(after.idOccurrences)} 次；飘提示=${JSON.stringify(flash)}`,
-      )
-      check.eq('这一条从「已归档」一节里消失了', after.ids.includes(target.sessionId), false)
-      check.eq('这一条回到了树里的会话行上（还原真的可用）', rowBack, 1)
-      check.ok('飘了一条「已取消归档」的回执', hasText(flash, `已取消归档 ${title}`), JSON.stringify(flash))
-      screenshots.push(await shot(ctx, sidebar.page, 'archived-restore-after-unarchive'))
+        await sidebar.page.click(button)
+        await sidebar.page.waitForTimeout(1_500)
+        const after = await readArchived(sidebar.page, target.sessionId)
+        const rowBack = await sidebar.page.evaluate(
+          (sel: string) => document.querySelectorAll(sel).length,
+          `[data-dshone-tree-row="session"][data-dshone-tree-session="${target.sessionId}"]`,
+        )
+        const flash = await sidebar.page.evaluate(
+          () => document.querySelector('[data-dshone-tree="flash"]')?.textContent ?? '',
+        )
+        check.fact(
+          `点过「取消归档」之后：这一节=${String(after.section)}（列 ${String(after.count)} 条）；这一条在树里的会话行=${String(rowBack)}、整页出现=${String(after.idOccurrences)} 次；飘提示=${JSON.stringify(flash)}`,
+        )
+        check.eq('这一条从「已归档」一节里消失了', after.ids.includes(target.sessionId), false)
+        check.eq('这一条回到了树里的会话行上（还原真的可用）', rowBack, 1)
+        check.ok('飘了一条「已取消归档」的回执', hasText(flash, `已取消归档 ${title}`), JSON.stringify(flash))
+        screenshots.push(await shot(ctx, sidebar.page, 'archived-restore-after-unarchive'))
+      }
 
       // 收尾：这一页的日志也要干净（零崩溃 / 零未激活 / 零 pageerror）。
       const noisy = withoutKnownNoise(sidebar.capture.pageErrors)
