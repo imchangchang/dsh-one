@@ -197,6 +197,7 @@ import { isSessionAlreadyOwnedError } from '../../../src/pure/sessionOwnership.t
 import type { SessionListLike } from '../../../src/pure/workspaceTreeView.ts'
 import { hostCapabilities, type CapabilityContext } from '@dsh-one/dsh-plugin-kit/hostCapabilities'
 import { EN, LOCALE_NS, ZH } from './workspaceTree/locale.ts'
+import { setOfficialSessionMenu } from './workspaceTree/archivedSectionStore.ts'
 import { configureRecycleBin } from './workspaceTree/recycleBinStore.ts'
 import { setPanelOpenSessions } from './workspaceTree/panelSessionsStore.ts'
 import { RecycleEntry } from './workspaceTree/recycleEntry.ts'
@@ -287,6 +288,19 @@ interface WorkspacesService {
   delete(workspaceId: string): Promise<void>
   archiveSession(sessionId: string): Promise<void>
   /**
+   * 官方「取消归档」（#239）。**两代都有这个方法**（0.1.6-alpha.2 与 0.1.7-alpha.2 的
+   * workspaces 服务上都查到了它的签名与说明：`unarchiveSession(sessionId: SessionId):
+   * Promise<void>`，「把会话还原回它记录下的工作区位置」），所以这里给成可选：取用前
+   * 按在不在场分叉（`hasUnarchive()`），缺席时那一节干脆不渲染——不做「点了没反应」。
+   *
+   * 我们原来**刻意不用**它，理由是「官方那条属于官方设置页，是给误归档兜底的，不该被
+   * 当成常规还原路径」。这个前提在 0.1.7 变了：官方把设置页那一节整件删掉、把取消归档
+   * 搬进官方侧栏的会话行菜单，而那个槽位被自有树遮蔽——于是官方那条退路两截都断了
+   * （#239），这一条必须由我们补上。它与我们的回收站仍是两层语义（见文件头的说明），
+   * 所以两个入口分开、互不代理。
+   */
+  unarchiveSession?(sessionId: string): Promise<void>
+  /**
    * #240：官方会话置顶（0.1.7-alpha.1 起，`dsh-api-workspace-controller` 的
    * `IWorkspaces`：`pinSession(sessionId)` / `unpinSession(sessionId)`）。官方类型
    * 注释原话「Pin a Session ahead of unpinned Sessions on Workspace grouping
@@ -314,12 +328,17 @@ interface UiWorkspaceService {
    * 官方归档（官方 `dsh-client-ui-workspace` 的 navigation.d.ts 里就有这条）。
    * #103 明确它的语义是**终点**（归档 = 删除），走官方服务执行。
    *
-   * 官方那条 `unarchiveSession`（「取消归档」）**我们刻意不用**：它属于官方自己的
-   * 设置页（`dsh-client-ui-settings-unarchive-sessions`），是给误归档兜底的；我们的
-   * 回收站是**本地可逆的那一层**（还原只写我们自己的集合），两者不能混成一条路——
-   * 混了就会出现「点了还原，实际去动 dsh 侧」这样的两层语义错位。
+   * 它那条 `unarchiveSession`（「取消归档」）在 #239 起由我们用上了（见
+   * {@link unarchiveSession} 的说明）——回收站那一层是**本地可逆**的（还原只写我们自己
+   * 的集合），两者仍是两层，只是原来「官方自有入口」那个前提不成立了。
    */
   archiveSession(sessionId: string): Promise<void>
+  /**
+   * 官方「取消归档」（#239）：官方自己的两处调用点都走它——0.1.6 的设置页那一节
+   * （`ctx.uiWorkspace.unarchiveSession(sessionId)`）与 0.1.7 起的侧栏会话菜单。我们
+   * 用它补回 0.1.7 上断掉的退路。取用前按在不在场分叉。
+   */
+  unarchiveSession?(sessionId: string): Promise<void>
   /**
    * #240：官方会话置顶界面面（0.1.7-alpha.1 起，`dsh-client-ui-workspace` 的
    * `UiWorkspace.pinSession` / `unpinSession`）。官方行菜单那两项点下去就是它们——
@@ -469,6 +488,52 @@ export function apply(ctx: TreeContext): void {
     }
     sessions.open(sessionId)
   }
+
+  /**
+   * #239：官方「取消归档」那个动作（`uiWorkspace.unarchiveSession`，缺席时退回
+   * `workspaces.unarchiveSession`）。**走的是 AGENTS.md 机制优先序的第 2 层（官方服务
+   * API）**——官方自己的两处调用点也都走它：0.1.6 的设置页那一节（`inject` 里就是
+   * `unarchive: (sessionId) => ctx.uiWorkspace.unarchiveSession(sessionId)`）与 0.1.7 起的
+   * 侧栏会话菜单。树里那一节只是把入口补回来，动作本体不自己实现（不改 dsh 侧的数据、
+   * 不碰我们自己的回收站集合——两层语义，理由见 `workspaceTree/archivedSection.ts`）。
+   *
+   * 取不到时返回 null（两个服务的方法都不在场）：调用方据此**不渲染那一条**
+   * （`archivedSection.ts` 那一节整块不出现），不做「点了没反应」。
+   */
+  const unarchivePort = (): ((sessionId: string) => Promise<void>) | null => {
+    const ui = uiWorkspace()
+    if (typeof ui?.unarchiveSession === 'function') return (id) => ui.unarchiveSession!(id)
+    if (typeof workspaces.unarchiveSession === 'function') return (id) => workspaces.unarchiveSession!(id)
+    return null
+  }
+
+  /**
+   * #239：官方「侧栏会话行菜单」那两个槽位里的**第一个**（第二个是同一代的
+   * `sidebar.workspaces.session.row.action`，0.1.7 起由官方 `ui-workspace` 在
+   * `sidebar.workspaces` 条目的 `children` 表里声明，官方 `contract/slots.ts` 的原文是
+   * 「The rows of one Session's "..." menu, in ascending `order`. ui-workspace registers
+   * the shipped rows here — `pin` (100), `rename` (200), `fork` (300), `archive` (400)」）。
+   *
+   * **为什么拿它当「这一代官方还有没有自己的取消归档入口」的判据**：0.1.7 起官方把取消
+   * 归档从设置页搬进这套会话行菜单；而 `sidebar.workspaces` 被自有树遮蔽（shadow），
+   * 那套菜单一条都不渲染——所以「这个槽位在不在」正是「取消归档有没有官方入口」。
+   * 0.1.6 及以前官方产物里**没有这两个槽名**（两代 `combo` 里逐字查过：0 次 vs 18 次），
+   * 那一代的官方入口是设置页那一节，自有树补一节反而是多余的第二个入口。
+   *
+   * 判据跟着机制走、不跟版本号走：官方哪天再搬一次家，这一节会跟着消失或出现。
+   * 接线用 `ctx.slots.inject`（官方注释：「Install an effect for each declaration lifetime
+   * of a slot」——槽位已声明时立即跑、之后声明时再跑），所以它既拿得到「现在在不在」，
+   * 也拿得到「之后才声明」那一档；槽位生命周期结束时写回 false（那一节随之不再渲染）。
+   */
+  const OFFICIAL_SESSION_MENU_SLOT = 'sidebar.workspaces.session.menu.item'
+  ctx.effect(
+    () =>
+      ctx.slots.inject(OFFICIAL_SESSION_MENU_SLOT, () => {
+        setOfficialSessionMenu(true)
+        return () => setOfficialSessionMenu(false)
+      }),
+    'dsh-one workspace tree: official session menu slot (unarchive entry generation)',
+  )
 
   /**
    * #145：会话被**另一个 dsh 进程**占着写句柄时（官方会话日志是单写者，见
@@ -704,6 +769,15 @@ export function apply(ctx: TreeContext): void {
         sessions.fork({ sessionId, increaseTitle: true }).then((childId) => openSession(childId)),
       renameWorkspace: (workspaceId: string, title: string): Promise<unknown> => workspaces.rename(workspaceId, title),
       deleteWorkspace: (workspaceId: string): Promise<void> => workspaces.delete(workspaceId),
+      // #239：取消归档（树底「已归档」一节那一枚按钮）。**只在官方服务真的有这个方法时
+      // 注入**（两代都有，见 `UiWorkspaceService.unarchiveSession` 的说明）；「这一代
+      // 该不该由我们出这一节」是渲染判据，走 `useOfficialSessionMenu()`（树组件那一侧
+      // 读的是**活的**注册表事实——注入面在框架里是**缓存**的，`inject` 只求值一次，
+      // 拿它做会变的判据会读到一个过期的快照）。两种取法都不在场时这里不注入 =
+      // 那一节不渲染，而不是给一枚点了没反应的按钮。
+      ...(unarchivePort() === null
+        ? {}
+        : { unarchiveSession: (sessionId: string): Promise<void> => (unarchivePort() as (id: string) => Promise<void>)(sessionId) }),
       // 官方 uiWorkspace.pickDirectory：宿主原生选择器。**为什么直调服务而不是渲染
       // 官方 `sidebar.workspaces.directoryFlow` 子槽**（#99 B 段原本要求渲染子槽）：
       // 那口子由官方 WorkspaceBrowser 条目在它自己的 `children` 里声明，而官方渲染器

@@ -452,6 +452,51 @@ export function deriveFlat(
 }
 
 /**
+ * 已归档会话那一条行（#239 的「已归档」一节用）：显示标题 + 时刻就够。
+ *
+ * 与 {@link SessionNode} 分开是有原因的：那一份带状态点、定时任务标记、子代理计数
+ * （树里的行要画这些），而已归档会话在 dsh 侧**打不开、不跑、不能作任何行内动作**
+ * （官方 0.1.7 自己那句提示是「已归档对话暂时无法查看，请取消归档后查看」），
+ * 它只需要「是哪一条、叫什么、什么时候归档的」，多带字段只会让人以为它们有用。
+ */
+export interface ArchivedSessionEntry {
+  readonly id: string
+  /** 显示标题（空白会话为空串，渲染层替换成「新会话」）。 */
+  readonly title: string
+  readonly blank: boolean
+  readonly updatedAt: number
+}
+
+/**
+ * 已归档会话清单（#239）：快照里**在归档集合里**的那些会话，按最近更新倒序。
+ *
+ * 为什么这一节要自己列：归档之后这些会话从树里消失（{@link sessionVisible}），而
+ * 「取消归档」这个动作在树里原来一个入口都没有——0.1.6 的官方把入口做在设置页的
+ * 一节里（那一代我们的设置页照常渲染它，所以不需要这一节），0.1.7 起官方把它搬进
+ * 官方侧栏的会话行菜单（`sidebar.workspaces.session.menu.item`），而那个槽位被
+ * 自有树遮蔽（shadow）。所以这一节只在「官方把会话菜单做成了槽位」那一代才渲染，
+ * 判据与接线在 `workspaceTreePlugin.ts` 的 `OFFICIAL_SESSION_MENU_SLOT`。
+ *
+ * 过滤口径与树里的行同一份：**子代理不进**（官方 `sessionVisible` 也不给它们行）；
+ * 空白会话照收——归档一条空白会话是可能的，而它恰恰需要这个入口才能回来。
+ */
+export function deriveArchived(list: SessionListLike, archivedSessionIds: readonly string[]): ArchivedSessionEntry[] {
+  const archived = new Set(archivedSessionIds)
+  const rows = list.ids
+    .map((id) => list.byId[id])
+    .filter((s): s is SessionSummaryLike => s !== undefined && archived.has(s.id) && s.origin !== 'subagent')
+  return orderByRecency(
+    rows.map((s) => s.id),
+    list.byId,
+  ).flatMap((id) => {
+    const summary = list.byId[id]
+    return summary === undefined
+      ? []
+      : [{ id: summary.id, title: sessionTitle(summary), blank: summary.blank, updatedAt: summary.updatedAt }]
+  })
+}
+
+/**
  * 官方 `sessionStatuses`：主状态 + 全部无障碍标签（顺序即优先级）。
  *
  * `unread` 是**我们的**一项扩展（#102 手动未读）：官方没有手动未读，只有「跑完

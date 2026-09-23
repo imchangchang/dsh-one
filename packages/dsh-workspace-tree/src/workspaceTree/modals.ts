@@ -183,15 +183,22 @@ export function GroupModal({
  * 「永久归档」、回收站入口的「清空」、多选操作条的「批量归档」都开这一个。
  *
  * 为什么必须确认：**归档 = 删除**（#98 A1 的两层语义）——走官方 `archiveSession` 后
- * 会话从列表里消失，我们这边没有撤销入口（官方那条「取消归档」在设置页里，是给
- * 误归档兜底的，不该被当成常规还原路径）。所以弹窗里写明不可恢复，并按**工作区树形**
- * 列出到底会归档谁、有多少条会被跳过（资格不合格的那些，绝不静默放行）。
+ * 会话从列表里消失。所以弹窗里按**工作区树形**列出到底会归档谁、有多少条会被跳过
+ *（资格不合格的那些，绝不静默放行），并写明会话去哪儿了。
+ *
+ * #239 起说明那一行**分两代**（`inlineRestore`）：取消归档的官方入口在哪一代位置不同
+ * ——0.1.7 起官方把它搬进官方侧栏的会话行菜单，而那个槽位被自有树遮蔽，所以由树底的
+ * 「已归档」一节接管（`inlineRestore: true`，文案说「在树底的已归档一节里」）；0.1.6
+ * 及以前官方入口是设置页那一节，自有树**不**再补第二个入口，文案就说「去设置页的
+ * 已归档会话一节」。两句话各自只说这一代真实成立的事——原来那一句「不能在这里恢复」
+ * 在 0.1.7 上已经不成立了（树底就有），必须跟着改。
  */
 export function ArchiveSessionsModal({
   target,
   tr,
   busy,
   error,
+  inlineRestore,
   onConfirm,
   onClose,
 }: {
@@ -200,6 +207,11 @@ export function ArchiveSessionsModal({
   tr: Translate
   busy: boolean
   error: string | null
+  /**
+   * 取消归档的入口这一代是不是由树底那一节提供（判据与接线在
+   * `workspaceTree/tree.ts` 与 `workspaceTree/archivedSectionStore.ts`）。
+   */
+  inlineRestore: boolean
   onConfirm: () => void
   onClose: () => void
 }): unknown {
@@ -220,7 +232,7 @@ export function ArchiveSessionsModal({
     headless: true,
     children: [
       modalHead(title, tr('close'), onClose),
-      modalDesc(tr('archive.desc')),
+      modalDesc(tr(inlineRestore ? 'archive.desc.inline' : 'archive.desc.settings')),
       ...(target === null || target.skipped === 0
         ? []
         : [
