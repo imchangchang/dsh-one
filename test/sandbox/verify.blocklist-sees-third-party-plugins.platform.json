@@ -1,0 +1,40 @@
+{
+  "branch": "agent/blocklist-sees-third-party-plugins",
+  "slug": "blocklist-sees-third-party-plugins",
+  "platformCoverage": [],
+  "branchMatrix": {
+    "trigger": "state-probe + probe-result-branch。本次新增的是 `scripts/dsh-upstream-watch/blockListDrift.mjs` 里读 profile 的那一段（`profilesRootOf` / `collectProfilePluginFaces`）：形状是「先看盘上有没有 → 按读到的结果分叉」，读不到 / 解析不出一律报红而不是静默变绿。全是**与平台无关的状态分支**（`fs.readdirSync` / `fs.existsSync` / `fs.readFileSync` 读盘 + `path.join` 拼路径，没有任何按平台分叉的代码；本机 macOS 实测，CI 的 ubuntu / windows 走同一条路径——同一套断言在 test/blockListDrift.test.ts 里按 scratch 目录跑，不依赖任何平台差异）。 本分支推到 origin 后 CI 三平台矩阵（ubuntu-latest / macos-latest / windows-latest）全绿（run 35864440119）——下面这些断言的确定性用例在三平台上各跑了一遍。",
+    "rows": [
+      {
+        "condition": "官方产物根不在 profile 形状下：`profilesRootOf(root)` 发现 `path.dirname(root)` 的名字不是 `node_modules`、或它的父目录不叫 `profiles`（= probe 的三处候选里选了「被测 dsh 的安装树」那一处）→ 返回 `null`",
+        "expected": "不读 profile 插件，结果行的 detail 里如实写「profile 里的第三方插件这一面未读（官方产物不在 profiles/<名>/node_modules 形状下）」。**不是**报红：root 本来就不是 profile 树，没有「用户的 profile」可读；但也绝不假装读过",
+        "verification": "test/blockListDrift.test.ts「取数：从 profile 的层列表读第三方包…」里那两条 `profilesRootOf` 断言（`<dir>/profiles/node_modules/@deepseek-ai` → `<dir>/profiles`；`<dir>/install/node_modules/@deepseek-ai` → `null`）。真机（macOS，本机默认 profile）：`~/.dsh/profiles/node_modules/@deepseek-ai` 形状对得上，探针读数 `profile 里的第三方插件 2 件（读的 profile：plan-test、web）`"
+      },
+      {
+        "condition": "`fs.readdirSync(profilesRoot)` 抛（profile 根目录不存在、被删、权限读不到）",
+        "expected": "报红（fail）：problems 一条「读不到 profile 目录 <路径>：<原因>」进 failure 列表。**禁止**静默当成「这台机器没有第三方插件」——那正是这一项要防的假绿方向",
+        "verification": "test/blockListDrift.test.ts「取数：从 profile 的层列表读第三方包…」里那条「连 profile 目录都读不到（目录不存在）」：`collectProfilePluginFaces(<dir>/profiles-nope)` 的 problems 恰一条且含「读不到 profile 目录」"
+      },
+      {
+        "condition": "逐条读 `<profilesRoot>/<名>`：没有 `package.json` / 清单不是 JSON / 清单里没有 `dsh.profile.bundles`（不是 profile 目录）→ 跳过该目录，不计入读过的 profile 名单",
+        "expected": "跳过、不报红（官方包目录里混着非 profile 的目录是正常形状），也**不**把它算成「读过这份 profile」——结果行的 detail 里的 profile 名单只列真读到的那些",
+        "verification": "test/blockListDrift.test.ts「取数：从 profile 的层列表读第三方包…」里铺的两条目录 `not-a-profile`（没有清单）与 `no-bundles`（有清单、没有 `dsh.profile.bundles`）：断言 `problems` 为空、`profiles` 恰为 `['web']`"
+      },
+      {
+        "condition": "层列表逐条看：`@deepseek-ai/*` 的层跳过（官方那批由 `collectOfficialServiceFaces` 读）；同一个 id 已在更早的 profile 层里读过 → 跳过（去重，见函数头的理由）",
+        "expected": "官方层不进第三方名单；同一个 id 在多份 profile 层里只算一次，`faces` 里只有它先被读到的那一份",
+        "verification": "test/blockListDrift.test.ts「取数：同一个包装在两层 profile 里只算一次…」：`plan-test` 与 `web` 两层装同一件 → `profiles` 为两层、`faces.length` 为 1、脸取 `plan-test` 那一份（needs 是 `['slots']`）；「取数：从 profile 的层列表读第三方包…」里 `dsh.profile.bundles` 含 `@deepseek-ai/dsh-web-app` 而 `faces` 恰为那一件第三方插件。真机读数同此（`@dsh-one/dsh-llm-provider` 装在 plan-test 与 web 两层，只报 1 件）"
+      },
+      {
+        "condition": "层列表里的第三方包取不到或读不全：① 两个 `node_modules` 下都没有它的 `package.json`；② 它的 `package.json` 读不出/不是 JSON；③ 没有 `dsh.client`（宿主半插件，没有浏览器半）；④ 读不到 `exports[\"./client\"]` 指向的 bundle；⑤ bundle 里找不到导出的 `inject` 服务表",
+        "expected": "① ② ④ ⑤ 报红（fail，写明是哪一件、缺什么）；③ 跳过不算问题（它不参与页面装配，谈不上「能不能激活」）。**禁止**在 ②⑤ 时静默算成「它什么都不需要」——那会让「这件插件在这棵树里等不到服务」永远算不出来",
+        "verification": "test/blockListDrift.test.ts：①「取数：从 profile 的层列表读第三方包…」尾段（problems 两条，两件都点得出名，`checkBlockListDrift` 状态 fail、detail 含同一句）；②④⑤「取数：同一个包装在两层 profile 里只算一次；清单坏 / 客户端半读不到 / inject 表解析不出都报红」（清单写成 `{ 这不是 JSON` → 含「读不到它的 package.json」；删掉 `lib/client.js` → 含「读不到 lib/client.js」；bundle 只留 `export const apply = () => {}` → 含「找不到导出的 inject 服务表」）；③「取数：从 profile 的层列表读第三方包…」里那件 `@dsh-external/dsh-lab-host-only`（层列表里有、包也在、没有 `dsh.client`）→ `problems` 为空且 `faces` 里没有它"
+      },
+      {
+        "condition": "每棵树跑 `unplaceableProfilePlugins({blocked, plugins, localProviders, profilePlugins})`：某件第三方插件等的服务「有提供方、但提供方全被这棵树挡掉」→ 非空；它的 needs 全都有没被挡的提供方（或那个服务根本没有提供方、属框架/主机层那一族）→ 空",
+        "expected": "非空 → 这棵树 fail，点名「插件 id（等 <服务>；提供方全被挡：<id>）」；空 → 不报、也不把第三方插件补进 block list（它们不是我们的件，替用户挡掉等于静默移除他的插件）",
+        "verification": "test/blockListDrift.test.ts「负向对照：第三方插件等不到服务必须红；去掉 profile 这份输入，判据消失」与「正向：第三方插件等得到服务时默认保留」（同一份合成产物：前者 fail 且文案逐字含插件 id / `uiConversation` / `dsh-client-ui-conversation`、且 detail 里没有「少挡了」；后者 pass 且读数含「profile 里的第三方插件 1 件（读的 profile：web）」）；纯函数侧见 test/blockListDerivation.test.ts 的四条（只报不挡、按树判、提供方算数、谁都不提供的服务不报）。运行期那件事的读数见 `npm run verify:lab --suite F-70`（侧栏树 10/10：插件停在 pending、自愈摘掉它、页面照常起来）"
+      }
+    ]
+  }
+}
