@@ -14,12 +14,14 @@
  * 关掉之后再点」一定是展开，不会出现「点了没反应」。按钮上的 `aria-expanded` 也取自
  * 同一份状态，读屏软件与眼睛看到的是同一件事。
  *
- * ## 主区图标为什么是 16 号的垃圾桶
- * 旧侧栏那一行主区就是垃圾桶；官方 primitives 的导出表里**垃圾桶只有 `IconTrashOutline16`
- * 一个尺寸**（#114 逐个核过 `dsh-web-frontend` 的导出表，`IconTrash*` / `IconBin*` 无 20
- * 号），所以不自绘、直接用 16 号并给 `size: 16`，与它换下去的 `IconArchiveOutline20` 同
- * 尺寸，图标位几何不变。右侧「清空」仍是同一枚垃圾桶（14 号，旧侧栏同此），靠**危险色**
- * （`.dshOneTree_footerIconDanger`，`--dsw-alias-state-error-primary`）与主区区分开。
+ * ## 主区图标为什么是垃圾桶、为什么渲染 16
+ * 旧侧栏那一行主区就是垃圾桶；官方图标集里**垃圾桶只有一枚**（#114 逐个核过
+ * `dsh-web-frontend` 的导出表，`IconTrash*` / `IconBin*` 没有第二个尺寸档；
+ * 0.1.7-alpha.2 起仍是这一枚，只是按描边档拆成 Medium / Regular，见
+ * `src/pure/officialIcons.ts` 的对照表），所以不自绘、直接用这一枚并给 `size: 16`，
+ * 与它换下去的归档图标同尺寸，图标位几何不变。右侧「清空」仍是同一枚垃圾桶（渲染 14，
+ * 旧侧栏同此），靠**危险色**（`.dshOneTree_footerIconDanger`，
+ * `--dsw-alias-state-error-primary`）与主区区分开。
  *
  * ## 计数从哪来（#103）
  * 本地回收站集合（宿主能力口键 `recycle-bin`）∩ 今天还认得出来的会话——见
@@ -37,11 +39,15 @@
  * 不碰 DOM 查询、不新增槽位名、不跨插件借状态。
  */
 import { createElement as h } from 'react'
-import { IconRefreshOutline16, IconTrashOutline16, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { officialIcon } from '@dsh-one/dsh-plugin-kit/officialIcons'
 import { visibleRecycleIds, type SessionListLike } from '../../../../src/pure/workspaceTreeView.ts'
 import { useRecycleBin } from './recycleBinStore.ts'
 import { useRecycleDrawerOpen } from './recycleDrawerStore.ts'
 import type { Translate } from './types.ts'
+
+const IconRefreshOutline = officialIcon('IconRefreshOutline')
+const IconTrashOutline = officialIcon('IconTrashOutline')
 
 /**
  * 入口行向树主组件发的请求：开抽屉 / 关抽屉 / 清空 / 全部还原。
@@ -115,7 +121,7 @@ export function RecycleEntry({ wide = true, t, useSessions, useWorkspaces }: Rec
           disabled: total === 0,
           onClick: () => recycleEntrySignal.request(kind === 'empty' ? 'empty' : 'restoreAll'),
         },
-        kind === 'empty' ? h(IconTrashOutline16, { size: 14 }) : h(IconRefreshOutline16, { size: 14 }),
+        kind === 'empty' ? h(IconTrashOutline, { size: 14 }) : h(IconRefreshOutline, { size: 14 }),
       ),
     })
   }
@@ -146,8 +152,8 @@ export function RecycleEntry({ wide = true, t, useSessions, useWorkspaces }: Rec
       // 再配上渲染结果的几何/位图指纹一起核）。
       h(
         'span',
-        { className: 'dshOneTree_footerIcon', 'data-dshone-tree-icon': 'IconTrashOutline16' },
-        h(IconTrashOutline16, { size: 16 }),
+        { className: 'dshOneTree_footerIcon', 'data-dshone-tree-icon': 'IconTrashOutline' },
+        h(IconTrashOutline, { size: 16 }),
       ),
       h('span', { className: 'dshOneTree_footerLabel' }, tr('recycle.open')),
       h('span', { className: 'dshOneTree_footerCount' }, String(total)),

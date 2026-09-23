@@ -83,20 +83,20 @@
  * `git.show` 必须仍带会话自己的 cwd——谁把来源收成一路，这一条当场红。
  */
 import { createElement as h, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import {
-  IconCheckOutline16,
-  IconClockOutline16,
-  IconCopyOutline16,
-  IconFolderOpenOutline16,
-  IconRightUpOutline16,
-  IconUserOutline16,
-  writeClipboard,
-} from '@deepseek-ai/dsh-client-ui-primitives'
+import { writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
+import { officialIcon } from '@dsh-one/dsh-plugin-kit/officialIcons'
 import { hostCapabilities, type CapabilityContext } from '@dsh-one/dsh-plugin-kit/hostCapabilities'
 import { mountOnConversation, positioningContext } from '@dsh-one/dsh-plugin-kit/mountPoints'
 import { pickSessionWorkspacePath } from '../../../src/pure/sessionWorkspace.ts'
 import { withCurrentSession, type SessionListLike, type SessionSummaryLike } from '../../../src/pure/workspaceTreeView.ts'
 import type { CommitInfoResult } from '../../../src/pure/chatContract.ts'
+
+const IconCheckOutline = officialIcon('IconCheckOutline')
+const IconClockOutline = officialIcon('IconClockOutline')
+const IconCopyOutline = officialIcon('IconCopyOutline')
+const IconFolderOpenOutline = officialIcon('IconFolderOpenOutline')
+const IconRightUpOutline = officialIcon('IconRightUpOutline')
+const IconUserOutline = officialIcon('IconUserOutline')
 
 /** hash 标记属性（自有契约：扫描时据此跳过已包过的节点）。 */
 const HASH_ATTR = 'data-dshone-commit'
@@ -428,13 +428,13 @@ function GitCardLayer({ t, sessionWorkspacePath, capabilities }: LayerProps) {
       h(
         'div',
         { key: 'author', className: 'dshOneGitCard_row' },
-        h(IconUserOutline16, { size: 14 }),
+        h(IconUserOutline, { size: 14 }),
         h('span', null, info.authorName ?? ''),
         info.commitDate !== undefined &&
           h(
             'span',
             { className: 'dshOneGitCard_time' },
-            h(IconClockOutline16, { size: 14 }),
+            h(IconClockOutline, { size: 14 }),
             h('span', null, `${relativeLabel(info, tr)} (${info.commitDate.replace('T', ' ')})`),
           ),
       ),
@@ -465,7 +465,7 @@ function GitCardLayer({ t, sessionWorkspacePath, capabilities }: LayerProps) {
         h(
           'div',
           { key: 'repo', className: 'dshOneGitCard_repo' },
-          h(IconFolderOpenOutline16, { size: 14 }),
+          h(IconFolderOpenOutline, { size: 14 }),
           h('span', null, tr('repoLabel')),
           h('span', { className: 'dshOneGitCard_repoPath', title: info.repoPath ?? info.repoRelative }, info.repoRelative),
         ),
@@ -492,7 +492,7 @@ function GitCardLayer({ t, sessionWorkspacePath, capabilities }: LayerProps) {
             'aria-label': tr('copyHash'),
             onClick: () => copyHash(info.commitHash ?? info.sha),
           },
-          h(copied ? IconCheckOutline16 : IconCopyOutline16, { size: 14 }),
+          h(copied ? IconCheckOutline : IconCopyOutline, { size: 14 }),
         ),
         canOpenOnGithub &&
           h(
@@ -505,7 +505,7 @@ function GitCardLayer({ t, sessionWorkspacePath, capabilities }: LayerProps) {
                 void capabilities.openExternal(info.githubUrl ?? '')
               },
             },
-            h(IconRightUpOutline16, { size: 14 }),
+            h(IconRightUpOutline, { size: 14 }),
             h('span', null, tr('openOnGithub')),
           ),
       ),

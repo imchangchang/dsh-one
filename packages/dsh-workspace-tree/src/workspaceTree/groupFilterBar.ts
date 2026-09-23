@@ -16,15 +16,15 @@
  * 依次是搜索栏与四枚工具控件。搜索展开时它**让位**（`hidden` = 收起成零宽，见下）。
  */
 import { createElement as h, useState } from 'react'
-import {
-  IconChevronDownOutline14,
-  IconFolderOpenOutline16,
-  IconPlusOutline16,
-  IconSettingsOutline16,
-  Menu,
-} from '@deepseek-ai/dsh-client-ui-primitives'
+import { Menu } from '@deepseek-ai/dsh-client-ui-primitives'
+import { officialIcon } from '@dsh-one/dsh-plugin-kit/officialIcons'
 import type { WorkspaceGroupDef } from '../../../../src/pure/treeGroups.ts'
 import type { Translate } from './types.ts'
+
+const IconChevronDownOutline = officialIcon('IconChevronDownOutline')
+const IconFolderOpenOutline = officialIcon('IconFolderOpenOutline')
+const IconPlusOutline = officialIcon('IconPlusOutline')
+const IconSettingsOutline = officialIcon('IconSettingsOutline')
 
 /** 下拉里的一行：名字 + 右对齐计数（官方 Menu 的 label 槽接受元素）。 */
 function menuRow(name: string, count: number): unknown {
@@ -106,12 +106,12 @@ export function GroupFilterBar({
         {
           id: 'new',
           label: h('span', { 'data-dshone-tree-action': 'group-new' }, tr('group.new')),
-          icon: h(IconPlusOutline16, { size: 14 }),
+          icon: h(IconPlusOutline, { size: 14 }),
         },
         {
           id: 'manage',
           label: h('span', { 'data-dshone-tree-action': 'group-manage' }, tr('group.manage')),
-          icon: h(IconSettingsOutline16, { size: 14 }),
+          icon: h(IconSettingsOutline, { size: 14 }),
         },
       ],
       selectedIds: [activeGroupId ?? 'all'],
@@ -147,10 +147,10 @@ export function GroupFilterBar({
           'data-dshone-tree-group-count': count,
           onClick: () => setOpen((value: boolean) => !value),
         },
-        h('span', { className: 'dshOneTree_pillTag' }, h(IconFolderOpenOutline16, { size: 12 })),
+        h('span', { className: 'dshOneTree_pillTag' }, h(IconFolderOpenOutline, { size: 12 })),
         h('span', { className: 'dshOneTree_pillLabel' }, label),
         h('span', { className: 'dshOneTree_pillCount' }, String(count)),
-        h('span', { className: 'dshOneTree_pillChevron' }, h(IconChevronDownOutline14, {})),
+        h('span', { className: 'dshOneTree_pillChevron' }, h(IconChevronDownOutline, {})),
       ),
     }),
   )

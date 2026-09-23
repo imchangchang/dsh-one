@@ -29,57 +29,16 @@ declare module '@deepseek-ai/dsh-client-store' {
 }
 
 declare module '@deepseek-ai/dsh-client-ui-primitives' {
-  /** 官方图标件（设置齿轮，ui-settings-general TriggerContent 同款）。 */
-  export function IconSettingsOutline16(props: { size?: number }): unknown
-  export function IconSettingsOutline14(props: { size?: number }): unknown
+  /**
+   * **图标件不在这里**，取用口是 `@dsh-one/dsh-plugin-kit/officialIcons`：官方 0.1.7-alpha.2
+   * 把图标导出名从尺寸后缀整批换成档位后缀（#236），按老名字具名导入会静默变 `undefined`、
+   * 渲染时才炸成 React #130，所以插件侧一律走那个口（命名空间导入 + 运行时挑在场的那一代）。
+   * 这里只声明非图标件。
+   */
   /** 官方按钮件（设置行动，ui-settings-general SettingsDocumentAction 同款）。 */
   export function Button(props: { variant?: string; size?: string; disabled?: boolean; onClick?: () => void; className?: string; children?: unknown }): unknown
-  /** 官方下载图标（session-log-export HeaderAction 同款）。 */
-  export function IconDownloadOutline16(props: { size?: number }): unknown
   /** 官方剪贴板写入（带 execCommand 回退；webview 里比裸 navigator.clipboard 稳）。 */
   export function writeClipboard(text: string): Promise<boolean>
-  /** 官方图标件（git 卡片/右键菜单用，名取自官方 primitives 导出表）。 */
-  export function IconUserOutline16(props: { size?: number }): unknown
-  export function IconClockOutline16(props: { size?: number }): unknown
-  export function IconCopyOutline16(props: { size?: number }): unknown
-  export function IconCheckOutline16(props: { size?: number }): unknown
-  export function IconRightUpOutline16(props: { size?: number }): unknown
-  export function IconCodeOutline16(props: { size?: number }): unknown
-  export function IconFolderOpenOutline16(props: { size?: number }): unknown
-  /**
-   * 官方图标件（#65 批 2 侧栏自有树用；名与尺寸档全部取自官方 primitives
-   * 导出表「Object.freeze」那一份，未新增自造图标）。
-   */
-  export function IconFolderOpen16(props: { size?: number; className?: string }): unknown
-  export function IconFolderClose16(props: { size?: number; className?: string }): unknown
-  export function IconTriangleRightFill14(props: { size?: number; className?: string }): unknown
-  export function IconEllipsisOutline16(props: { size?: number; className?: string }): unknown
-  export function IconPlusOutline16(props: { size?: number; className?: string }): unknown
-  export function IconSearchOutline16(props: { size?: number; className?: string }): unknown
-  export function IconCloseFill14(props: { size?: number; className?: string }): unknown
-  export function IconPersonalizationOutline16(props: { size?: number; className?: string }): unknown
-  export function IconEditOutline16(props: { size?: number; className?: string }): unknown
-  export function IconTrashOutline16(props: { size?: number; className?: string }): unknown
-  export function IconBranchOutline16(props: { size?: number; className?: string }): unknown
-  export function IconArchiveOutline20(props: { size?: number; className?: string }): unknown
-  /** 官方图标件（#110：活跃定时任务标记，官方 ui-workspace 的 ActiveScheduleIndicator 同款）。 */
-  export function IconAlarmClockOutline16(props: { size?: number; className?: string }): unknown
-  /** 官方图标件（#81：批量选择入口、回收站「还原」）。 */
-  export function IconChecklistOutline14(props: { size?: number; className?: string }): unknown
-  export function IconRefreshOutline16(props: { size?: number; className?: string }): unknown
-  /**
-   * 官方图标件（#99 侧栏顶栏：折叠/展开全部、添加工作区、回收站入口行）。
-   * 名与尺寸档同样取自官方 primitives 导出表（未新增自造图标）。
-   */
-  export function IconChevronDownOutline14(props: { size?: number; className?: string }): unknown
-  export function IconChevronUpOutline14(props: { size?: number; className?: string }): unknown
-  /** 官方图标件（#172 二级菜单父项右端的指示器，收起态）：名与路径同样取自官方 primitives
-   *  导出表（官方 `index-C04Zg7TP.js` 的 `IconChevronRightOutline14`，默认尺寸 14）。 */
-  export function IconChevronRightOutline14(props: { size?: number; className?: string }): unknown
-  /** 官方图标件（#139 成员清单的返回键）：名取自官方 primitives 导出表
-   *  （`dsh-web-frontend/dist/assets/index-C04Zg7TP.js` 的 `IconChevronLeftOutline14`）。 */
-  export function IconChevronLeftOutline14(props: { size?: number; className?: string }): unknown
-  export function IconProjectAddOutline16(props: { size?: number; className?: string }): unknown
   /** 官方状态点（三档：ongoing / warning / done）。 */
   export function StateDot(props: { state: string; className?: string }): unknown
   /** 官方紧凑相对时间（单位 + 数值，文案由词典拼）。 */

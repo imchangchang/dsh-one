@@ -1,27 +1,7 @@
 /** 列表行（分组头行 / 会话行 / 搜索结果行）与行内小件，官方 rows 组件的同构复刻。 */
 import { createElement as h, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import {
-  HoverCard,
-  IconAlarmClockOutline16,
-  IconArchiveOutline20,
-  IconBranchOutline16,
-  IconCheckOutline16,
-  IconChecklistOutline14,
-  IconChevronDownOutline14,
-  IconChevronRightOutline14,
-  IconCopyOutline16,
-  IconEditOutline16,
-  IconEllipsisOutline16,
-  IconFolderClose16,
-  IconFolderOpen16,
-  IconFolderOpenOutline16,
-  IconPlusOutline16,
-  IconRightUpOutline16,
-  IconTrashOutline16,
-  IconTriangleRightFill14,
-  Menu,
-  StateDot,
-} from '@deepseek-ai/dsh-client-ui-primitives'
+import { HoverCard, Menu, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { officialIcon } from '@dsh-one/dsh-plugin-kit/officialIcons'
 import {
   sessionStatuses,
   showsStatusDot,
@@ -43,6 +23,24 @@ import { createdLabel, displayTitle, hoverTimeLabel, timeLabel } from './format.
 import { GROUP_MENU_PREFIX, TAG_MENU_PREFIX } from './groups.ts'
 import { SelectMark } from './selection.ts'
 import type { Translate } from './types.ts'
+
+const IconAlarmClockOutline = officialIcon('IconAlarmClockOutline')
+const IconArchiveOutline = officialIcon('IconArchiveOutline')
+const IconBranchOutline = officialIcon('IconBranchOutline')
+const IconCheckOutline = officialIcon('IconCheckOutline')
+const IconChecklistOutline = officialIcon('IconChecklistOutline')
+const IconChevronDownOutline = officialIcon('IconChevronDownOutline')
+const IconChevronRightOutline = officialIcon('IconChevronRightOutline')
+const IconCopyOutline = officialIcon('IconCopyOutline')
+const IconEditOutline = officialIcon('IconEditOutline')
+const IconEllipsisOutline = officialIcon('IconEllipsisOutline')
+const IconFolderClose = officialIcon('IconFolderClose')
+const IconFolderOpen = officialIcon('IconFolderOpen')
+const IconFolderOpenOutline = officialIcon('IconFolderOpenOutline')
+const IconPlusOutline = officialIcon('IconPlusOutline')
+const IconRightUpOutline = officialIcon('IconRightUpOutline')
+const IconTrashOutline = officialIcon('IconTrashOutline')
+const IconTriangleRightFill = officialIcon('IconTriangleRightFill')
 
 // ---------------------------------------------------------------------------
 // #102 两种用户标记的行内呈现：图钉（置顶）与未读圆点
@@ -138,7 +136,7 @@ function submenuChild(options: {
       },
       options.name,
     ),
-    ...(options.checked ? { icon: h(IconCheckOutline16, { size: 12 }) } : {}),
+    ...(options.checked ? { icon: h(IconCheckOutline, { size: 12 }) } : {}),
   }
 }
 
@@ -181,28 +179,29 @@ function indentSubmenuItem(item: unknown): unknown {
 }
 
 /**
- * 二级菜单父项右端的指示器（#172）：**官方那两枚 14 档 chevron**——收起时右向、展开时下向。
+ * 二级菜单父项右端的指示器（#172）：官方那对 chevron——收起时右向、展开时下向，渲染尺寸 14。
  *
  * 这两枚的取法：官方自己「收起 → 右向、展开 → 下向」这一对就出在官方 `MessageItem` 的折叠条
- * 上（那次读官方源码时逐字核过：`open ? IconChevronDownOutline14 : IconChevronRightOutline14`，
- * 出处是 `index-C04Zg7TP.js` 里官方 `IconChevronRightOutline14` / `IconChevronDownOutline14`
- * 两枚件的定义，视框 `0 0 14 14`、默认尺寸 14）。尺寸取**菜单项图标那一档**：紧凑档的图标位
+ * 上（那次读官方源码时逐字核过：0.1.6 的 `index-C04Zg7TP.js` 里写作
+ * `open ? IconChevronDownOutline14 : IconChevronRightOutline14`，两枚件的视框 `0 0 14 14`、
+ * 默认尺寸 14；0.1.7-alpha.2 起同两枚的名字去掉尺寸后缀、按描边档分成 Medium / Regular，
+ * 对照与选档见 `src/pure/officialIcons.ts`）。尺寸取**菜单项图标那一档**：紧凑档的图标位
  * 14×14（`._compactList_1nxmc_128 ._itemIcon_1nxmc_144{width:14px;height:14px}`，与同一份
  * 菜单里其它项传的 `size: 14` 同一档）。
  *
  * `data-dshone-tree-icon` 写图标名（自有契约，与回收站头「返回」那枚同一做法）：官方组件渲染
  * 出来的 DOM 里没有图标名，验证套件要认「用的是哪一枚」只能靠标记 + 渲染指纹（视框 / 尺寸 /
- * path@d）。
+ * path@d）。写的是**我们表里的基名**（`src/pure/officialIcons.ts` 的键），不随官方两代改名而变。
  */
 function submenuIndicator(open: boolean): unknown {
   return h(
     'span',
     {
       className: 'dshOneTree_submenuArrow',
-      'data-dshone-tree-icon': open ? 'IconChevronDownOutline14' : 'IconChevronRightOutline14',
+      'data-dshone-tree-icon': open ? 'IconChevronDownOutline' : 'IconChevronRightOutline',
       'aria-hidden': true,
     },
-    h(open ? IconChevronDownOutline14 : IconChevronRightOutline14, { size: 14 }),
+    h(open ? IconChevronDownOutline : IconChevronRightOutline, { size: 14 }),
   )
 }
 
@@ -244,7 +243,7 @@ function submenuParent(options: { id: string; label: string; open: boolean }): u
       submenuIndicator(options.open),
     ),
     // 图标位取紧凑档的 14×14（官方 `._itemIcon_1nxmc_144`），见文件里各菜单项的同一处置。
-    icon: h(IconFolderOpenOutline16, { size: 14 }),
+    icon: h(IconFolderOpenOutline, { size: 14 }),
   }
 }
 
@@ -377,7 +376,7 @@ function ActiveScheduleIndicator({ tr, search = false }: { tr: Translate; search
       title: label,
       'data-dshone-tree-schedule': '',
     },
-    h(IconAlarmClockOutline16, {}),
+    h(IconAlarmClockOutline, {}),
   )
 }
 
@@ -507,14 +506,14 @@ export function ProjectRow({
     },
     // 未分组桶没有路径与工作区身份，能做的只有它自己那两件（新建会话 / 整桶归档）。
     ...(ungrouped
-      ? [{ id: 'new-session', label: h('span', { 'data-dshone-tree-item': 'new-session' }, tr('menu.newSession')), icon: h(IconPlusOutline16, { size: 14 }) }]
+      ? [{ id: 'new-session', label: h('span', { 'data-dshone-tree-item': 'new-session' }, tr('menu.newSession')), icon: h(IconPlusOutline, { size: 14 }) }]
       : []),
     ...(hasPath
       ? [
           {
             id: 'copy-folder-ref',
             label: h('span', { 'data-dshone-tree-item': 'copy-folder-ref' }, tr('menu.copyFolderReference')),
-            icon: h(IconCopyOutline16, { size: 14 }),
+            icon: h(IconCopyOutline, { size: 14 }),
           },
         ]
       : []),
@@ -536,7 +535,7 @@ export function ProjectRow({
         },
         ungrouped ? tr('menu.archiveUngrouped') : tr('menu.archiveWorkspace'),
       ),
-      icon: h(IconArchiveOutline20, { size: 14 }),
+      icon: h(IconArchiveOutline, { size: 14 }),
       disabled: !canArchiveAll,
     },
     ...(hasPath && onOpenFolder !== undefined
@@ -544,7 +543,7 @@ export function ProjectRow({
           {
             id: 'open-new-window',
             label: h('span', { 'data-dshone-tree-item': 'open-new-window' }, tr('menu.openFolderInNewWindow')),
-            icon: h(IconRightUpOutline16, { size: 14 }),
+            icon: h(IconRightUpOutline, { size: 14 }),
           },
         ]
       : []),
@@ -553,7 +552,7 @@ export function ProjectRow({
           {
             id: 'copy-path',
             label: h('span', { 'data-dshone-tree-item': 'copy-path' }, tr('menu.copyPath')),
-            icon: h(IconCopyOutline16, { size: 14 }),
+            icon: h(IconCopyOutline, { size: 14 }),
           },
         ]
       : []),
@@ -563,7 +562,7 @@ export function ProjectRow({
           {
             id: 'rename',
             label: h('span', { 'data-dshone-tree-item': 'rename' }, tr('menu.renameWorkspace')),
-            icon: h(IconEditOutline16, { size: 14 }),
+            icon: h(IconEditOutline, { size: 14 }),
           },
         ]),
     ...(onDelete === undefined
@@ -572,7 +571,7 @@ export function ProjectRow({
           {
             id: 'remove',
             label: h('span', { 'data-dshone-tree-item': 'remove' }, tr('menu.removeWorkspace')),
-            icon: h(IconTrashOutline16, { size: 14 }),
+            icon: h(IconTrashOutline, { size: 14 }),
             danger: true,
           },
         ]),
@@ -608,7 +607,7 @@ export function ProjectRow({
       aria: tr('actions.newSession.aria', { name: label }),
       onClick: onCreate,
       marker: 'new-session-button',
-      children: h(IconPlusOutline16, {}),
+      children: h(IconPlusOutline, {}),
     }),
     ...(hasPath && onOpenTerminal !== undefined
       ? [
@@ -630,7 +629,7 @@ export function ProjectRow({
             action: 'workspace-open',
             aria: tr('actions.workspace.open', { name: label }),
             onClick: () => onOpenFolder({ newWindow: false }),
-            children: h(IconFolderOpenOutline16, {}),
+            children: h(IconFolderOpenOutline, {}),
           }),
         ]
       : []),
@@ -642,7 +641,7 @@ export function ProjectRow({
             action: 'workspace-remove',
             aria: tr('actions.workspace.remove', { name: label }),
             onClick: onDelete,
-            children: h(IconTrashOutline16, {}),
+            children: h(IconTrashOutline, {}),
           }),
         ]),
   ]
@@ -705,13 +704,13 @@ export function ProjectRow({
           {
             key: 'folder',
             className: `dshOneTree_slot dshOneTree_folder${active ? ' dshOneTree_folderActive' : ''}`,
-            children: expanded ? h(IconFolderOpen16, {}) : h(IconFolderClose16, {}),
+            children: expanded ? h(IconFolderOpen, {}) : h(IconFolderClose, {}),
           },
         ),
         h('span', {
           key: 'chevron',
           className: 'dshOneTree_slot dshOneTree_chevron',
-          children: h(IconTriangleRightFill14, {
+          children: h(IconTriangleRightFill, {
             className: `dshOneTree_arrow${expanded ? ' dshOneTree_arrowOpen' : ''}`,
           }),
         }),
@@ -1120,10 +1119,10 @@ export function SessionRow({
             // 标记属性（自有契约）：菜单项类名是官方哈希，验证套件与样式都不该认它，
             // 按这个属性取「我们那一项」（与 contextMenuPlugin 的图标项同一做法）。
             label: h('span', { 'data-dshone-tree-item': 'openInNewTab' }, tr('menu.openInNewTab')),
-            // 图标取官方 primitives 的 IconRightUpOutline16（向右上离开方框 = 到别处打开），
+            // 图标取官方 primitives 的 IconRightUpOutline（向右上离开方框 = 到别处打开），
             // 同为 icon 槽位的次级色；尺寸按紧凑档的 14×14 图标位给（`{ size: 14 }`，
             // 官方 16 档图标塞进 14px 的盒子会溢出一圈）。
-            icon: h(IconRightUpOutline16, { size: 14 }),
+            icon: h(IconRightUpOutline, { size: 14 }),
           },
         ]
   // 「移入回收站」与「归档」是两层语义，各自一份判定结果（同吃上面那份 facts）。
@@ -1145,14 +1144,14 @@ export function SessionRow({
     {
       id: 'selectMultiple',
       label: h('span', { 'data-dshone-tree-item': 'selectMultiple' }, tr('menu.selectMultiple')),
-      // 图标取顶栏那个多选入口的同一枚（IconChecklistOutline14），两处是同一个动作。
-      icon: h(IconChecklistOutline14, {}),
+      // 图标取顶栏那个多选入口的同一枚（IconChecklistOutline），两处是同一个动作。
+      icon: h(IconChecklistOutline, {}),
     },
     ...openInNewTabItem,
     {
       id: 'rename',
       label: h('span', { 'data-dshone-tree-item': 'rename' }, tr('rename')),
-      icon: h(IconEditOutline16, { size: 14 }),
+      icon: h(IconEditOutline, { size: 14 }),
     },
     // #102 两项标记动作：文案随状态翻转，勾选态走官方 Menu 的 selectedIds（✓）。
     {
@@ -1194,13 +1193,13 @@ export function SessionRow({
         },
         tr('menu.fork'),
       ),
-      icon: h(IconBranchOutline16, { size: 14 }),
+      icon: h(IconBranchOutline, { size: 14 }),
       disabled: node.blank,
     },
     {
       id: 'copyReference',
       label: h('span', { 'data-dshone-tree-item': 'copyReference' }, tr('menu.copyReference')),
-      icon: h(IconCopyOutline16, { size: 14 }),
+      icon: h(IconCopyOutline, { size: 14 }),
     },
     // 「移入回收站」= 本地可逆的一层（#103）：只有置顶被拦；运行中 / 未读 / 待交互都能移进去
     // （进去还能还原），所以它的判定结果与下面「归档」分开算。
@@ -1215,7 +1214,7 @@ export function SessionRow({
         },
         tr('menu.moveToRecycleBin'),
       ),
-      icon: h(IconTrashOutline16, { size: 14 }),
+      icon: h(IconTrashOutline, { size: 14 }),
       disabled: recycleBlocked !== null,
     },
     // 「归档会话」= 终点动作（#103 的归档 = 删除）：置顶与「状态还在动」的都不许归档。
@@ -1230,7 +1229,7 @@ export function SessionRow({
         },
         tr('menu.archiveSession'),
       ),
-      icon: h(IconArchiveOutline20, { size: 14 }),
+      icon: h(IconArchiveOutline, { size: 14 }),
       disabled: archiveBlocked !== null,
     },
   ]
@@ -1247,7 +1246,7 @@ export function SessionRow({
         setMenuOpen((open: boolean) => !open)
       },
     },
-    h(IconEllipsisOutline16, {}),
+    h(IconEllipsisOutline, {}),
   )
   // 选择态下整行只有「勾选」一个动作：打开会话、行菜单都先让位（与官方进入选择态
   // 后的处置一致——批量动作集中在分组过滤条下方那一条里给）。

@@ -1,11 +1,12 @@
 {
   "name": "@dsh-one/dsh-plugin-kit",
   "version": "0.1.0",
-  "description": "Build-time shared sources for dsh-one's portable plugins: the host capability port and the mount points.",
+  "description": "Build-time shared sources for dsh-one's portable plugins: the host capability port, the mount points and the official icon exports.",
   "private": true,
   "type": "module",
   "exports": {
     "./hostCapabilities": "./src/hostCapabilities.ts",
-    "./mountPoints": "./src/mountPoints.ts"
+    "./mountPoints": "./src/mountPoints.ts",
+    "./officialIcons": "./src/officialIcons.ts"
   }
 }

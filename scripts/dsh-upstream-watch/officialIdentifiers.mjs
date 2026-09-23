@@ -30,9 +30,14 @@
  *
  * 新增一条 = 在 `IDENTIFIERS` 里加一行（出处文件 + 形状 + 我方使用点），并在
  * `docs/dsh-compat-checklist.md` 的清单里登记。
+ *
+ * 另有一项不在 `IDENTIFIERS` 里：**我们取用的 26 枚官方图标的导出名**（#236）。它查的不是
+ * 某一个符号的形状，而是「两代名字里至少一个还在不在」——判据、为什么不读 combo 而读前端
+ * 产物，写在 `checkOfficialIconExports` 的文件头上。
  */
 import fs from 'node:fs'
 import path from 'node:path'
+import { OFFICIAL_ICON_NAMES, iconExportCandidates } from '../../src/pure/officialIcons.ts'
 
 /**
  * 必须仍然存在的官方内部标识符。
@@ -152,6 +157,83 @@ function expectPath(dep) {
 /** 出处文件在磁盘上的绝对路径：root 是 `…/@deepseek-ai`，其下每个包一层目录。 */
 function artifactPath(root, dep) {
   return path.join(root, dep.pkg.slice('@deepseek-ai/'.length), dep.file)
+}
+
+/**
+ * 我们取用的 26 枚官方图标在**官方前端产物**里的导出名是否还在（#236）。
+ *
+ * ## 为什么读前端产物、不读包文件
+ *
+ * 图标住在 `@deepseek-ai/dsh-client-ui-primitives`，但**这个包不在磁盘上**（实测：本机
+ * profile 的 `@deepseek-ai/` 下 252 个包里没有它）。官方前端是把 primitives 直接打进页面
+ * 自己那份 chunk 里（`@deepseek-ai/dsh-web-frontend/dist/assets/index-*.js`），页面运行时
+ * 再把那个模块的命名空间对象按模块 id 交给插件——我们的插件 require 到的就是这个对象。
+ * 所以「导出名还在不在」只有两个查法：跑起网关看运行时对象（慢、要鉴权），或者读磁盘上
+ * 那份 chunk 的导出表（本项走这条：离线、只读、与 `official-identifiers` 同一面）。
+ * chunk 里那份导出表是一张 `{ 导出名: 内部名 }` 的字面量（0.1.6-alpha.2 实测
+ * `…,IconCloseFill14:Ul,IconCloseOutline16:Vo,…`），所以「名字在不在」按整词查即可。
+ *
+ * ## 为什么不查 combo（`clientContract.mjs` 那一面）
+ *
+ * combo 是官方**插件**拼成的大文件，里面只有各插件**引用**过的那几个图标名。我们这 26 枚
+ * 里，官方插件自己用到的只有 18 枚（实测 0.1.7-alpha.2 的 `@deepseek-ai/dsh-client-ui-*`
+ * 各包：`IconChevronLeftOutline` / `IconCopyOutline` / `IconDownloadOutline` /
+ * `IconFolderOpenOutline` / `IconRefreshOutline` / `IconRightUpOutline` / `IconSettingsOutline` /
+ * `IconUserOutline` 这 8 枚官方自己没在这些插件里用过），查 combo 会把那 8 枚报成「上游删了」
+ * 的假红。导出表在 chunk 里，所以这一项落在本文件。
+ *
+ * ## 判据
+ *
+ * 逐枚查「这一代要的名字（`<基名><档位>`）或上一代的名字（尺寸后缀名）」**至少一个在场**，
+ * 两代任一在场即通过（两代名字的对照表 = `src/pure/officialIcons.ts`，与运行时挑名字用的
+ * 是同一份表、同一份顺序）。**两个都不在场就是 fail**，detail 里逐枚写清是哪一枚、这一代
+ * 要什么名、上一代要什么名——名字消失时页面上的表现是渲染崩成 React #130（元素类型是
+ * `undefined`），那句话看不出是哪枚图标，所以这一项的意义就是「当场报名字」。
+ */
+export function checkOfficialIconExports({ root, version, profile }) {
+  const assets = path.join(root, 'dsh-web-frontend', 'dist', 'assets')
+  const name = `官方图标导出名在场（我们取用的 ${OFFICIAL_ICON_NAMES.length} 枚，两代名字任一在场即通过）`
+  let files
+  try {
+    files = fs.readdirSync(assets).filter((file) => file.endsWith('.js')).sort()
+  } catch {
+    return {
+      id: 'official-icon-exports',
+      name,
+      status: 'fail',
+      detail: `读不到官方前端产物目录 ${assets}（读的是${profileLabel(profile)}）——图标名这一面未核实，不能当成没问题`,
+    }
+  }
+  if (files.length === 0) {
+    return {
+      id: 'official-icon-exports',
+      name,
+      status: 'fail',
+      detail: `${assets} 里没有 .js 产物——官方换了前端产物的打包方式，本项的取法要跟着改`,
+    }
+  }
+  let text = ''
+  for (const file of files) text += `${fs.readFileSync(path.join(assets, file), 'utf8')}\n`
+  const missing = []
+  for (const icon of OFFICIAL_ICON_NAMES) {
+    const candidates = iconExportCandidates(icon)
+    if (!candidates.some((candidate) => new RegExp(`\\b${candidate}\\b`).test(text))) {
+      missing.push(`\`${icon}\`（这一代要 \`${candidates[0]}\`、上一代要 \`${candidates[1]}\`，两个都不在）`)
+    }
+  }
+  return {
+    id: 'official-icon-exports',
+    name,
+    status: missing.length === 0 ? 'pass' : 'fail',
+    detail: missing.length === 0
+      ? `dsh ${version ?? 'unknown'}：${OFFICIAL_ICON_NAMES.length} 枚全部在场（读的是${profile}，${assets} 下 ${files.length} 个 js 产物、共 ${String(Math.round(text.length / 1024))} KB）`
+      : `dsh ${version ?? 'unknown'} 缺 ${missing.length} 枚：${missing.join('；')}——名字消失 = 我们按它取用的插件会静默变 \`undefined\`、渲染时才崩成 React #130（#236）`,
+  }
+}
+
+/** 出处目录是怎么来的（进 detail 便于定界）；没有说明时退回一句「被测树」。 */
+function profileLabel(profile) {
+  return typeof profile === 'string' && profile !== '' ? profile : '被测树'
 }
 
 /** 按真身解析符号链接；解不开就退回原路径（「文件在不在」由读文件那一步回答）。 */
