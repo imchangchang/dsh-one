@@ -1,0 +1,82 @@
+{
+  "title": "#240 会话置顶这份状态在 0.1.7 起归官方（读写官方注册表 + 旧代一次性补写迁移）验收报告",
+  "branch": "agent/dsh-017-official-session-pin-state",
+  "commit": "",
+  "environment": {
+    "mode": "浏览器验证（装配实验室：仓库真实模块 + 实验室自起的隔离实例［临时 DSH_HOME / 随机端口 / 跑完按 PID 收］+ 假宿主）+ 单测（node --test）+ 两道静态自检",
+    "dsh": "0.1.6-alpha.2（本机安装：整轮 + 旧代分支读数）；0.1.6-alpha.1（候选版本装到临时目录：受影响的套件）；0.1.7-alpha.2（候选版本装到临时目录：注册表分支读数）",
+    "locale": "zh（隔离实例的设置文档钉死）",
+    "theme": "dark",
+    "driver": "playwright chromium + test/assembly-lab/verify.ts（整轮 72 项，含新增的 F-71）",
+    "date": "2026-09-23"
+  },
+  "coverageNote": "覆盖：会话置顶这份状态的两代落点与迁移（读官方快照 / 写官方服务 / 旧代仍写自有 pinned 键 / 旧数据一次性补写并划账）、写入差量、幂等、探针依赖项、以及 0.1.6-alpha.2 上的整轮回归与 0.1.6-alpha.1 上受影响的套件。不覆盖：真 VS Code 窗口 / webview 宿主层（CSP、剪贴板、原生菜单、多 webview 生命周期）——本条改动全在插件与页面状态层，宿主层一个字节没碰。**未验到的一处如实记**：0.1.7-alpha.2 上「两个前端同时渲染、互相看得见对方的置顶」那一档验不了——那一版自有树与官方浏览区都整片起不来（同一页的 pageerror 逐字是 `renderSlot('root') before any 'root' registration (boot order)`，与 0.1.7-alpha.2 整片红的根因同源，另立 #232 / #236；本条 rebase 到含 #236 图标的集成线之后重跑仍是这个读数），所以 F-71 把这一档的每条都留成了**显式事实**，并把页面级读数改成从网关那一侧取（见 N-01）——#232 落地后同一套件会自动把这一组跑起来，不需要改判据。",
+  "items": [
+    {
+      "id": "N-01",
+      "phase": "new-feature",
+      "name": "0.1.7-alpha.2：旧的自有置顶被补写进官方工作区注册表、自有键被划空、再开页幂等、收尾还原（F-71 第①②④ 组）",
+      "expect": "往假宿主注入自有 `pinned` = 一条真会话后开自有树那一页：网关的工作区流里**出现这条 id**（官方注册表真的被写进去了，且推来的是一整份新集合），自有 `pinned` 键被划成空集合 `{version:1,sessionIds:[]}`；同一页重载一次（假宿主状态被初始化脚本重置回注入值 = 又一次开页）时 pin 类 API 调用**零新增**；套件收尾把这条取消，注册表回到开场那份集合。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "读数（F-71 断言 5/6，唯一那条红与 0.1.7 的页面起不来同源，见下面那两条事实）：① 代判定——网关的工作区流**带着置顶集合这一格**（开场 0 条），说明这台 0.1.7-alpha.2 上有官方置顶状态；② 迁移——整轮 pin 类 API 方法读数 `{\"workspace/pinSession\":1}`，且订阅收到的帧里那条 id 出现（写口与注册表两侧都对上）；③ 自有键——`{\"version\":1,\"sessionIds\":[]}`（注入的是 `[session-…]`，补写成功后划空）；④ 幂等——重载这一段 pin 类调用**新增 {}**（一次都不再发），自有键与注册表都不动；⑤ 收尾——注册表回到开场那份（0 条），实例不留痕迹。\n- 两条显式事实（条件不成立时照样看得见，不静默消失）：`自有树这一版没有渲染出任何会话行（侧栏槽位整片起不来）`、`官方浏览区这一版没有渲染出任何会话行（整页没起来）`，即第③组（两端渲染）整组没跑到；pageerror 逐字是 `renderSlot('root') before any 'root' registration (boot order)`（两行），与 0.1.7-alpha.2 整片红的根因一致，不是本条改出来的。\n- 这一档 0.1.7 上两个前端都不渲染，没有可看的截图（0.1.6 上同一套件的截图见 N-03）。"
+    },
+    {
+      "id": "N-02",
+      "phase": "new-feature",
+      "name": "负向对照：把那条分叉掐掉（只认自有 pinned 键），同一现场必须红",
+      "expect": "在 0.1.7-alpha.2 上把 `registryPinnedIds` 改成恒 `null`（= 改前那套「置顶只住自有键」的行为）后跑同一条 F-71：迁移那两条必须红——注册表里不会出现这条 id，自有键也不会被划空。缺了这一档就说明不了判据真的抓得住「两份状态」。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "读数：F-71 从 **5/6 掉到 3/6**，红的两条逐字是「迁移：网关注册表里出现这条会话（自有键里那份旧置顶真的补写进了官方状态）」（详情：`注册表读数=null`，自有键仍是 `{\"version\":1,\"sessionIds\":[\"session-…\"]}`）与「迁移收尾：自有 pinned 键被划成空集合」（详情：`pinned={\"version\":1,\"sessionIds\":[\"session-…\"]} expected={\"version\":1,\"sessionIds\":[]}`）。剩下的红仍是那条 `boot order` 的 pageerror（两档都在，非本条引入）。对照做完立刻把补丁撤回（`git checkout -- src/pure/sessionPinSource.ts`），交付分支里没有这个改动。"
+    },
+    {
+      "id": "N-03",
+      "phase": "new-feature",
+      "name": "0.1.6-alpha.2（旧代）：置顶仍住自有键、行为不变；自有树上的置顶标记与「排组内第一」照旧（F-71 第①②③ 组）",
+      "expect": "同一套件在本机装的 0.1.6-alpha.2 上：网关的工作区流**没有**置顶集合这一格（这一代没有官方置顶状态），注入的自有 `pinned` 键**原样保留**、整轮零 pin 类 API 调用；自有树与官方浏览区都渲染出全部会话行；在自有树上置顶一条会话之后那一行带图钉并排到自己那一组第一（旧代行为逐字不变）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/f-71-official-pin-own-side.png",
+        "/tmp/dsh-sandbox-shots/f-71-official-pin-direction-one.png"
+      ],
+      "notes": "读数：F-71 **12/12 全过**（8.4 秒）。逐条：① 代判定——`网关的工作区流里没有置顶集合这一格`；② 自有键 `{\"version\":1,\"sessionIds\":[\"session-…\"]}` 原样保留、`pin 类 API 方法读数：{}`（一次都没发）；③ 自有树渲染出 **17** 条会话行 / 5 个分组，官方浏览区也渲染出 **17** 条；④「方向零」注入那条带图钉；⑤「方向一」置顶另一条（另一个工作区）后它排到组内第一；⑥ 旧代那两条「官方那一页……」按不适用通过（文案里写明「本机这一版没有官方置顶状态」）；⑦ 收尾「旧代没有官方置顶状态要还原」通过；⑧ 零 pageerror。\n- 截图 1 `f-71-official-pin-own-side.png`：自有树里被注入置顶的那一行（Lab-Alpha task 3）带图钉、且在 Lab-Alpha 组第一。\n- 截图 2 `f-71-official-pin-direction-one.png`：在自有树上置顶 Lab-Beta 的一条之后那一页（旧代这一档不动官方状态，行与顺序都按自有键走）。"
+    },
+    {
+      "id": "N-04",
+      "phase": "new-feature",
+      "name": "分叉判据、差量与帧解析的确定性判据（单测）+ 探针依赖项真的钉住",
+      "expect": "`sessionPinSource` 的分叉判据（快照有没有那一格）、写入差量、幂等形状逐条有单测；工作区流的帧解析把「基线里有没有那一格」如实带出来（缺席 ≠ 空表）；探针 `clientContract.mjs` 的 `IDENTIFIER_DEPENDENCIES` 新增 `pinnedSessionIds` 与 `pinSession` / `unpinSession`，且「清单与源码绑死」那条单测仍然过。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "`node --test test/sessionPinSource.test.ts`：9/9 过（名字常量 = 官方原词；读：有那一格给清洗后的集合、没有给 `null`、形状不对也给 `null`；写：那两条都在场才算可用；差量：只对变化的 id 发动作、顺序不算变化、重复交回第二次两条都空）；`node --test test/remoteFrames.test.ts`：7/7 过（基线**没有**那一格时不给空表、给了就按 id 清洗）；`node --test test/upstreamClientContract.test.ts`：18/18 过（新加两组依赖跑通了「抽掉字段名必红」「作用域限定生效」「清单里每个名字都能在源码里找到取用点」三道）。\n- 探针那两组依赖的出场证据（0.1.7-alpha.2 的官方产物，逐条读过）：`WorkspaceSnapshot.pinnedSessionIds` 注释原话「Complete **registry-global** pin set, most recently pinned first」；`SessionRowState.pinnedSessionIds` 注释「Registry-global pin ids; pinned rows lead their section in the local order」；`UiWorkspace.pinSession` 注释「Pin a Session **on the Host**, then lead it in its accounts' saved orders（its Workspace group or Ungrouped, and the flat list）」；`unpinSession`「Unpin a Session on the Host; saved positions stay as they are」；线协议 `workspace/follow` 基线多一格 + 一路 `pinned` 增量帧，写口 `workspace/pinSession` / `workspace/unpinSession`（typert 描述符，参数 `{request:{sessionId}}`）。0.1.6-alpha.2 的 controller client 面上 grep `pinSession` 为空——这就是版本分叉的存在性判据。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "整轮浏览器验证（`npm run verify:lab`，本机 0.1.6-alpha.2，含集成线并入后的 72 项）",
+      "expect": "整轮零红（含新增的 F-71 与集成线带来的 F-70）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "读数：**72 项全部 PASS、3673 / 3673 条断言全过**（含 F-71 12/12、F-14 置顶与未读 27/27、F-53 抽屉里的图钉 102/102、F-01 底座契约 43/43、R-06 零越界 6/6）。报告：`test/assembly-lab/out/verify.lab.report.html`（注：这一轮之后同目录又跑过一次更小的 0.1.6-alpha.1 单套件轮，磁盘上那份报告已被覆盖，重跑 `npm run verify:lab` 即得同样读数）。\n- 与本条直接相关的既有套件都在这一轮里跑到了：F-14 断言旧代仍写自有 `pinned` 键（`取消置顶写回 pinned 键（空集合）`等）、F-53 断言抽屉里的置顶图钉与主树同一枚——都是老的判据原样通过，说明旧代那条路没有被我这次改动改坏。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "`npm test` + `npm run typecheck` + `npm run build` + 两道静态自检",
+      "expect": "全过；i18n 与平台兼容性自检都不报缺项。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "`npm test` → **1161 条、1161 通过、0 失败**（新增 `test/sessionPinSource.test.ts` 9 条；`test/remoteFrames.test.ts` 与 `test/upstreamClientContract.test.ts` 是既有文件的增量）。`npm run typecheck` 无输出（通过）；`npm run build` 成功。`scripts/check-i18n.sh`：`OK：… 新增行无 i18n 漏同步`（新增文案 `pin.failed` 的 zh / en 两份都在）。`scripts/check-platform-compat.sh`：`OK：… 没有平台分支代码、也没有状态分支（无需声明文件）`——本条新增的按状态分叉（快照里有没有那一格）不命中门禁的三类形状（判据见 `docs/development.md`），两代的落点改在 N-01 / N-02 / N-03 里逐档给读数。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "0.1.6-alpha.1（另一个实测通过版本）：受影响的套件",
+      "expect": "F-71（旧代分支）与 F-14（置顶/未读的既有行为）都全绿，退出码 0。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "读数（候选版本 0.1.6-alpha.1 装到临时目录、跑 `node scripts/verify-lab-version.mjs 0.1.6-alpha.1 --suite F-71,F-14`）：**F-14 27/27、F-71 12/12、R-06 6/6，退出码 0**。这一版工作区流里同样没有置顶集合那一格（旧代分支），F-71 的第③组（两端渲染）在这一版上真的跑到了。"
+    }
+  ]
+}
