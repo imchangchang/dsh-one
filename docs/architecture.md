@@ -163,7 +163,7 @@ dsh-one/
 | --- | --- | --- |
 | globalStorage（per user-data） | dsh 的 stdout/stderr 日志 `dsh-web.log`（每次 spawn 截断） | 扩展（shell 关注点） |
 | `~/.dsh/dsh-owned.json` | 共享身份记录：owner、pid、端口、token、`source` | 扩展（shell 关注点；另一 user-data 的窗口靠它认证式 adopt） |
-| `~/.dsh/dsh-one/*.json` | **插件状态**：回收站名单、分组定义、标签组、置顶、未读 | 宿主半的状态存储模块（VS Code 侧由扩展宿主代行同一份模块，见 §9 决策 7） |
+| `~/.dsh/dsh-one/*.json` | **插件状态**：回收站名单、分组定义、标签组、未读，以及**0.1.6 及以下**的置顶 | 宿主半的状态存储模块（VS Code 侧由扩展宿主代行同一份模块，见 §9 决策 7）。**0.1.7 起的置顶不在这里**：官方侧栏自带的置顶状态住官方工作区注册表（快照的 `pinnedSessionIds`），我们跟着读官方快照、写官方 `pinSession` / `unpinSession`；旧键里那份置顶在首次开页时一次性补写进官方并划掉（#240，见 `src/pure/sessionPinSource.ts`） |
 | `~/.dsh`（其余） | 会话日志、workspace 注册表、`settings.yaml` | dsh 自己，扩展不读写 |
 
 VS Code 的 `globalStorage` / `workspaceState` / Memento 只允许用于 shell 自身的基础设施（进程管理、代理生命周期、面板布局、旧侧栏的展开折叠这类纯视图态与窗口态），插件状态一律不落那里——理由是双端复用（官方 web 拿不到 VS Code 的存储）与语义一致（dsh 插件的状态就该在 dsh 里）。今天实际用到的：`workspaceState` 一个键 `dshOne.assemblyAutoOpened`（记「本窗口已经把对话区自动打开过一次」），`globalState` 里是旧侧栏留下的折叠态与几个只用于迁移读取的旧键。
@@ -208,7 +208,7 @@ dsh 上游出于安全只监听 `127.0.0.1`（拒绝 `--host 0.0.0.0`），所�
 | `panelInfo` | `usePanelInfo` | 官方 ui-layout；被我们 block 后由自有 frame 补上 | 0.1.6 起官方的会话树与右侧栏读它，缺了挂载即抛 `usePanelInfo is not a function` |
 | `sessions` | `useSessions` | 官方 ui-session | 自有工作区树的会话数据全部来自它 |
 | 会话等待态：`sessionStatus`（新）/ `sessionPendingInteraction`（旧） | `useSessionStatus` / `useSessionPendingInteraction` | 官方 ui-session | 侧栏会话行的状态点（等审批/等提问）按它渲染；名字表在 `src/pure/sessionPendingSource.ts`（新→旧两代） |
-| `workspaces` | `useWorkspaces` | 官方 ui-workspace | 自有树的分组树数据来自它 |
+| `workspaces` | `useWorkspaces` | 官方 ui-workspace | 自有树的分组树数据来自它；同一份快照里的 `archivedSessionIds` 与 `pinnedSessionIds`（置顶那份 0.1.7-alpha.1 起才有，见 `src/pure/sessionPinSource.ts`）也由它读 |
 
 #### 用到的官方预留 seam
 

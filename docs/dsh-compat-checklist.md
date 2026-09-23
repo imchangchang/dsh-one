@@ -27,6 +27,29 @@ dsh-one 是 dsh 的客户端（gateway HTTP/WS RPC + webview 嵌入），上游�
 
 有一处已知不严：它是**整段判断**，表达不了「落在区间内但实测坏」的版本——`0.1.7-alpha.2` 就是这种（区间内，整片红）。要不要再加一份「已知不可用」的名单，留给 #234 后续条目定；在那之前只能靠上表与 README 的版本表说清，所以两条声明里都必须把 0.1.7-alpha.2 单列出来。
 
+### 会话置顶这份状态住哪：0.1.7 起在官方注册表（我们跟着合流）
+
+官方 0.1.7-alpha.1 给侧栏加了会话置顶，状态存在**官方工作区注册表**里：读是工作区快照的
+`pinnedSessionIds`（全局一份，与 `archivedSessionIds` 同一份快照），写是
+`uiWorkspace.pinSession(sessionId)` / `unpinSession(sessionId)`。0.1.6 及以下这两样都没有。
+
+我们在 `sidebar.workspaces` 槽位上遮蔽官方侧栏，官方那套置顶 UI 在 dsh-one 的树里不渲染——
+状态不合流就是**同一件事两份互不相干的集合**（用户在官方 web 里置顶的，在 dsh-one 的树里
+不算置顶，反过来也一样），而同一件事的归档我们早就走官方状态。#240 起：
+
+- **0.1.7 及以上**：我们的树读官方那份集合（置顶标记与「置顶排最前」都按它）、写走官方
+  `pinSession` / `unpinSession`；
+- **0.1.6 及以下**：仍读写自有 `pinned` 键（`~/.dsh/dsh-one/pinned.json`），行为一个字节不变；
+- 分叉判据是「这一页的官方产物里有没有那一格 / 那两个方法」，**不猜版本号**（自定义 profile
+  换过插件时版本号答不准）；判定、字段名与写入差量在 `src/pure/sessionPinSource.ts`；
+- 旧键里已有的置顶在 0.1.7 上**一次性补写**进官方（补写成功的那些从键里划掉，失败的留着
+  下次开页再试——旧键补空之后这一步再来什么都不做，所以它既一次性又幂等）。
+
+读数（F-70，同一台实例上同时开自有树页与官方浏览区页，两个方向都读**页面上渲染出来的
+东西**）：补写之后官方那一页也显示它置顶；在自有树上置顶一条会话，官方那一页上它同样排到
+组内第一；在官方那一页上取消置顶，自有树重载后它不再置顶。0.1.6-alpha.2 上同一套件走的是
+旧代分支（自有键原样保留、置顶照旧），整轮零回归。
+
 ### 0.1.7-alpha.2 实测不通：官方改图标名，自有插件整片崩
 
 `@deepseek-ai/dsh-client-ui-primitives` 的图标导出在 0.1.7-alpha.2 整批换了一代写法：0.1.6-alpha.2 是尺寸后缀（`IconCloseFill14`、`IconArchiveOutline20`），0.1.7-alpha.2 是字重后缀（`IconCloseFillMedium` / `IconCloseFillRegular`），两代**互不重叠**。模块加载器按名字取导出，取不到不报错、只是 `undefined`，于是渲染时才炸：`slot entry crashed in 'sidebar.workspaces': Error: Minified React error #130`。
@@ -88,7 +111,7 @@ dsh-one 是 dsh 的客户端（gateway HTTP/WS RPC + webview 嵌入），上游�
 | client-combo-index | 取法前提：combo 的插件段边界可切、官方 slot 契约目录可取 | 段数 ≥ 40 且每段 id 可读、契约目录 ≥ 30 条；不成立说明官方改了 combo 结构，按该文件注释核对取法 |
 | client-slots | 14 组关键 slot 名在场（遮蔽目标 `sidebar.workspaces`、会话面板座 keyed `main`/single `conversation`、右列座 `rightbar`/`details`、`sidebar`、`shell.overlay`、`settings.section/header/action`、各注入点…） | 每个名字要么在契约目录里、要么有注册/注入/渲染调用点；同名换代（如 `details`→`rightbar`）算同一组，任一代在场即通过 |
 | client-root-hooks | 4 条 root 级 hook 在场：`panelInfo`、`sessions`、会话等待态（`sessionStatus` / `sessionPendingInteraction` 两代）、`workspaces`，外加框架映射出的槽位 props `use<Name>` | 每条要求「provideRoot 里有这个键」且「`use<Name>` 这个 props 名在 combo 里」——#76 的 `usePanelInfo is not a function` 就落在这一条上；换过名的依赖（等待态）两组命名任一代在场即通过，名字表从产品侧 `src/pure/sessionPendingSource.ts` import，不手写 |
-| client-identifiers | 我们取用过的 15 组字段/方法名在场（composer 附件字段与动作两代名、`setDraft`、`draftRev`、`insertReference`、`activePanelId`、`entryKey`、工作区的 `archivedSessionIds` / `sessionIds` / `workspaceId` 与 `startSession`（注入目标开不了时落到新对话页的入口，#211）、会话快照 `byId`、等待态取值名 `pendingInteraction` / `pendingInteractions`…） | 每个名字要在它该来的插件段里出现（例如附件字段只认 ui-conversation）——#78 抓到的 `imageIds`→`attachmentIds` 就是这一类 |
+| client-identifiers | 我们取用过的 17 组字段/方法名在场（composer 附件字段与动作两代名、`setDraft`、`draftRev`、`insertReference`、`activePanelId`、`entryKey`、工作区的 `archivedSessionIds` / `pinnedSessionIds` / `pinSession` / `unpinSession`（会话置顶，0.1.7-alpha.1 起；#240）/ `sessionIds` / `workspaceId` 与 `startSession`（注入目标开不了时落到新对话页的入口，#211）、会话快照 `byId`、等待态取值名 `pendingInteraction` / `pendingInteractions`…） | 每个名字要在它该来的插件段里出现（例如附件字段只认 ui-conversation）——#78 抓到的 `imageIds`→`attachmentIds` 就是这一类 |
 
 失败信息的形式：`dsh <当前版本> 缺 N 组：<名字>（期望出处 <官方源码路径>；我方使用点 src/…）`，照它去查官方 release notes 或改我们的取用路径。
 

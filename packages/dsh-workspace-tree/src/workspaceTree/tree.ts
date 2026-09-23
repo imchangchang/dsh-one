@@ -161,8 +161,17 @@ export function WorkspaceTree(props: TreeProps): unknown {
    * （`registryPinnedIds` 给 `null` → 这里 `undefined`），那时置顶仍读自有 `pinned`
    * 键。这样分叉的理由与代价写在 `pure/sessionPinSource.ts` 的文件头：状态住哪儿是
    * 官方产物的形状问题，按在场与否判，不猜版本号。
+   *
+   * 钩子里取的是**快照上那一格本身**、清洗放进 `useMemo`：钩子的选择器每次渲染都会被
+   * 调，这里返回新建的数组会让「这次和上次是不是同一个值」永远判为变了
+   * （`useSyncExternalStore` 口径下就是「getSnapshot 的返回值没缓存」），清洗必须挂在
+   * 那一格的引用上（官方那份快照只在置顶集合真变时才换新数组）。
    */
-  const registryPinned = useWorkspaces((state) => registryPinnedIds(state) ?? undefined)
+  const registryPinnedField = useWorkspaces((state) => state.pinnedSessionIds)
+  const registryPinned = useMemo(
+    () => registryPinnedIds({ pinnedSessionIds: registryPinnedField }) ?? undefined,
+    [registryPinnedField],
+  )
   /**
    * 官方会话等待态（#184）：两代各一条 root 钩子——0.1.6-alpha.2 起是 `sessionStatus`
    * （会话状态表，等待态在 `status.pendingInteraction` 那一格），此前是
