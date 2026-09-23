@@ -70,22 +70,21 @@
  * （`uiWorkspace.pickDirectory`，第 2 层机制）——见 workspaceTreePlugin 的注入面。
  */
 import { createElement as h, useEffect, useRef, useState } from 'react'
-import {
-  IconChecklistOutline14,
-  IconCloseFill14,
-  IconFolderOpenOutline16,
-  IconPlusOutline16,
-  IconProjectAddOutline16,
-  IconSearchOutline16,
-  IconSettingsOutline16,
-  Menu,
-  Tooltip,
-} from '@deepseek-ai/dsh-client-ui-primitives'
+import { Menu, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { officialIcon } from '@dsh-one/dsh-plugin-kit/officialIcons'
 import { COLLAPSE_ALL_GLYPH_TRANSFORM, COLLAPSE_ALL_GLYPHS, type CollapseAllGlyph } from './collapseAllGlyph.ts'
 import { GroupFilterBar } from './groupFilterBar.ts'
 import { SEARCH_QUERY_MAX } from './search.ts'
 import type { WorkspaceGroupDef } from '../../../../src/pure/treeGroups.ts'
 import type { Translate } from './types.ts'
+
+const IconChecklistOutline = officialIcon('IconChecklistOutline')
+const IconCloseFill = officialIcon('IconCloseFill')
+const IconFolderOpenOutline = officialIcon('IconFolderOpenOutline')
+const IconPlusOutline = officialIcon('IconPlusOutline')
+const IconProjectAddOutline = officialIcon('IconProjectAddOutline')
+const IconSearchOutline = officialIcon('IconSearchOutline')
+const IconSettingsOutline = officialIcon('IconSettingsOutline')
 
 /**
  * 「折叠 / 展开全部」那枚图标（#118）：方框加减号，自绘 SVG。
@@ -218,7 +217,7 @@ export function TopBar(props: TopBarProps): unknown {
       label: h('span', { 'data-dshone-tree-item': 'workspace-pick' }, tr('workspace.pickFolder')),
       // 图标位 14×14：紧凑档的项内图标盒就是 14×14（官方 `._itemIcon_1nxmc_144`），
       // 官方 16 档图标塞进去会溢出一圈，所以按官方给的显式尺寸参数打 14（官方自己也这么用）。
-      icon: h(IconFolderOpenOutline16, { size: 14 }),
+      icon: h(IconFolderOpenOutline, { size: 14 }),
     },
     ...(props.onCreateWorkspaceFolder === undefined
       ? []
@@ -226,7 +225,7 @@ export function TopBar(props: TopBarProps): unknown {
           {
             id: 'create-folder',
             label: h('span', { 'data-dshone-tree-item': 'workspace-create' }, tr('workspace.create')),
-            icon: h(IconPlusOutline16, { size: 14 }),
+            icon: h(IconPlusOutline, { size: 14 }),
           },
         ]),
   ]
@@ -272,7 +271,7 @@ export function TopBar(props: TopBarProps): unknown {
               onClick: expandSearch,
             },
             // 官方两态的图标尺寸不同：折叠 14、展开 11（`size: searchExpanded ? 11 : 14`）。
-            h(IconSearchOutline16, { size: searchExpanded ? 11 : 14 }),
+            h(IconSearchOutline, { size: searchExpanded ? 11 : 14 }),
           ),
         }),
         searchExpanded
@@ -305,7 +304,7 @@ export function TopBar(props: TopBarProps): unknown {
                   collapseSearch()
                 },
               },
-              h(IconCloseFill14, {}),
+              h(IconCloseFill, {}),
             )
           : null,
       ),
@@ -367,7 +366,7 @@ export function TopBar(props: TopBarProps): unknown {
               'data-dshone-tree-action': 'add-workspace',
               onClick: () => setAddOpen((open: boolean) => !open),
             },
-            h(IconProjectAddOutline16, { size: 16 }),
+            h(IconProjectAddOutline, { size: 16 }),
           ),
         }),
       }),
@@ -387,7 +386,7 @@ export function TopBar(props: TopBarProps): unknown {
                 'data-dshone-tree-action': 'settings',
                 onClick: props.onOpenSettings,
               },
-              h(IconSettingsOutline16, { size: 16 }),
+              h(IconSettingsOutline, { size: 16 }),
             ),
           }),
       // #81 已有的多选入口（#131 起它前面那枚「视图选项」退役，这一枚位置不变）。
@@ -405,7 +404,7 @@ export function TopBar(props: TopBarProps): unknown {
             'data-dshone-tree-action': 'select-mode',
             onClick: props.onToggleSelectMode,
           },
-          h(IconChecklistOutline14, { size: 16 }),
+          h(IconChecklistOutline, { size: 16 }),
         ),
       }),
     ),

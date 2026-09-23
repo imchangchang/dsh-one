@@ -31,20 +31,19 @@
  * 不必等 drop 才读（外部拖进来的文本不会被误当成会话）。
  */
 import { createElement as h, useState } from 'react'
-import {
-  IconArchiveOutline20,
-  IconEditOutline16,
-  IconEllipsisOutline16,
-  IconPlusOutline16,
-  IconTrashOutline16,
-  IconTriangleRightFill14,
-  Menu,
-  StateDot,
-} from '@deepseek-ai/dsh-client-ui-primitives'
+import { Menu, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { officialIcon } from '@dsh-one/dsh-plugin-kit/officialIcons'
 import { tagGroupCounts, tagGroupDisplayName, type TagGroupDef } from '../../../../src/pure/sessionTagGroups.ts'
 import type { SessionNode } from '../../../../src/pure/workspaceTreeView.ts'
 import { TAG_COLORS, isPresetTagId, type TagColor } from '../../../../src/pure/sessionTags.ts'
 import type { Translate } from './types.ts'
+
+const IconArchiveOutline = officialIcon('IconArchiveOutline')
+const IconEditOutline = officialIcon('IconEditOutline')
+const IconEllipsisOutline = officialIcon('IconEllipsisOutline')
+const IconPlusOutline = officialIcon('IconPlusOutline')
+const IconTrashOutline = officialIcon('IconTrashOutline')
+const IconTriangleRightFill = officialIcon('IconTriangleRightFill')
 
 /** 会话行拖拽的载荷类型（旧侧栏同名）。 */
 export const SESSION_DRAG_MIME = 'text/dsh-session'
@@ -125,18 +124,18 @@ export function tagGroupMenuItems(opts: {
   const label = (id: string, text: string): unknown => h('span', { 'data-dshone-tree-item': id }, text)
   return [
     { type: 'label', id: 'tag-menu-title', text: tr('tag.menu.title', { name }) },
-    { id: 'tag-new-session', label: label('tag-new-session', tr('tag.newSession')), icon: h(IconPlusOutline16, { size: 14 }) },
+    { id: 'tag-new-session', label: label('tag-new-session', tr('tag.newSession')), icon: h(IconPlusOutline, { size: 14 }) },
     {
       id: 'tag-archive',
       label: label('tag-archive', tr('tag.archive', { n: total })),
-      icon: h(IconArchiveOutline20, { size: 14 }),
+      icon: h(IconArchiveOutline, { size: 14 }),
       disabled: archivable === 0,
       ...(archivable === 0 ? { title: tr('tag.archive.none') } : {}),
     },
     {
       id: 'tag-recycle',
       label: label('tag-recycle', tr('tag.recycle', { n: total })),
-      icon: h(IconTrashOutline16, { size: 14 }),
+      icon: h(IconTrashOutline, { size: 14 }),
       disabled: recyclable === 0,
       ...(recyclable === 0 ? { title: tr('tag.recycle.blocked') } : {}),
     },
@@ -144,7 +143,7 @@ export function tagGroupMenuItems(opts: {
     // 预设组不可改名：这一项整个不出现（动作层也拒，见 tree.ts 的 onTagMenuSelect）。
     ...(preset
       ? []
-      : [{ id: 'tag-rename', label: label('tag-rename', tr('tag.rename')), icon: h(IconEditOutline16, { size: 14 }) }]),
+      : [{ id: 'tag-rename', label: label('tag-rename', tr('tag.rename')), icon: h(IconEditOutline, { size: 14 }) }]),
     { type: 'separator', id: 'tag-color-separator' },
     { type: 'label', id: 'tag-color-label', text: tr('tag.color') },
     ...TAG_COLORS.map((candidate) => ({
@@ -160,7 +159,7 @@ export function tagGroupMenuItems(opts: {
           {
             id: 'tag-delete',
             label: label('tag-delete', tr('tag.delete')),
-            icon: h(IconTrashOutline16, { size: 14 }),
+            icon: h(IconTrashOutline, { size: 14 }),
             danger: true,
           },
         ]),
@@ -296,7 +295,7 @@ export function TagGroupBlock({
         setMenuOpen((open: boolean) => !open)
       },
     },
-    h(IconEllipsisOutline16, {}),
+    h(IconEllipsisOutline, {}),
   )
 
   const head = h(
@@ -358,7 +357,7 @@ export function TagGroupBlock({
           onToggleCollapse()
         },
       },
-      h(IconTriangleRightFill14, { className: `dshOneTree_tagArrow${collapsed ? '' : ' dshOneTree_tagArrowOpen'}` }),
+      h(IconTriangleRightFill, { className: `dshOneTree_tagArrow${collapsed ? '' : ' dshOneTree_tagArrowOpen'}` }),
     ),
     // 折叠态才出计数（展开时每行自己带状态点，再数一遍是噪音）。
     collapsed && hasCounts

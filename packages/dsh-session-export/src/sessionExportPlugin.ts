@@ -23,7 +23,7 @@
  *   each cell in priority order — what outlets render」（SlotCore.entriesOfSlot）。
  *   所以本插件用**同一个 id + priority -1** 注册自己的按钮：官方那条仍在注册表里
  *   （它的 `sessionLogDownload` 服务、locale 词典、`command/executed` 钩子照常存活），
- *   只是不再渲染。外观复刻官方胶囊（Button outline sm + IconDownloadOutline16）。
+ *   只是不再渲染。外观复刻官方胶囊（Button outline sm + IconDownloadOutline）。
  * - **层 2（官方服务 API）**：导出路径用官方既有的 `/api/session.export` 路由（同一
  *   条官方路由，不改网关、不加接口）；下载动作走宿主能力口。
  * - **不再用 CSS 兜**（#87 的教训）：这条遮蔽曾经是「该 slot 内一切非自有条目
@@ -33,9 +33,12 @@
  *   也写在 AGENTS.md 的「官方机制优先，禁 hack」里。
  */
 import { createElement as h, useState } from 'react'
-import { Button, IconDownloadOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { officialIcon } from '@dsh-one/dsh-plugin-kit/officialIcons'
 import { hostCapabilities, type CapabilityContext } from '@dsh-one/dsh-plugin-kit/hostCapabilities'
 import { sessionExportFileName, sessionExportPath, shouldReportExportFailure } from '../../../src/pure/sessionExport.ts'
+
+const IconDownloadOutline = officialIcon('IconDownloadOutline')
 
 // 自有按钮自身的样式（层 4，仅作用于自有标记）：官方胶囊的呈现由层 1 的遮蔽处理，
 // 这里没有一条规则瞄准别人的元素。
@@ -80,7 +83,7 @@ function SessionExportAction({ sessionId, t, capabilities }: ExportProps) {
       Button,
       { variant: 'outline', size: 'sm', onClick },
       tr('export'),
-      h(IconDownloadOutline16, { size: 12 }),
+      h(IconDownloadOutline, { size: 12 }),
     ),
     error === null ? null : h('span', { className: 'dshOneExport_error', title: error }, tr('failed')),
   )

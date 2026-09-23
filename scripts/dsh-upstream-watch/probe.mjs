@@ -28,7 +28,7 @@
  */
 import { batchesToScan, checkClientContract } from './clientContract.mjs'
 import { checkBlockListDrift } from './blockListDrift.mjs'
-import { checkOfficialIdentifiers, resolveRealpath } from './officialIdentifiers.mjs'
+import { checkOfficialIconExports, checkOfficialIdentifiers, resolveRealpath } from './officialIdentifiers.mjs'
 import { commandsExecuteArgs } from '../../src/pure/dshWire.ts'
 import {
   CHAT_BLOCKED_IDS,
@@ -322,16 +322,19 @@ async function main() {
     record(r.id, r.name, r.status, r.detail)
   }
 
-  // 22-23. 官方产物面（#179 / #227）：读本机已安装的官方包，两项共用一次目录解析
+  // 22-24. 官方产物面（#179 / #227 / #236）：读本机已安装的官方包，三项共用一次目录解析
   {
     const found = findOfficialRoot(opts, dshHome)
     if (found.root === null) {
       const why = `找不到官方产物目录（找过：${found.tried.join('、')}）——这一面未核实，不能当成没问题`
       record('official-identifiers', '官方内部标识符在场（本机官方产物，存在性检查）', 'fail', why)
+      record('official-icon-exports', '官方图标导出名在场（我们取用的 26 枚，两代任一在场即通过）', 'fail', why)
       record('block-list-drift', 'block list 补全（按官方服务依赖离线算出）', 'fail', why)
     } else {
       const r = checkOfficialIdentifiers({ root: found.root, version, profile: found.profile })
       record(r.id, r.name, r.status, r.detail)
+      const i = checkOfficialIconExports({ root: found.root, version, profile: found.profile })
+      record(i.id, i.name, i.status, i.detail)
       const d = checkBlockListDrift({ root: found.root, version, profile: found.profile, trees: BLOCK_LIST_TREES })
       record(d.id, d.name, d.status, d.detail)
     }

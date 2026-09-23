@@ -14,15 +14,8 @@
  * 判定沿用 `tagGroups.ts` 的 pill 拖拽那一套，详见 {@link ManageGroupsModal}。
  */
 import { createElement as h, useEffect, useRef, useState } from 'react'
-import {
-  Button,
-  IconCheckOutline16,
-  IconChevronLeftOutline14,
-  IconCloseFill14,
-  IconEditOutline16,
-  IconTrashOutline16,
-  Modal,
-} from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { officialIcon } from '@dsh-one/dsh-plugin-kit/officialIcons'
 import type { SessionBlock } from '../../../../src/pure/workspaceTreeView.ts'
 import type { WorkspaceGroupDef } from '../../../../src/pure/treeGroups.ts'
 import { TAG_COLORS, type TagColor } from '../../../../src/pure/sessionTags.ts'
@@ -31,6 +24,12 @@ import { GROUP_DRAG_MIME } from './groups.ts'
 import { SelectMark } from './selection.ts'
 import { TAG_COLOR_CSS, TAG_COLOR_LABEL, carries, leavingContainer, type DragLike } from './tagGroups.ts'
 import type { Translate } from './types.ts'
+
+const IconCheckOutline = officialIcon('IconCheckOutline')
+const IconChevronLeftOutline = officialIcon('IconChevronLeftOutline')
+const IconCloseFill = officialIcon('IconCloseFill')
+const IconEditOutline = officialIcon('IconEditOutline')
+const IconTrashOutline = officialIcon('IconTrashOutline')
 
 /** 弹窗容器的自有类名（挂在官方 Modal 的 dialog 元素上，几何见 styles.ts 那一节）。 */
 const MODAL_CLASS = 'dshOneTree_modal'
@@ -54,7 +53,7 @@ function modalHead(title: string, closeLabel: string, onClose: () => void, leadi
     h(
       'button',
       { type: 'button', className: 'dshOneTree_modalClose', 'aria-label': closeLabel, onClick: onClose },
-      h(IconCloseFill14, {}),
+      h(IconCloseFill, {}),
     ),
   )
 }
@@ -371,7 +370,7 @@ export function TagGroupCreateModal({
               'data-dshone-tag-color': candidate,
               onClick: () => setColor(candidate),
             },
-            candidate === color ? h(IconCheckOutline16, { size: 12 }) : null,
+            candidate === color ? h(IconCheckOutline, { size: 12 }) : null,
           ),
         ),
       ),
@@ -706,7 +705,7 @@ export function ManageGroupsModal({
         'data-dshone-group-target': groupId,
         onClick: () => (action === 'rename' ? onRename(groupId, name) : onDelete(groupId, name)),
       },
-      action === 'rename' ? h(IconEditOutline16, {}) : h(IconTrashOutline16, {}),
+      action === 'rename' ? h(IconEditOutline, {}) : h(IconTrashOutline, {}),
     )
   /** 指针在目标行中轴的哪一半（上 = 插到它前面）。与 pill 拖拽同一条判定，不另立一套。 */
   const dropBefore = (event: DragLike): boolean => {
@@ -816,7 +815,7 @@ export function ManageGroupsModal({
                 setMemberQuery('')
               },
             },
-            h(IconChevronLeftOutline14, { size: 14 }),
+            h(IconChevronLeftOutline, { size: 14 }),
           ),
         ),
         h(
