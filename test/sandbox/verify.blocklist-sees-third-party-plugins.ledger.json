@@ -1,0 +1,101 @@
+{
+  "title": "DSH One 任务报告：#242 算挡掉清单与漂移监控看得见 profile 里的第三方插件",
+  "branch": "agent/blocklist-sees-third-party-plugins",
+  "commit": "8806c997",
+  "environment": {
+    "mode": "浏览器验证（装配实验室：仓库真实模块 + 实验室自起的隔离实例［临时 DSH_HOME / 随机端口 / 跑完按 PID 收］+ 假宿主）+ 离线判据的两层单测（node --test，合成产物铺在 scratch 目录里）+ 每日上游探针（本机，隔离 DSH_HOME）",
+    "dsh": "0.1.6-alpha.2（本机安装）",
+    "locale": "zh（隔离实例的设置文档钉死）",
+    "theme": "dark",
+    "driver": "playwright chromium + test/assembly-lab/verify.ts（整轮 71 项）+ node --test（1144 条）+ scripts/dsh-upstream-watch/probe.mjs（23 项）",
+    "date": "2026-09-23"
+  },
+  "coverageNote": "覆盖：离线那一侧（按服务依赖算挡掉清单 / 漂移监控）看得见 profile 里用户自己装的第三方插件——取数（profile 的 dsh.profile.bundles）、第三方产物服务表的取法（打包器导出写法与三种引号）、第三方插件「只报不挡」的处置、以及那句话在运行期的样子（F-70）。不覆盖：真 VS Code 窗口 / webview 宿主层（CSP、剪贴板、原生菜单、多 webview 生命周期）——本轮改动全在离线探针与纯函数里，运行期（filterWire / 镜像 / 页面）一个字节没碰；沙盒（code-server 里装真 vsix 看观感）对本轮不适用：没有用户可见的行为变化。**如实记两处**：① 整轮 verify:lab 跑的时候机器上有别的实验室轮次在跑（ledger 的 machine 行记着并发 2 条、别的 chromium 11 个进程），零红仍成立；② 「第三方插件在别的树里等不到服务」这一类只做到「报得出来」，怎么处置（补服务的提供方 / 接受这件插件在这棵树里缺位）由维护者定，本轮不替用户挡掉（理由见 blockListDerivation 里 unplaceableProfilePlugins 的注释）。",
+  "items": [
+    {
+      "id": "N-01",
+      "phase": "new-feature",
+      "name": "离线判据：第三方插件等不到服务时算得出来（合成产物上的改前 / 改后 / 负向对照）",
+      "expect": "一份合成产物（`<root>/profiles/node_modules/@deepseek-ai` 里 8 件官方包 + `<root>/profiles/web` 里一件 inject `uiConversation` 的第三方插件；侧栏树清单里放那个服务的提供方 `@deepseek-ai/dsh-client-ui-conversation`）：改前只读官方那一批 → 读数 pass（看不见它）；改后 → fail 且点名插件 id、它等的服务与「提供方全被挡」的那个提供方；把 profile 那份输入拿掉 → 判据消失（= 改前的漏法）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "改前（main 那一份 `blockListDrift.mjs`，同一份合成产物）：`checkBlockListDrift` = **pass**，detail = 「三棵树逐棵一致——侧栏位 手写 1 / 补全后 1（少挡 0、规则算不出 1）」；同一份产物上 `parseServiceFace(第三方产物)` = **null**（只认 `const|var|let inject = [...]` 与 `exports.inject = [...]`、只认直引号）。\n改后：**fail**，detail = 「侧栏位 放不下 profile 里的第三方插件 1 件：`@dsh-external/dsh-lab-third-party`（等 `uiConversation`；提供方全被挡：`@deepseek-ai/dsh-client-ui-conversation`）（它们在这棵树里会停在 pending，官方启动审计点名、页面自愈把这条从本页清单里摘掉；不替用户挡掉）」，name = 「…本机官方包 8 件 + profile 第三方插件 1 件」。\n负向对照：`fs.rmSync(<root>/profiles/web)`（把 profile 这份输入拿掉）→ 回到 **pass**、读数「profile 里的第三方插件 0 件」、detail 里再找不到那条插件 id；装回去 → 立刻又红。\n确定性判据在 `test/blockListDrift.test.ts`「负向对照：第三方插件等不到服务必须红；去掉 profile 这份输入，判据消失（= 改前的漏法）」（同时断言 detail 里**没有**「少挡了」——第三方插件不补进清单）。"
+    },
+    {
+      "id": "N-02",
+      "phase": "new-feature",
+      "name": "运行期读数与离线判据对得上（F-70：侧栏树起不来那件、对话区树正常起、去掉自愈整页白）",
+      "expect": "同一台网关、同一个合成插件（inject `uiConversation`）：① 宿主下发的清单里确实有它（`?selfHeal=off` 那一页上读，三处各 1 次）；② 侧栏树里页面照常起来（自有树 46 个节点）而插件**没有**起来（标记属性与全局为空），控制台里官方审计点名它并写明等谁，页面自愈把这条从本页清单里摘掉（痕迹是它的 id、这一页加载 2 次）；③ 对话区树里同一件插件正常起来（标记属性与全局都是它的 id）；④ 负向对照（`?selfHeal=off`）整页被官方失败卡挡住。",
+      "result": "pass",
+      "screenshots": [
+        "test/assembly-lab/out/shots/f-70-1-negative-control-self-heal-off.png",
+        "test/assembly-lab/out/shots/f-70-2-sidebar-tree-plugin-cannot-activate.png",
+        "test/assembly-lab/out/shots/f-70-3-chat-tree-same-plugin-activates.png"
+      ],
+      "notes": "F-70 **断言 10/10，19.9 秒**（`npm run verify:lab --suite F-70`）。逐条读数：\n- ① 前提（`?selfHeal=off` 那一页）：清单里那条第三方 id 出现 **1** 次、所在批的 entries **1** 次、批的 combo URL **1** 次 ⇒ 这一页确实要取它。\n- ② 侧栏树读数：就绪=true、自有树节点 **46** 个、标记属性=null、全局=null、加载次数=**2**、装载未激活 1 行、pageerror 0 条；审计原文逐字是 `Error: web boot: 1 entry did not activate` + `@dsh-external/dsh-lab-third-party: pending (waiting for service: uiConversation)`。\n- ③ 对话区树读数：就绪=true、标记属性=**`@dsh-external/dsh-lab-third-party`**、装载未激活 **0** 行、pageerror 0 条（按树判，不是一票否决）。\n- ④ 负向对照读数：就绪=false、加载次数=1、标记属性=null、`#root` 正文=「…Failed to load plugins…web boot: 1 entry did not activate @dsh-external/dsh-lab-third-party: pending (waiting for service: uiConversation)」——自愈不在时这一页就是白的。\n- 三张截图：负向对照那一页（官方失败卡）、侧栏树（页面正常但插件缺位）、对话区树（同一件插件正常）。"
+    },
+    {
+      "id": "N-03",
+      "phase": "new-feature",
+      "name": "负向对照（代码侧）：把两边改回 main，新用例必须红",
+      "expect": "`git checkout main -- scripts/dsh-upstream-watch/blockListDrift.mjs` → `test/blockListDrift.test.ts` 里新增的 6 条全红、其余 10 条照旧绿（既有行为没被动过）；`git checkout main -- src/pure/blockListDerivation.ts` → `test/blockListDerivation.test.ts` 整文件红（新导出的 `unplaceableProfilePlugins` 不在）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "实测（两个方向各跑一次）：撤掉 drift 侧改动 → **tests 15 / pass 10 / fail 5**，红的正是第三方那 5 条（写法解析、层列表取数、默认保留、负向对照、提供方算数），既有 10 条全绿；撤掉 pure 侧改动 → **fail 1（整文件）**，报错是 `unplaceableProfilePlugins` 找不到。两次撤改都当场还原（`git checkout HEAD -- <文件>`），工作区干净。"
+    },
+    {
+      "id": "N-04",
+      "phase": "new-feature",
+      "name": "第三方插件默认保留、它的提供方也算数（纯函数侧四条用例）",
+      "expect": "① 第三方插件等不到服务时**不补进清单**（默认保留），但它在这棵树里等不到服务要由 `unplaceableProfilePlugins` 报得出来；② 在别的树里等得到服务就不报（按树判）；③ 只由第三方插件提供的服务算「有提供方」（官方件不连坐、也不报成「找不到提供方」）；④ 等一个谁都不提供的服务不算「放不下」（静态表看不见宿主半那一族，报出来是假红）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "`test/blockListDerivation.test.ts` **13 个用例全过**（新增 4 条，逐条对上上面四件事；第①条里同时断言 `blocked` 里没有那件第三方插件、`added` 里只有官方那件 `ui-plan`）。真机对照：本机 profile 里那两件第三方插件（`@dsh-one/dsh-llm-provider`、`@changfenhuang/dsh-genui`）要的服务三棵树里都有 ⇒ 三棵树「放不下 0 件」、探针不报这一条。"
+    },
+    {
+      "id": "N-05",
+      "phase": "new-feature",
+      "name": "取不到就报红（profile 取数的一整组边界）",
+      "expect": "读不到 profile 根目录 / 层列表点名却两个 node_modules 下都没有这个包 / 它的清单读不出 / 客户端半读不到 / bundle 里解析不出 `inject` 服务表 → 一律 fail（写明是哪一件、缺什么）；没有 `dsh.client` 的层（宿主半插件）与不是 profile 的目录 → 跳过、不算问题；同一个 id 装在两层 profile 里只算一次。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "`test/blockListDrift.test.ts` **16 个用例全过**（新增 6 条覆盖上面这一组）；其中「取不到就红」那三条各断言 problems 的条数与文案，并把同一份产物喂给 `checkBlockListDrift` 断言状态为 fail、detail 含同一句。真机读数（本机默认 profile）：`profiles` = `plan-test、web`，同一件（`@dsh-one/dsh-llm-provider`）装两层只算 1 件，`problems` 为空。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "两道静态自检（dev-merge 的门禁：i18n + 平台兼容性）",
+      "expect": "`scripts/check-i18n.sh` 与 `scripts/check-platform-compat.sh` 都通过：新增行没有漏同步的界面文案，平台/状态分支逐条有声明。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "`[i18n] OK：分支 agent/blocklist-sees-third-party-plugins 相对 main 的新增行无 i18n 漏同步。`；`[platform] OK：…平台路径逐条有声明（平台路径声明 0 条：本轮没有平台相关代码；状态分支矩阵 6 行，触发原因 state-probe + probe-result-branch）`——声明落在 `test/sandbox/verify.blocklist-sees-third-party-plugins.platform.json`，六行分别对应：root 不在 profile 形状下、profile 根读不到、逐条读 profile 目录的三类跳过、层列表里官方层与重复 id 的跳过、第三方包「取不到或读不全」的五种情形、每棵树的 `unplaceableProfilePlugins` 分叉。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "整轮浏览器验证（`npm run verify:lab`，71 项）",
+      "expect": "默认跑法（自起隔离实例 + 播种）整轮零红；F-69（第三方插件在场时页面照常起来）与 F-01/F-11/F-67 这些与 block list、清单、自愈相关的套件读数与上一轮逐项同值。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "**71 项 3661 条断言、3661 通过、零红**（比上一轮 70 项 3651 条多 F-70 的 10 条，其余 70 项逐项同值：F-01 43、F-11 20、F-32 118、F-44 190、F-56 96、F-67 33、F-69 15、R-06 6 等）。机器现场（ledger 的 machine 行）：跑的时候并发 2 条别的实验室轮次、别的 chromium 11 个进程、负载 3.94/18 核——零红仍成立；跑完时并发 5 条。报告：`test/assembly-lab/out/verify.lab.report.html`（71 项，截图内嵌 287 张）。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "`npm test`（1144 条）与 `npm run typecheck`",
+      "expect": "两条都通过，没有因本轮的接口改动（`BlockListInput` / `PluginFacesInput` / 新导出 `unplaceableProfilePlugins`）而回归。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "`npm run typecheck` 无输出（通过）；`npm test`：**tests 1144 / pass 1144 / fail 0**（比 `main` 多 10 条，正是本轮新增的用例数——`blockListDerivation.test.ts` 9 → 13、`blockListDrift.test.ts` 10 → 16）。"
+    },
+    {
+      "id": "R-04",
+      "phase": "regression",
+      "name": "每日上游探针（`node scripts/dsh-upstream-watch/probe.mjs --command dsh`，23 项）",
+      "expect": "23 项仍全过（本轮改的就是其中 block-list-drift 那一项的取数与判据）；那一行的读数里要如实写出读到了几件 profile 第三方插件。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "**23 pass / 0 fail / 0 skip**（与改前同项数）。`block-list-drift` 读数：name = 「block list 补全（按官方服务依赖离线算出，本机官方包 58 件 + profile 第三方插件 2 件）」；detail 里三棵树 少挡 0 条（对话区 2/2、侧栏位 13/13、设置页 14/14）+「profile 里的第三方插件 2 件（读的 profile：plan-test、web）」。同一轮其它 22 项与改前同值。"
+    }
+  ]
+}
