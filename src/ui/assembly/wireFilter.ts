@@ -502,7 +502,7 @@ export function projectGraphFrame(frame: string, project: (graph: BootWire) => B
  * 在宿主的 node 侧不存在），所以共享的是**格式**（就这一行），实现各写一份。这条「各写一份」
  * 的风险有两条常驻判据盯着：`test/assemblyEventStream.test.ts` 把页面那份编码端真跑一遍、
  * 再拿这里的解码端解回来逐条比对（#243——格式是从 `id:rev` 逗号分隔改过来的，改的就是
- * 「值里出现分隔符怎么办」），`verify:lab` 的 F-71 在真页面上比对「传上去的基线 = 本页
+ * 「值里出现分隔符怎么办」），`verify:lab` 的 F-72 在真页面上比对「传上去的基线 = 本页
  * boot 那份清单」。
  */
 export const ROSTER_REVS_PARAM = 'revs'
@@ -577,8 +577,10 @@ const MAX_ROSTER_REVS_CHARS = 64 * 1024
  * 名册版本对齐（#230）：把投影出来的 roster 里**每条的 `rev`** 换成这一页 boot 时那份
  * 清单里的值——**名册没变，就不该告诉页面「条目变了」**。
  *
- * 为什么必须对齐：条目的 `rev` 是**每进程随机**的（`dsh-client-modules/lib/index.js` 的
- * `randomBytes(8)` 与 `allocateInitialRevision()`），所以网关一重启，官方经事件流推来的
+ * 为什么必须对齐：条目的 `rev` 是**每进程随机**的（0.1.6-alpha.2 里 `dsh-client-modules/lib/index.js`
+ * 的 `randomBytes(8)` 与 `allocateInitialRevision()`；0.1.7-alpha.2 起换成文件元数据哈希，
+ * 同一棵树重启不再变，但这条对齐仍然是必需的——我们自己的条目那份 rev 是整包缓存键，
+ * 它会随我们自己的产物变），所以网关一重启，官方经事件流推来的
  * 那份 roster 里**每一条**的 rev 都是新值。0.1.6-alpha.2 起客户端采纳这份 roster
  * （`ctx.modules.entries.sync` → `reconcile`：`revisions.get(id) !== row.rev` 就
  * `replace()`，先拆后建），于是每一条官方插件都被拆掉重建——`dsh-client-ui-session` 的
@@ -586,9 +588,10 @@ const MAX_ROSTER_REVS_CHARS = 64 * 1024
  * `scope 'session-maybe' rendered without an installed adapter`（`SlotAssemblyError`），
  * 而官方 `SlotErrorBoundary` **故意不兜**装配错 → React root 卸载 → 整页白。
  *
- * 这个 rev 本来就不携带内容信息（同一进程内复启动一次就换一批值），对齐它不丢任何信息：
- * 页面的那份清单是它自己 boot 时读的，而内容真的变了（网关重启后插件增删）时** id 集合**
- * 会跟着变，那时本函数原样放行、不插手。
+ * 这个 rev 在 0.1.6-alpha.2 上不携带内容信息（同一进程内复启动一次就换一批值），在
+ * 0.1.7-alpha.2 上是文件元数据哈希——两种口径下「对齐到这一页 boot 那份」都不丢用户能
+ * 看到的东西：内容真的变了（网关增删了插件）时 **id 集合**会跟着变，那时本函数原样放行、
+ * 不插手；同一批 id 的代码真被重建时走的是另一条路（官方 HMR 的 `rebuilt` 帧）。
  *
  * 只对齐 `rev`：客户端判「这一条变了没有」只读这个字段（`revisions.get(row.id) !== row.rev`，
  * 以及 `entryTargets()` 里的 `[id, rev, inject, external]`）。`url`、批表与顶层 `rev` 保持
