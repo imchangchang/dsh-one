@@ -361,7 +361,7 @@ try {
     process.exit(0)
   }
   const suiteArgs = suites === 'all' ? [] : ['--suite', suites]
-  process.stderr.write(`[lab-version] dsh ${verdict.expected ?? '?'}：跑 verify:lab ${suites === 'all' ? '（整轮）' : `--suite ${suites}`}\n`)
+  process.stderr.write(`[lab-version] dsh ${verdict.candidate ?? '?'}：跑 verify:lab ${suites === 'all' ? '（整轮）' : `--suite ${suites}`}\n`)
   const bin = path.join(installDir, 'node_modules', '.bin')
   const result = spawnSync('npm', ['run', 'verify:lab', '--', ...suiteArgs], {
     cwd: REPO_ROOT,
@@ -369,7 +369,7 @@ try {
     env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` },
   })
   if (result.error) throw result.error
-  process.stderr.write(`[lab-version] dsh ${verdict.expected ?? '?'}：verify:lab 退出码 ${String(result.status ?? 'signal')}\n`)
+  process.stderr.write(`[lab-version] dsh ${verdict.candidate ?? '?'}：verify:lab 退出码 ${String(result.status ?? 'signal')}\n`)
   cleanup()
   process.exit(result.status ?? 2)
 } catch (err) {
