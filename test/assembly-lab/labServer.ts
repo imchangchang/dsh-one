@@ -50,6 +50,22 @@ export const RETRY_THROTTLE_QUERY = 'retryThrottle'
 /** `?retryThrottle=` 的这一取值 = 不装重试限流（其余取值照常装）。 */
 export const RETRY_THROTTLE_OFF = 'off'
 
+/**
+ * 页面查询参数：这一页的清单与资产名从**哪一份**网关 HTML 来（#230）。
+ *
+ * - 缺省（`live`）：每次现取——与宿主同口径（`ui/assemblyView.ts` 每次建面板都重取）。
+ * - `pageWire=pinned`：用实验室**启动那一刻**抓到的那份。
+ *
+ * 为什么要有 `pinned`：生产里「webview 重载 / 会话恢复」交回的是**扩展早先写下的那份
+ * HTML**（VS Code 存着它），那份 HTML 里的 bootstrap 批 URL 带着**当时**那台网关的 rev
+ * ——0.1.6-alpha.2 里条目与批的 rev 都是每进程随机值，网关重启过一次之后它就是个作废值。
+ * 要在实验室里演这条现场，就必须能伺服一份**过期的** HTML（现取永远拿到当前那份）。
+ */
+export const PAGE_WIRE_QUERY = 'pageWire'
+
+/** `?pageWire=` 的这个取值 = 用实验室启动那一刻那份网关 HTML（见 {@link PAGE_WIRE_QUERY}）。 */
+export const PAGE_WIRE_PINNED = 'pinned'
+
 /** 控制台 logger（`[lab]` 前缀）：mirror 与清单过滤的诊断都走它。 */
 export function consoleLogger(quiet: boolean): LogSink {
   const write = (level: string, line: string): void => {
@@ -181,12 +197,14 @@ export interface LabServer {
   /**
    * 当天网关下发的官方 wire 里的插件 id 集合——**实验室各页面的装配来源**
    * （每棵树按它做 block list 过滤，见 `pageFor`），所以「我们 block 的 id 在不在
-   * 官方清单里」这条断言拿它当事实源，而不是另起一次抓取。取一次后缓存。
+   * 官方清单里」这条断言拿它当事实源，而不是另起一次抓取。**每次现取**（#230：清单里
+   * 条目的 rev 是每进程随机值，网关重启一次就全变，缓存一份会在重启之后变成假话——
+   * 页面的装配源必须与页面开的那一刻一致）。
    * 用途：F-11 WIRE-LIVENESS（#91）。
    */
   gatewayPluginIds(): Promise<ReadonlySet<string>>
   /**
-   * 当天网关下发的官方 wire 原文（取一次后缓存）——F-11 的口径用例要在**真实清单**
+   * 当天网关下发的官方 wire 原文（**每次现取**，理由同上）——F-11 的口径用例要在**真实清单**
    * 上合成「官方把插件切成两批」的形状（#165），只拿 id 集合合成不出来。
    */
   gatewayWire(): Promise<BootWire>
@@ -241,25 +259,32 @@ export async function startLabServer(options: LabServerOptions): Promise<LabServ
   const dshVersion = options.version ?? recorded
   if (dshVersion !== undefined) registerVersion(gateway, dshVersion)
 
-  let gatewayHtml: Promise<string> | undefined
-  const gatewayIndex = (): Promise<string> => {
-    gatewayHtml ??= (async () => {
-      const cookie = cookieHeader(gateway)
-      const res = await fetch(`${gateway}/`, { headers: cookie === undefined ? {} : { cookie } })
-      if (!res.ok) throw new Error(`lab: gateway GET / HTTP ${res.status}`)
-      return res.text()
-    })()
-    return gatewayHtml
-  }
+  // 网关 `/`：装配页要的一切都从它来（`__DSH_BOOT__` 清单 + 前端资产名），**每次现取**。
+  //
+  // 为什么不能缓存（#230）：0.1.6-alpha.2 起清单里条目的 `rev` 是**每进程随机**的
+  // （`dsh-client-modules` 的 `randomBytes(8)` + `allocateInitialRevision()`，见
+  // wireFilter 的 alignRosterRevs），一份缓存下来的 HTML 在**网关重启之后就是一句假话**
+  // ——页面拿着作废的 bootstrap rev 去取那一段阻塞脚本，网关按内容校验回 404，页内联
+  // bootstrap 抛 `client-modules: HTML did not preload …`，模块系统根本没起来（页面是白的）。
+  // 生产里 `ui/assemblyView.ts` 每次建面板都重取，实验室照同一条口径。（F-61 恰好要在
+  // 重启之后开一页：缓存那份就是它当初那条红读数的成因。）
+  const gatewayIndex = (): Promise<string> => (async () => {
+    const cookie = cookieHeader(gateway)
+    const res = await fetch(`${gateway}/`, { headers: cookie === undefined ? {} : { cookie } })
+    if (!res.ok) throw new Error(`lab: gateway GET / HTTP ${res.status}`)
+    return res.text()
+  })()
 
   /** 官方 wire（见 LabServer.gatewayWire / gatewayPluginIds 的说明）。 */
-  let gatewayWireCache: Promise<BootWire> | undefined
-  const gatewayWire = (): Promise<BootWire> => {
-    gatewayWireCache ??= gatewayIndex().then((html) => extractBootWire(html))
-    return gatewayWireCache
-  }
+  const gatewayWire = (): Promise<BootWire> => gatewayIndex().then((html) => extractBootWire(html))
   const gatewayPluginIds = (): Promise<ReadonlySet<string>> =>
     gatewayWire().then((wire) => new Set(wire.entries.map((entry) => entry.id)))
+
+  // 启动那一刻那份网关 HTML：`?pageWire=pinned` 用的就是它（见 PAGE_WIRE_QUERY 的说明）。
+  // 起手就抓（于是「那一刻」是确定的：任何重启都发生在它之后），抓不到也不阻断起实验室
+  // ——`live` 那条路自己会报出同一个错；这里挂一个 catch 免得它变成未处理的拒绝。
+  const pinnedHtml = gatewayIndex()
+  pinnedHtml.catch(() => undefined)
 
   const mirror: AssemblyMirror = await startAssemblyMirror(() => gateway, log, {
     pluginsDir: options.pluginsDir,
@@ -271,7 +296,10 @@ export async function startLabServer(options: LabServerOptions): Promise<LabServ
 
   /** 装配页 HTML：真实模块 + 该树的过滤清单 + 首帧主题。 */
   const pageFor = async (route: LabTreeRoute, query: URLSearchParams): Promise<string> => {
-    const html = await gatewayIndex()
+    // 清单与资产名每次现取（见 gatewayIndex 的说明，与生产同一口径）：页面装起来的那一刻
+    // 网关正在下发哪一份，这个页面就该用哪一份。`?pageWire=pinned` 时改用启动那一刻那份
+    // （= 生产里「交回早先写下的 HTML」那条现场，见 PAGE_WIRE_QUERY）。
+    const html = query.get(PAGE_WIRE_QUERY) === PAGE_WIRE_PINNED ? await pinnedHtml : await gatewayIndex()
     // localRev 每次装配现算（与宿主同口径）：改了本地产物再重载页面，页面拿到的
     // combo URL 就该变——F-57 正是拿这一点当判据（#173）。
     const wire = filterWire(
@@ -345,7 +373,7 @@ export async function startLabServer(options: LabServerOptions): Promise<LabServ
       ).join('\n      ')}
       <li><a href="${origin}/official">/official</a> — 网关原始 GUI（同一网关、同一个浏览器里做 A/B 对照用）</li>
     </ul>
-    <p class="note">URL 参数：<code>?theme=light</code> 切首帧主题；<code>?session=&lt;id&gt;</code> 给 chat 树注入启动会话；<code>?drift=sick:&lt;id&gt;</code> / <code>?drift=fresh:&lt;前缀&gt;</code> 造「某条目永远起不来」的现场（每次加载换 id 的那一档验「只试一次」）；<code>?selfHeal=off</code> 这一页不装启动自愈（负向对照）；<code>?retryThrottle=off</code> 这一页不装重试限流与失败日志限频（负向对照）。</p>
+    <p class="note">URL 参数：<code>?theme=light</code> 切首帧主题；<code>?session=&lt;id&gt;</code> 给 chat 树注入启动会话；<code>?drift=sick:&lt;id&gt;</code> / <code>?drift=fresh:&lt;前缀&gt;</code> 造「某条目永远起不来」的现场（每次加载换 id 的那一档验「只试一次」）；<code>?selfHeal=off</code> 这一页不装启动自愈（负向对照）；<code>?retryThrottle=off</code> 这一页不装重试限流与失败日志限频（负向对照）；<code>?pageWire=pinned</code> 这一页用实验室启动那一刻那份网关 HTML 装配（= 生产里「VS Code 交回早先写下的那份 HTML」，网关重启之后那份就过期了）。</p>
   </body>
 </html>
 `
