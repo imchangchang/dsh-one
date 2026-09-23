@@ -21,19 +21,19 @@
       "screenshots": [
         "/tmp/dsh-sandbox-shots/roster-revs-default.png"
       ],
-      "notes": "逐条核对：① **改前**（候选 0.1.7-alpha.2、同一份代码、只跑 F-01）＝ **24/40**，四棵树（sidebar / sidebar-official / chat / settings）各报一条 `renderSlot('root') before any 'root' registration (boot order)`，日志里「boot order」出现 4 次；② **改后**（同一棵树、同一命令）＝ **43/43（16.3s）**，日志里「boot order」出现 **0 次**、`React error #130` 0 次、`slot entry crashed` / `did not activate` 各 0 条；四棵树的实际渲染也回来了（自有树会话行、官方浏览区会话行、对话区 composer 槽位、设置内容区都量到内容）——同一版上 F-73 那一页的截图 roster-revs-default.png 就是「chat 树在 0.1.7 上完整渲染」的样子；③ 同一轮把 F-61（名册版本对齐那条现场套件）从改前的 10/23 带到 22/23，剩下的那一条与本次改动无关，见「剩余红」一行；④ 0.1.6-alpha.2 上同一套件 43/43（见 R-01）。**机制侧的现场**（页内实测时间线，也是这条修复的因果证据）：改前页面在 244ms 就已渲染完成（root 槽 + 10 个槽位锚点都在），269ms 官方那条 roster 流推来第一帧名册，279ms root 槽与所有锚点一起消失，281ms 抛装配错、React 把整棵 root 卸掉——**先渲染成功、后自己拆空**，不是「一开始就装不起来」。"
+      "notes": "逐条核对：① **改前**（候选 0.1.7-alpha.2、同一份代码、只跑 F-01）＝ **24/40**，四棵树（sidebar / sidebar-official / chat / settings）各报一条 `renderSlot('root') before any 'root' registration (boot order)`，日志里「boot order」出现 4 次；② **改后**（同一棵树、同一命令）＝ **43/43（16.3s）**，日志里「boot order」出现 **0 次**、`React error #130` 0 次、`slot entry crashed` / `did not activate` 各 0 条；四棵树的实际渲染也回来了（自有树会话行、官方浏览区会话行、对话区 composer 槽位、设置内容区都量到内容）——同一版上 F-73 那一页的截图 roster-revs-default.png 就是「chat 树在 0.1.7 上完整渲染」的样子；③ 同一轮把 F-61（名册版本对齐那条现场套件）从改前的 10/23 带到 22/23，剩下的那一条与本次改动无关，见「剩余红」一行；④ 0.1.6-alpha.2 上同一套件 43/43（见 R-01）；⑤ 并入集成线（含 #236 / #239 / #240）之后重跑同一条命令，读数逐字相同：F-01 43/43、日志里「boot order」0 次。**机制侧的现场**（页内实测时间线，也是这条修复的因果证据）：改前页面在 244ms 就已渲染完成（root 槽 + 10 个槽位锚点都在），269ms 官方那条 roster 流推来第一帧名册，279ms root 槽与所有锚点一起消失，281ms 抛装配错、React 把整棵 root 卸掉——**先渲染成功、后自己拆空**，不是「一开始就装不起来」。"
     },
     {
       "id": "N-02",
       "phase": "new-feature",
-      "name": "F-73：基线参数逐条成对，且负向对照必须重新红",
+      "name": "F-73：基线参数逐条成对，且负向对照必须重新红（套件号从 F-72 顺延到 F-73：#239 先占走了 F-72）",
       "expect": "页面真的发出去的那条流 URL 上的 `revs` 参数，用生产那份解码端解回来逐条等于本页 `__DSH_BOOT__` 那份清单（rev 不同 / 多出 / 缺失三项都空）；镜像按基线对齐后推来的那一帧逐条同 rev；页面照常（零 pageerror、槽位锚点在）。**负向对照**（`?rosterRevs=raw`，同一页、同一份清单、只把编码换回改前那套原样拼接）：基线必须对不上、页面必须重新整块白（槽位锚点 0 枚 + 那条 boot-order 报错在场）。清单形状不成立（只有一个 application 批）时那一档记事实，并断言这一档零那条报错。",
       "result": "pass",
       "screenshots": [
         "/tmp/dsh-sandbox-shots/roster-revs-default.png",
         "/tmp/dsh-sandbox-shots/roster-revs-raw.png"
       ],
-      "notes": "逐条核对（0.1.7-alpha.2，**9/9**）：① 事实读数——本页清单 **67** 条、其中 rev 含「,」的 **7** 条（全是自有条目：`@dsh-one/vscode-chat-ui-layout` 等，rev 逐字是 `117817dcabda,0ec98e9bdd7b-694f1d2833d5`），官方 application 批数 **2**，事件流 1 条 / graph 帧 1 帧 / 流 URL **5575** 字符（基线编成 JSON 之后的样子）；② 基线逐条对得上（rev 不同 0 / 多出 0 / 缺失 0）；③ 推来的名册逐条同 rev（同上三项为 0）、就绪点出现、槽位锚点在场（截图 roster-revs-default）、零 pageerror；④ **负向对照**（`?rosterRevs=raw`）：基线对不上 **7** 条、槽位锚点 **0** 枚、pageerror 里正是 `renderSlot('root') before any 'root' registration (boot order)`（截图 roster-revs-raw 就是那一页整块白的样子）——**去掉适配分支必须重新红，这一条成立**。⑤ 0.1.6-alpha.2 上同一套件 **7/7**：那一版 application 只有一个批、rev 里没有分隔符，负向对照那一档按设计记一条事实（原样拼接在这个形状下本来就无歧义）并断言这一档零那条报错。"
+      "notes": "逐条核对（0.1.7-alpha.2，**9/9**；并入集成线之后重跑，读数与顺延前逐字相同）：① 事实读数——本页清单 **67** 条、其中 rev 含「,」的 **7** 条（全是自有条目：`@dsh-one/vscode-chat-ui-layout` 等，rev 逐字是 `117817dcabda,0ec98e9bdd7b-694f1d2833d5`），官方 application 批数 **2**，事件流 1 条 / graph 帧 1 帧 / 流 URL **5575** 字符（基线编成 JSON 之后的样子）；② 基线逐条对得上（rev 不同 0 / 多出 0 / 缺失 0）；③ 推来的名册逐条同 rev（同上三项为 0）、就绪点出现、槽位锚点在场（截图 roster-revs-default）、零 pageerror；④ **负向对照**（`?rosterRevs=raw`）：基线对不上 **7** 条、槽位锚点 **0** 枚、pageerror 里正是 `renderSlot('root') before any 'root' registration (boot order)`（截图 roster-revs-raw 就是那一页整块白的样子）——**去掉适配分支必须重新红，这一条成立**。⑤ 0.1.6-alpha.2 上同一套件 **7/7**：那一版 application 只有一个批、rev 里没有分隔符，负向对照那一档按设计记一条事实（原样拼接在这个形状下本来就无歧义）并断言这一档零那条报错。"
     },
     {
       "id": "N-03",
