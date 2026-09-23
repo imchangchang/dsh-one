@@ -125,7 +125,7 @@ dsh-one/
 3. **过滤清单**：`filterWire()` 按该树的 block list 剔除条目，application 批的整包 URL 改指 mirror 的 `/plugins-local/…`，追加该树的自有插件条目。整包 URL 里的 `rev` 是缓存键，同时代表两半内容（官方那份 + 我们自己的 bundle 内容哈希，见 §9 决策 11）。
 4. **起共享 mirror**：同一窗口同一网关地址只起一个 loopback 代理（引用计数，最后一个面板关掉才收），它按树各缓存一份过滤后的整包。
 5. **生成页面**：`assemblyPageHtml()` 出一份 HTML（`__DSH_BOOT__` 内联 + 启动自愈 + 阻塞 bootstrap script + 主 bundle + `__DSH_TRANSPORT__` seam + 探针 + 失败提示条），设进 webview。
-6. **页面里**：官方 WebBoot 按清单装插件（官方插件从 mirror 的过滤整包拿，我们的插件从 `/plugins-local/…` 的本地路径拿），我们的 frame 插件注册 `root` slot 并渲染整页。打开某个会话的注入、当前会话的上报、主题跟随都在这一步之后由自有插件接管。官方启动审计报「某条目起不来」时，页面运行时的启动自愈接手：把官方点名的那一条从**本页清单**里摘掉、把这一页重载**一次**（再失败落到失败提示条，见 §「页面运行时」那三条）。
+6. **页面里**：官方 WebBoot 按清单装插件（官方插件从 mirror 的过滤整包拿，我们的插件从 `/plugins-local/…` 的本地路径拿），我们的 frame 插件注册 `root` slot 并渲染整页。打开某个会话的注入、当前会话的上报、主题跟随都在这一步之后由自有插件接管。官方启动审计报「某条目起不来」时，页面运行时的启动自愈接手：把官方点名的那一条从**本页清单**里摘掉、把这一页重载**一次**（再失败落到失败提示条，见 §「页面运行时」那三条）。一次点名太多（超过 `SELF_HEAL_MAX_IDS`）时它**一条都不摘**——那是系统性故障的形状（我们转发的那份整包整批没到），按故障规模肢解本页清单既救不回来、又会越摘越空（`#237`）；摘过的那份记录在该页真的起来之后、或审计点名的那几条都不是它摘掉的时**清掉**，免得根因消失后每次加载还接着摘。
 7. **渲染**：对话区是官方 `ui-conversation` 的组件；侧栏页是我们的工作区树 shadow 掉官方 `sidebar.workspaces`；设置页渲染官方的 `settings.*` 槽位。
 
 面板生命周期（`src/ui/assemblyView.ts`）：
@@ -184,7 +184,7 @@ dsh 上游出于安全只监听 `127.0.0.1`（拒绝 `--host 0.0.0.0`），所�
 
 网关 `/` 的注入 HTML 里带一份 `__DSH_BOOT__`（清单：entries + batches + 各自的 URL 与 `rev`），以及应用批的整包 URL。我们读它、按 block list 过滤后内联进自己的页面，并从 `__DSH_BOOT__` 之外还取三样东西：`__ModuleLoader__` 门面（队列模式，官方 WebBoot 消费的最小面）、`const preference` 主题预置、以及前端资产的哈希文件名（module js / modulepreload / css）。
 
-整包本身**不能重拼**：官方按内容校验 `rev`，改插件名单重新申请会 404，所以过滤是在我们自己这一端做的——mirror 拉官方原整包、按 `window.__ModuleLoader__.load({` 的段边界切开、删掉 block list 里的段、拼好再伺服给页面（`src/server/assemblyMirror.ts` 的 `fetchFilteredGatewayCombo`）。bootstrap 批只有官方 `client-modules`，永不过滤。
+整包本身**不能重拼**：官方按内容校验 `rev`，改插件名单重新申请会 404，所以过滤是在我们自己这一端做的——mirror 拉官方原整包、按 `window.__ModuleLoader__.load({` 的段边界切开、删掉 block list 里的段、拼好再伺服给页面（`src/server/assemblyMirror.ts` 的 `fetchFilteredGatewayCombo`）。bootstrap 批只有官方 `client-modules`，永不过滤。**段首那个 id 三种引号都要认**（官方与自有产物写双引号，第三方打包器会写成模板字面量——`#237` 的现场就是只认双引号时那条 id 进了「不认识的本机插件」那一桶）；**分类按来源**：能伺服的是我们自己落盘的那份产物，官方件与第三方件一律按网关那份走，任何单点不认识都只丢它自己那一条，不许让整份请求失败。
 
 清单条目数随上游版本与用户 profile 变化，探针实测过的读数：0.1.6-alpha.1 = 56 条 entries、0.1.2-rc.1 = 46 条。
 
