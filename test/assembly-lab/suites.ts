@@ -6645,8 +6645,9 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // 热点。它自起一台实例、往它的**隔离 profile** 里装一个合成的第三方插件造现场，
   // 见 thirdPartyPlugin.ts 的文件头）。
   THIRD_PARTY_PLUGIN_SUITE,
-  // #240 置顶这份状态在 dsh-one 与官方 web 之间是同一份（F-70：F-01…F-69 与 R-06 已占，
-  // 按「从未占用的继续」顺延；套件本体在 officialPinSuites.ts，同为独立文件，少一处
-  // 合入热点。它同一台实例上同时开着自有树页与官方浏览区页，见那个文件头）。
+  // #240 置顶这份状态在 dsh-one 与官方 web 之间是同一份（F-71：F-01…F-70 与 R-06 已占
+  // ——F-70 归 #242 的「第三方插件 inject 了本树没有的服务」，按「从未占用的继续」顺延；
+  // 套件本体在 officialPinSuites.ts，同为独立文件，少一处合入热点。它同一台实例上同时
+  // 开着自有树页与官方浏览区页，见那个文件头）。
   OFFICIAL_PIN_SUITE,
 ]

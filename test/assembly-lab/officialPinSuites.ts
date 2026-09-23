@@ -42,7 +42,7 @@
  *
  * 独立成一个文件、不写进 `suites.ts` 的理由与 F-23 / F-24 / F-37 那几件同一条：那个
  * 文件是本批开发的合入热点，新套件放外面能少一半冲突面。注册方式是在 `suites.ts` 的
- * `SUITES` 末尾追加一项（F-70：F-01…F-69 已被占用）。
+ * `SUITES` 末尾追加一项（F-71：F-01…F-70 已被 #242/#237 那两件占走）。
  */
 import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
@@ -310,7 +310,7 @@ async function unpinViaGateway(gateway: string, sessionId: string): Promise<void
 }
 
 export const OFFICIAL_PIN_SUITE: LabSuite = {
-  id: 'F-70',
+  id: 'F-71',
   phase: 'new-feature',
   name: '置顶在 dsh-one 与官方 web 之间是同一份（#240）：0.1.7 起读写官方注册表 + 旧代补写迁移 + 幂等',
   expect:
