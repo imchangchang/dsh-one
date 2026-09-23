@@ -493,31 +493,78 @@ export function projectGraphFrame(frame: string, project: (graph: BootWire) => B
 }
 
 /**
- * 事件流请求里带**这一页 boot 基线**的查询参数名（#230）：值是本页清单的 `id:rev` 对，
- * 逗号分隔（`?ids=…&revs=<id>:<rev>,<id>:<rev>`）。编码端在 `pageHtml.ts` 的 `transportJs`
- * （页面把自己的 `__DSH_BOOT__` 编进去），解码端是下面的 {@link parseRosterRevs}。
+ * 事件流请求里带**这一页 boot 基线**的查询参数名（#230）：值是本页清单的 `[id, rev]` 对，
+ * 编成 JSON 数组再整体百分号转义（`?ids=…&revs=%5B%5B%22<id>%22%2C%22<rev>%22%5D…%5D`）。
+ * 编码端在 `pageHtml.ts` 的 `transportJs`（页面把自己的 `__DSH_BOOT__` 编进去），解码端是
+ * 下面的 {@link parseRosterRevs}。
  *
  * 为什么两端不共用一份实现：编码端只能活在页面内联脚本里（它读的 `globalThis.__DSH_BOOT__`
- * 在宿主的 node 侧不存在），所以共享的是**格式**（就这一行），实现各写一份。
+ * 在宿主的 node 侧不存在），所以共享的是**格式**（就这一行），实现各写一份。这条「各写一份」
+ * 的风险有两条常驻判据盯着：`test/assemblyEventStream.test.ts` 把页面那份编码端真跑一遍、
+ * 再拿这里的解码端解回来逐条比对（#243——格式是从 `id:rev` 逗号分隔改过来的，改的就是
+ * 「值里出现分隔符怎么办」），`verify:lab` 的 F-71 在真页面上比对「传上去的基线 = 本页
+ * boot 那份清单」。
  */
 export const ROSTER_REVS_PARAM = 'revs'
 
 /**
- * 解析 {@link ROSTER_REVS_PARAM}（形状不对的段跳过）。
+ * 解析 {@link ROSTER_REVS_PARAM}（形状不对时返回空表 = 退化成「不对齐」）。
+ *
+ * 值是一段 JSON（`[[id, rev], …]`），由页面侧编好之后整体百分号转义，这里拿到的已经是
+ * URL 层解好的字符串（`URL.searchParams.get` 自己会解一层）。
+ *
+ * 为什么是 JSON 而不是 `id:rev` 逗号分隔（#243）：那个格式**假定分隔符不出现在值里**，
+ * 而这条假定在 0.1.7 上不成立——自有条目的 `rev` 是整包缓存键 `appRev-localRev`，`appRev`
+ * 把每一个 application 批的 rev 用 `,` 并起来（见 {@link applicationComboRev}），0.1.7 起
+ * 官方把 application 切成两批，于是这个值里真的带着一个 `,`。被当成「下一对开始了」之后，
+ * 这一条的 rev 截成前一半：镜像据此对齐，等于告诉客户端「这几条变了」——客户端先拆后建，
+ * 拆掉自有 frame 插件那条时 `root` 槽的注册随之撤销，页面报
+ * `renderSlot('root') before any 'root' registration (boot order)` 整块白（#243 现场）。
+ * 只加一层「每半各自百分号转义」修不了它：读端是 `searchParams.get`，URL 层已经把 `%2C`
+ * 解回 `,` 了，分隔符照样有歧义；JSON 的括号与引号是自己带出来的结构，值里出现什么都不影响。
  *
  * 宽容的理由：这个参数的唯一用途是「对齐」，解析不出来时退化成不对齐（= 改前的行为），
  * 而不是让页面连事件流都开不出来。长度上限只是护栏（node 自己的请求头上限是 64KB 量级，
- * 正常一份清单 ≈ 4KB）。
+ * 正常一份清单 ≈ 4KB）。JSON 之前那一版页面编出来的 `id:rev` 逗号分隔串照旧认（见
+ * {@link parseLegacyRosterRevs}）：扩展升级时还开着的旧 webview 会拿旧格式来问这条流。
  */
 export function parseRosterRevs(raw: string): Map<string, string> {
+  if (raw === '' || raw.length > MAX_ROSTER_REVS_CHARS) return new Map()
+  return parseRosterRevsJson(raw) ?? parseLegacyRosterRevs(raw)
+}
+
+/** JSON 那一档（{@link parseRosterRevs} 的现行格式）；形状不对返回 undefined，交给旧格式那一档。 */
+function parseRosterRevsJson(raw: string): Map<string, string> | undefined {
+  let value: unknown
+  try {
+    value = JSON.parse(raw)
+  } catch {
+    return undefined
+  }
+  if (!Array.isArray(value)) return undefined
   const revs = new Map<string, string>()
-  if (raw === '' || raw.length > MAX_ROSTER_REVS_CHARS) return revs
+  for (const pair of value) {
+    if (!Array.isArray(pair)) continue
+    const [id, rev] = pair as [unknown, unknown]
+    if (typeof id !== 'string' || typeof rev !== 'string' || id === '' || rev === '') continue
+    revs.set(id, rev)
+  }
+  return revs
+}
+
+/**
+ * JSON 之前那一版（`<id>:<rev>` 逗号分隔、不做任何转义）——只给「扩展升级时还开着的旧
+ * webview」用。逐段解、形状不对的段跳过；值里带 `,` 的那些在那边本来就编不明白（那正是
+ * #243 的现场），这里不假装能修好，能对上的对上、对不上的就当它没带基线。
+ */
+function parseLegacyRosterRevs(raw: string): Map<string, string> {
+  const revs = new Map<string, string>()
   for (const pair of raw.split(',')) {
     const split = pair.indexOf(':')
     if (split <= 0) continue
     const id = pair.slice(0, split)
     const rev = pair.slice(split + 1)
-    if (rev === '') continue
+    if (id === '' || rev === '') continue
     revs.set(id, rev)
   }
   return revs

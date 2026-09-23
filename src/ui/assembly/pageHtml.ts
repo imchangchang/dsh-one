@@ -116,6 +116,16 @@ export interface AssemblyPageOptions {
    * 各跑一遍）。生产恒缺省。
    */
   retryThrottle?: boolean
+  /**
+   * 实验开关（#243）：true 时页面把名册基线参数（`revs`）按**改前那套原样拼接**编出去
+   * ——`id:rev` 直接拼、不做百分号转义。缺省 false。
+   *
+   * 用途只有一处：负向对照——同一个「rev 里带逗号」的清单（0.1.7 起官方把 application
+   * 切成两批，我们那份整包缓存键就是「批 rev 用逗号并起来 + 本地内容哈希」，于是自有条目
+   * 的 rev 里真的带着逗号）下，改成转义就照常、改回原样就照旧被解析截断、页面照旧整块白
+   * （`verify:lab` 的 F-71 两条分支各跑一遍）。生产恒缺省。
+   */
+  legacyRosterRevs?: boolean
 }
 
 import { assemblyProbeJs } from './probe.ts'
@@ -227,7 +237,12 @@ const QUEUE_FACADE_JS = `(() => {
  * 上一次同样的失败（而不是新发一次），这是「请求量有上限」必须付的价钱；窗口上界 2 秒保证
  * 它不会变成「卡死不重试」。
  */
-export function transportJs(mirrorOrigin: string, localPluginIds: readonly string[], retryThrottle: boolean): string {
+export function transportJs(
+  mirrorOrigin: string,
+  localPluginIds: readonly string[],
+  retryThrottle: boolean,
+  legacyRosterRevs = false,
+): string {
   return `(() => {
   const MIRROR = ${JSON.stringify(mirrorOrigin)}
   const WS_ORIGIN = MIRROR.replace(/^http/, "ws")
@@ -261,6 +276,9 @@ export function transportJs(mirrorOrigin: string, localPluginIds: readonly strin
   // entries are dropped. The path is absolute, so it resolves against the base href (mirror).
   const LOCAL_PLUGIN_IDS = ${JSON.stringify(localPluginIds)}
   const ROSTER_REVS_PARAM = ${JSON.stringify(ROSTER_REVS_PARAM)}
+  // Negative control only (#243): true = the pairs go in raw, the pre-fix encoding (see the
+  // comment on rosterRevs below). Production always takes the default.
+  const LEGACY_ROSTER_REVS = ${JSON.stringify(legacyRosterRevs)}
   const EVENTS_URL = LOCAL_PLUGIN_IDS.length === 0
     ? null
     : "/plugins-local/events?ids=" + LOCAL_PLUGIN_IDS.map(encodeURIComponent).join(",")
@@ -269,9 +287,16 @@ export function transportJs(mirrorOrigin: string, localPluginIds: readonly strin
   // where every revision is a fresh per-process value - stops reading as "every entry changed"
   // (the client would tear all entries down and the page would end up blank). Read lazily from
   // the manifest this page actually booted with, which is the only authority on those values.
-  // Ids and revisions are ASCII from [A-Za-z0-9@/._-] only, and neither "/" nor "@" needs
-  // escaping in a query string, so the pairs go in raw - percent-encoding them would triple the
-  // length for nothing (no "&", "=", "#", "+" or "," ever appears inside one).
+  // The pairs travel as JSON (#243, format documented on wireFilter's ROSTER_REVS_PARAM): the
+  // older "id:rev,id:rev" text assumed no separator ever appears inside a value, and that is
+  // false since 0.1.7 - a local entry's rev is the combo cache key "appRev-localRev", and appRev
+  // joins one revision per application batch with a comma (wireFilter's applicationComboRev),
+  // and 0.1.7 ships two application batches. A plain percent-escape of each half does not help:
+  // the reader uses url.searchParams.get, which decodes "%2C" back into ",", so the value would
+  // be cut at that comma, the mirror would hand the client a roster saying those entries changed,
+  // the client would rebuild them - and tearing down the frame plugin takes the 'root'
+  // registration with it, which blanks the page with
+  // "renderSlot('root') before any 'root' registration (boot order)".
   const rosterRevs = () => {
     try {
       const wire = globalThis.__DSH_BOOT__
@@ -280,10 +305,11 @@ export function transportJs(mirrorOrigin: string, localPluginIds: readonly strin
       const pairs = []
       for (const entry of entries) {
         if (entry !== null && typeof entry === "object" && typeof entry.id === "string" && typeof entry.rev === "string") {
-          pairs.push(entry.id + ":" + entry.rev)
+          pairs.push(LEGACY_ROSTER_REVS ? entry.id + ":" + entry.rev : [entry.id, entry.rev])
         }
       }
-      return pairs.length === 0 ? "" : "&" + ROSTER_REVS_PARAM + "=" + pairs.join(",")
+      if (pairs.length === 0) return ""
+      return "&" + ROSTER_REVS_PARAM + "=" + (LEGACY_ROSTER_REVS ? pairs.join(",") : encodeURIComponent(JSON.stringify(pairs)))
     } catch (ignored) {
       return ""
     }
@@ -540,7 +566,9 @@ export function assemblyPageHtml(options: AssemblyPageOptions): string {
     banner === undefined
       ? ''
       : `<div style="position:sticky;top:0;z-index:100;padding:6px 12px;background:#8a6d1d;color:#fff;font:12px/1.5 var(--vscode-font-family,system-ui,sans-serif);">${escapeHtml(banner)}</div>`
-  const transportScript = transportOn ? `    <script nonce="${cspNonce}">${transportJs(mirrorOrigin, options.localPluginIds, options.retryThrottle !== false)}</script>\n` : ''
+  const transportScript = transportOn
+    ? `    <script nonce="${cspNonce}">${transportJs(mirrorOrigin, options.localPluginIds, options.retryThrottle !== false, options.legacyRosterRevs === true)}</script>\n`
+    : ''
   // 启动自愈（#228）：夹在 __DSH_BOOT__ 赋值与主 bundle 之间——清单已经在了，官方
   // 还没读它（消费清单的是主 bundle，`type="module"` 默认 defer，整页解析完才跑）。
   // 实验开关：`selfHeal: false` 时整段不注入（F-67 的负向对照）。
