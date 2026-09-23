@@ -385,6 +385,8 @@ async function main() {
       const call = /\/api\/(dshOneHostCapabilities\/[A-Za-z]+)/.exec(url)
       if (call !== null) hostHalfCalls.push(call[1])
     })
+    // 页面 boot 这一等待**故意留成硬门**，不套有界读：composer 不在场时页面等于没起来，
+    // 后面每条断言都无从判、只会刷出一片同因的 FAIL；这里报的是一句「哪一步没等到」。
     await page.goto(`http://127.0.0.1:${String(PORT)}/?token=${token}`, { waitUntil: 'load' })
     await page.waitForFunction(() => document.querySelector('[data-slot="conversation.composer.bar"]') !== null, undefined, {
       timeout: 60_000,
@@ -393,9 +395,15 @@ async function main() {
 
     // 5a) 官方装载面：每个自有包都在 `__DSH_BOOT__` 的行里，而且真的被请求过
     //     （包进 profile ≠ 加载；行在 wire 里 ≠ 浏览器取了那份 bundle）。
-    const bootIds = await page.evaluate(() => globalThis.__DSH_BOOT__.entries.map((entry) => entry.id))
+    //     给官方包的清单也走有界读：官方换了 `__DSH_BOOT__` 的形状时，这里是第一条会炸
+    //     的地方——读不到就按 FAIL 记，每条仍各占一行（#241）。
+    const bootIds = await readBounded(() => page.evaluate(() => globalThis.__DSH_BOOT__.entries.map((entry) => entry.id)))
     for (const pkg of clientPkgs) {
-      record(`${pkg.name} 进了官方 __DSH_BOOT__ 行`, bootIds.includes(pkg.name))
+      record(
+        `${pkg.name} 进了官方 __DSH_BOOT__ 行`,
+        bootIds?.includes(pkg.name) === true,
+        bootIds === null ? '读不到 __DSH_BOOT__.entries' : undefined,
+      )
       record(
         `${pkg.name} 的 combo 段被官方页面真的请求了`,
         pluginRequests.some((url) => url.includes(`${pkg.name}/client.js`)),
@@ -403,8 +411,12 @@ async function main() {
     }
 
     // 5b) 装载层零失败：官方 web 的启动审计会把「条目没激活」整块抛出来。
-    const bootFailure = await page.evaluate(() => document.body.innerText.includes('Failed to load plugins'))
-    record('页面没有「Failed to load plugins」（官方启动审计全过）', !bootFailure)
+    const bootFailure = await readBounded(() => page.evaluate(() => document.body.innerText.includes('Failed to load plugins')))
+    record(
+      '页面没有「Failed to load plugins」（官方启动审计全过）',
+      bootFailure === false,
+      bootFailure === null ? '页面正文读不到' : undefined,
+    )
 
     // 6) 端到端行为证据：官方页面上这些自有插件真的在工作。
     //    每组各自兜异常（guarded）：一组里出意外不带走后面几组的读数（#241）。
@@ -562,85 +574,97 @@ async function assertWorkspaceTree(page) {
  */
 async function assertGitCard(page, hostHalfCalls) {
   // `count()` 不等元素，不会被卸载卡住；下面每一步读元素都走有界读（#241 的现场）。
+  //
+  // 这几条是一条链：标记在场 → 悬停 → 卡片出现 → 卡片内容是宿主半给的。前提不成立时
+  // **不提前返回**：后面几条照记 FAIL 并写明缺的是哪个前提——少几行会让报告看上去像
+  // 脚本坏了，而这一轮本来就是来报「哪几处不工作」的（#241）。
   const chip = page.locator('[data-dshone-commit]').first()
   const decorated = await chip.count()
   record('提交卡：助手消息里的提交号被装饰成可点标记', decorated === 1, `count=${String(decorated)}`)
-  if (decorated === 0) return
+  const present = decorated > 0
   const hovered =
+    present &&
     (await readBounded(async (ms) => {
       await chip.hover({ timeout: ms })
       return true
     })) === true
   const card = page.locator('[data-dshone-git-card]').first()
   const appeared =
+    hovered &&
     (await readBounded(async (ms) => {
       await card.waitFor({ timeout: ms })
       return true
     }, 10_000)) === true
-  record(
-    '提交卡：悬停弹出卡片',
-    appeared,
-    appeared ? undefined : hovered ? '悬停上去了，卡片没出现' : '提交号标记先被卸载了，没能悬停',
-  )
-  if (!appeared) return
+  const hoverReason = !present
+    ? '提交号标记不在场，无从悬停'
+    : hovered
+      ? '悬停上去了，卡片没出现'
+      : '提交号标记先被卸载了，没能悬停'
+  record('提交卡：悬停弹出卡片', appeared, appeared ? undefined : hoverReason)
   // 卡片先渲染「查询中」，宿主半的回执到了才换成提交信息——等它换过来再读。
-  const settled = await page
-    .waitForFunction(
-      () => {
-        const el = document.querySelector('[data-dshone-git-card]')
-        return el !== null && el.querySelector('.dshOneGitCard_subject') !== null
-      },
-      undefined,
-      { timeout: 20_000 },
-    )
-    .then(() => true)
-    .catch(() => false)
+  const settled =
+    appeared &&
+    (await page
+      .waitForFunction(
+        () => {
+          const el = document.querySelector('[data-dshone-git-card]')
+          return el !== null && el.querySelector('.dshOneGitCard_subject') !== null
+        },
+        undefined,
+        { timeout: 20_000 },
+      )
+      .then(() => true)
+      .catch(() => false))
   // 卡片出现过、读的时候已经被卸载的话（0.1.7-alpha.2 上渲染到一半崩掉，根因 #236），
   // 读到 null——记一条 FAIL 继续跑，不再等默认的 30 秒、也不再抛出去把整轮带走（#241）。
-  const text = await readBounded((ms) => card.innerText({ timeout: ms }))
+  const text = appeared ? await readBounded((ms) => card.innerText({ timeout: ms })) : null
   const plain = text === null ? null : text.replace(/\s+/g, ' ')
   record(
     '提交卡：卡片内容来自宿主半的 git 查询（出现演示仓库的提交信息）',
     settled && plain !== null && plain.includes('feat(demo)'),
-    plain === null ? '卡片已被卸载，读不到内容' : plain.slice(0, 140),
+    plain === null ? (appeared ? '卡片已被卸载，读不到内容' : `卡片没出现（${hoverReason}）`) : plain.slice(0, 140),
   )
   record(
     '提交卡：查询走的是宿主半的官方网关端点（dshOneHostCapabilities/gitShow）',
     hostHalfCalls.includes('dshOneHostCapabilities/gitShow'),
     hostHalfCalls.join(', '),
   )
-  await page.mouse.move(0, 0)
-  await page.waitForTimeout(300)
+  if (appeared) {
+    await page.mouse.move(0, 0)
+    await page.waitForTimeout(300)
+  }
 }
 
 /** 端到端：行内码右键菜单——助手消息里的行内码右键出官方 Menu 原语的菜单。 */
 async function assertContextMenu(page) {
+  // 同上一组：行内码不在场或者菜单没打开时，后面几条照记 FAIL 写明前提，不提前返回。
   const code = page.locator('code').filter({ hasText: 'sessionsWebview.ts' }).first()
-  if ((await code.count()) === 0) {
-    record('行内码右键菜单：消息里找到了行内码（夹具）', false)
-    return
-  }
+  const found = (await code.count()) > 0
+  record('行内码右键菜单：消息里找到了行内码（夹具）', found)
   const clicked =
+    found &&
     (await readBounded(async (ms) => {
       await code.click({ button: 'right', timeout: ms })
       return true
     })) === true
   const menu = page.locator('[data-dshone-menu]').first()
   const opened =
+    clicked &&
     (await readBounded(async (ms) => {
       await menu.waitFor({ timeout: ms })
       return true
     }, 10_000)) === true
-  record(
-    '行内码右键菜单：右键行内码弹出自有菜单（官方 Menu 原语）',
-    opened,
-    opened ? undefined : clicked ? '右键点上了，菜单没出现' : '行内码先被卸载了，没能右键',
-  )
+  const openedReason = !found ? '行内码不在场，无从右键' : clicked ? '右键点上了，菜单没出现' : '行内码先被卸载了，没能右键'
+  record('行内码右键菜单：右键行内码弹出自有菜单（官方 Menu 原语）', opened, opened ? undefined : openedReason)
   const marked = await page.locator('[data-dshone-menu-target]').count()
   record('行内码右键菜单：被点的行内码被高亮标记', marked === 1, `count=${String(marked)}`)
+  const items = await menu.locator('[role="menuitem"]').count()
+  record(
+    '行内码右键菜单：菜单里有官方 Menu 渲染出来的菜单项',
+    opened && items >= 1,
+    opened ? `items=${String(items)}` : `菜单没打开（${openedReason}），读不到菜单项`,
+  )
   if (opened) {
-    const items = await menu.locator('[role="menuitem"]').count()
-    record('行内码右键菜单：菜单里有官方 Menu 渲染出来的菜单项', items >= 1, `items=${String(items)}`)
     await page.keyboard.press('Escape')
     await page.waitForTimeout(300)
   }
