@@ -267,6 +267,21 @@ export const IDENTIFIER_DEPENDENCIES = [
     where: 'packages/dsh-workspace-tree/src/workspaceTree/types.ts:9',
   },
   {
+    /**
+     * #239：取消归档那个动作的方法名（**两代官方产物里都有**：0.1.6-alpha.2 与
+     * 0.1.7-alpha.2 的 `combo` 里都能查到它的签名与说明）。0.1.7 起官方把「取消归档」
+     * 从设置页搬进官方侧栏的会话行菜单，而那个槽位被自有树遮蔽（shadow）——我们自己
+     * 那一节（树底「已归档」）调的就是这个方法，所以它的名字是我们的契约：官方哪天
+     * 改名，我们那一枚按钮会静默失败（点了没反应），而页面装配看着照常。
+     */
+    names: ['unarchiveSession'],
+    scope: ['@deepseek-ai/dsh-client-ui-workspace'],
+    why: '取消归档（官方 `uiWorkspace.unarchiveSession` / `workspaces.unarchiveSession`）：树底「已归档」一节那一枚按钮的动作',
+    where:
+      'packages/dsh-workspace-tree/src/workspaceTreePlugin.ts（unarchivePort）与 ' +
+      'packages/dsh-workspace-tree/src/workspaceTree/types.ts（TreeProps.unarchiveSession）',
+  },
+  {
     names: ['pinnedSessionIds'],
     scope: ['@deepseek-ai/dsh-client-ui-workspace'],
     why:

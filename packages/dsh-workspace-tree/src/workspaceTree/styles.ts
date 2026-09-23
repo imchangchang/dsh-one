@@ -570,6 +570,25 @@ export const CSS =
   // 同一枚，与旧侧栏那枚 VS Code 蓝同色系：浅色 #4176e6 / 深色 #679efe），字重沿用侧栏里
   // 已有的 600 档（与未读行的加粗同一档），两者都不新造值。
   '.dshOneTree_searchMark{font-weight:600;color:var(--dsw-alias-state-business-primary);background:none}' +
+  // ---- 「已归档」一节（#239）：树底那一节，取消归档的唯一入口。
+  //
+  // 几何**整套取行家族**（行高 32px / 圆角 8px / 行内边距 8px，全部走密度变量：
+  // `session-row-height` / `row-radius` / `row-padding-inline`）——它不是一种新行，
+  // 就是列表里的行，只是动作与数据面不同（见 `archivedSection.ts` 的文件头）。
+  // 与树里的会话行**不共用类名**（`.dshOneTree_sessionRow`）：那一族被「取第一条行
+  // 当夹具」的验证套件当锚点用，多一种行混进去会让那些读数悄悄换对象。
+  //
+  // 节头那一行取元信息档（12px/18px，官方紧凑档的字号与行高——与树里 `.dshOneTree_time`
+  // 同一档），颜色取官方次级文字 token。
+  '.dshOneTree_archived{margin-top:var(--dsh-one-density-group-gap,4px)}' +
+  '.dshOneTree_archivedHead{color:var(--dsw-alias-label-tertiary);align-items:center;gap:6px;padding:2px var(--dsh-one-density-row-padding-inline,8px);font-size:12px;line-height:18px;display:flex}' +
+  '.dshOneTree_archivedRows>*+*{margin-top:var(--dsh-one-density-row-gap,2px)}' +
+  '.dshOneTree_archivedRow{color:var(--dsw-alias-label-primary);border-radius:var(--dsh-one-density-row-radius,8px);align-items:center;height:var(--dsh-one-density-session-row-height,32px);padding:0 var(--dsh-one-density-row-padding-inline,8px);display:flex}' +
+  '.dshOneTree_archivedRow:hover{background:var(--dsw-alias-interactive-bg-hover)}' +
+  '.dshOneTree_archivedRow .dshOneTree_title{flex:1;margin:0 6px 0 4px}' +
+  // 行尾那一枚「取消归档」**常显**（归档之后唯一的退路，藏进悬停菜单等于没有）；它与
+  // 时间之间留一格行内间隙（12px = 行尾动作组那一档，与 `.dshOneTree_rowActions` 同值）。
+  '.dshOneTree_archivedActions{flex:none;align-items:center;gap:12px;margin-left:12px;display:inline-flex}' +
   '.dshOneTree_hoverContent{flex-direction:column;gap:8px;display:flex}' +
   '.dshOneTree_hoverTitle{color:#fff;overflow-wrap:break-word;font-size:14px;line-height:20px}' +
   '.dshOneTree_hoverPath{color:#cfd3d6;word-break:break-all;font-size:12px;line-height:16px}' +
