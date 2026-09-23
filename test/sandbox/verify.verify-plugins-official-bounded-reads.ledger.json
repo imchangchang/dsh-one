@@ -1,0 +1,70 @@
+{
+  "title": "DSH One 验收报告：#241 官方 web 真机脚本的断言不再因元件被卸载而中止",
+  "branch": "agent/verify-plugins-official-bounded-reads",
+  "commit": "2d3364a4e60d93cadf1a98e17acb44a05b796c47",
+  "environment": {
+    "mode": "官方 web 真机（隔离临时 HOME + 临时 profile + 独立端口 + headless Playwright；不起真 VS Code 窗口）",
+    "dsh": "0.1.7-alpha.2（负向对照）/ 0.1.6-alpha.1、0.1.6-alpha.2（回归）",
+    "locale": "zh",
+    "theme": "dark",
+    "driver": "PATH=<该版本安装树的 node_modules/.bin>:$PATH node scripts/verify-plugins-official.mjs（三版各一轮；0.1.6-alpha.1 的树由 node scripts/verify-lab-version.mjs 0.1.6-alpha.1 --check-only --keep 装出）",
+    "date": "2026-09-23T12:45:00Z"
+  },
+  "coverageNote": "验收对象是一条验证脚本（scripts/verify-plugins-official.mjs），不是产品界面，所以本报告没有截图：读数就是脚本自己的 PASS/FAIL 清单，逐条抄在下面。未覆盖：装配实验室（npm run verify:lab）、VS Code 宿主层（CSP / 剪贴板 / 原生菜单，脚本碰不到那一层）、macOS 之外的平台。0.1.7-alpha.2 上的 9 条红是本轮改动的**被测对象**（自有插件在那一版上渲染到一半崩掉，根因 #236），不是本轮的缺陷；本轮要证明的是「这 9 条红都各占一行、整轮跑完、退出码 1」而不是「跑到一半炸掉」。",
+  "items": [
+    {
+      "id": "F-01",
+      "phase": "new-feature",
+      "name": "负向对照：0.1.7-alpha.2 上整轮跑完，每条断言一行，退出码 1，没有未捕获异常栈",
+      "expect": "在该版本上跑整轮：42 条断言每条都有一行 PASS/FAIL、末尾打印「失败 9 项（42 项断言）」、退出码 1，输出里没有任何未捕获异常栈（node:internal/modules/run_main / triggerUncaughtException / at assertGitCard 这类行完全不出现）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "实读（/tmp/241-b-017.log）：42 行读数 + 末尾「失败 9 项（42 项断言）」+ exit=1；全文件没有 triggerUncaughtException、没有 at assertGitCard、没有 node:internal/modules/run_main。9 条红逐条：① 工作区树是自有树的行 rows=0；② 工作区树分组过滤条 count=0；③ 提交卡内容＝`卡片已被卸载，读不到内容`；④ 会话导出自有按钮 count=0；⑤ 同槽位官方条目未消失（官方图标按钮数=1，说明 shadow 也没生效）；⑥ 行内码右键菜单没弹出（`右键点上了，菜单没出现`）；⑦ 被点的行内码没高亮 count=0；⑧ 菜单项读不到（`菜单没打开（右键点上了，菜单没出现），读不到菜单项`）；⑨ 页面零 console error —— 详情单行给出 `Error: Minified React error #130 … | slot entry crashed in 'sidebar.workspaces': …`，与 #236 的坐实根因（官方图标改名）一致。后三组断言（会话导出、行内码菜单、pageerror）在改前**一条都没跑到**，现在都跑到了：这正是 #241 要的结果。✓"
+    },
+    {
+      "id": "F-02",
+      "phase": "new-feature",
+      "name": "断言行数固定：绿的版本与红的版本上是逐字同一份 42 行清单",
+      "expect": "把两个版本输出里的断言名提出来逐行 diff，结果为空——同一份清单、同样的条数，红的那一轮不会「少几行」，读的人不用猜是脚本坏了还是断言消失了。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "0.1.6-alpha.2 的 42 行与 0.1.7-alpha.2 的 42 行，剥掉 PASS/FAIL 与详情后 diff 无差异（`diff 241-b-016a2.names.txt 241-b-017.names.txt` 空输出）。改之前不是这样：0.1.7 上「菜单里有官方 Menu 渲染出来的菜单项」被 `if (opened)` 吞掉、「消息里找到了行内码（夹具）」在绿的那一轮不记，同一份脚本在两个版本上给出 40 / 41 两种行数。为做到这一点，链上前提（标记在场 / 卡片出现 / 行内码在场 / 菜单打开）不成立时不再提前 return，依赖它的断言照记 FAIL 并把缺的前提写进详情；官方 __DSH_BOOT__ 的行与「Failed to load plugins」两条也走有界读，官方换了清单形状时读不到按 FAIL 记、每条仍各占一行。✓"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "「元素先出现、随后被卸载」这条路径：记一条 FAIL 继续，不再等满默认 30 秒、不再抛出",
+      "expect": "卡片出现之后被卸载时（#241 的现场），脚本在 8 秒内返回、把「提交卡：卡片内容…」记成 FAIL 且详情写明「卡片已被卸载，读不到内容」，然后继续跑后面的会话导出与行内码菜单两组。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "0.1.7-alpha.2 上「提交卡：悬停弹出卡片」= ok（卡片确实出现过）紧随其后「提交卡：卡片内容来自宿主半的 git 查询」= FAIL，详情为 `卡片已被卸载，读不到内容`，且下一组（会话导出）照常记了两条读数——元素中途消失这条路径走到了设计的行为。改前同一现场是：`locator.innerText: Timeout 30000ms exceeded` 抛未捕获 TimeoutError，进程按未捕获异常退出，会话导出 / 行内码菜单 / pageerror 三组一条都没跑。✓"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "当前实测版本上仍全绿（这条脚本本来是全绿的）",
+      "expect": "0.1.6-alpha.1 与 0.1.6-alpha.2 上各跑整轮：42 条断言全过、退出码 0、输出里没有 FAIL 行。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "0.1.6-alpha.2：`全部通过（42 项断言）`、exit=0（/tmp/241-b-016a2.log）。0.1.6-alpha.1：`全部通过（42 项断言）`、exit=0（/tmp/241-b-016a1.log）。条数由 41 变 42 是本轮有意加的：绿的那一轮现在也记「行内码右键菜单：消息里找到了行内码（夹具）」这一条，行数由此在两个版本上一致（见 F-02）。其余每条断言的语义、判据、读数都没动。✓"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "改前基线在同一现场复现原故障（证明这一轮真的修的是它）",
+      "expect": "用改动前的脚本、同一台机、同一个 PATH（0.1.7-alpha.2 的安装树）跑一轮：应当在 assertGitCard 的 card.innerText() 上抛未捕获 TimeoutError、整轮中止，且「页面零 pageerror」「会话导出」「行内码菜单」三组一条都不出现。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "改前基线（/tmp/241-baseline-017.log，脚本为改动前的 HEAD）：`locator.innerText: Timeout 30000ms exceeded … at assertGitCard (…/scripts/verify-plugins-official.mjs:508:28) … name: 'TimeoutError'`，进程以未捕获异常结束；那之前只有 26 行读数，最后一条是「提交卡：悬停弹出卡片」，后面三组一条都没有。改后同一现场 42 行跑完、9 条红、exit=1。两轮的 PATH、版本、隔离方式完全相同，差别只有脚本本身。✓"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "门禁：typecheck / 单测 / build 与两道静态自检",
+      "expect": "npm run typecheck 无输出；npm test 全过；npm run build 产出与改动前同一份产物清单；check-i18n.sh 与 check-platform-compat.sh 对 agent/verify-plugins-official-bounded-reads 都报 OK（本轮只改验证脚本，没有 i18n 文案、也没有平台分叉代码）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "npm run typecheck 干净（tsc --noEmit 无输出）；npm test → `tests 1134 / pass 1134 / fail 0 / skipped 0`（它自带一次 build）；npm run build 产出 dist/extension.js、dist/chatWebview.js 等与 packages/*/lib 的插件 bundle（与改动前同一份清单，本轮不碰源码与产物）；`bash scripts/check-i18n.sh agent/verify-plugins-official-bounded-reads` → `[i18n] OK：新增行无 i18n 漏同步`；`bash scripts/check-platform-compat.sh agent/verify-plugins-official-bounded-reads` → `[platform] OK：新增行没有平台分支代码、也没有状态分支（无需声明文件）`（本轮只改验证脚本，不涉及 i18n 文案与平台分叉，故无 platform.json）。✓"
+    }
+  ]
+}
