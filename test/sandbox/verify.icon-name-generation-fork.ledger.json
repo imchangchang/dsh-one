@@ -1,0 +1,61 @@
+{
+  "title": "DSH One 验收报告：#236 官方图标名的两代分叉",
+  "branch": "agent/icon-name-generation-fork",
+  "commit": "72d7b49a",
+  "environment": {
+    "mode": "浏览器验证（装配实验室：仓库真实模块 + 实验室自起的隔离实例）",
+    "dsh": "0.1.6-alpha.2（本机装的那一版）与 0.1.7-alpha.2（候选版本装到临时目录）",
+    "locale": "zh",
+    "theme": "dark",
+    "image": "n/a（没有走沙盒 code-server）",
+    "date": "2026-09-23T13:10:00Z"
+  },
+  "coverageNote": "本报告的证据全部来自浏览器验证（`npm run verify:lab` / `node scripts/verify-lab-version.mjs`）与官方页面真机（`npm run verify:plugins-official`），不是沙盒截图：这一条改的是插件取官方图标件的方式，判据在页面能不能把图标取出来、崩不崩，截图看不出口径。真桌面 VS Code、真模型输出、平台专项不在范围内。0.1.7-alpha.2 上另有一条与图标无关的启动期问题挡着整页（见 F-03），它使那一版的整轮读数不能代表本条修复的完整效果。",
+  "items": [
+    {
+      "id": "N-01",
+      "phase": "new-feature",
+      "name": "26 枚官方图标在两代 dsh 上都取得到（#236 的主体）",
+      "expect": "同一份插件代码在 0.1.6-alpha.2（图标名是尺寸后缀）与 0.1.7-alpha.2（图标名是档位后缀）上都要把图标取出来：① 0.1.6 上渲染与改前一致（F-01 CONTRACT 43/43、四棵树零 `slot entry crashed`）；② 0.1.7 上 `slot entry crashed … Minified React error #130` 一处都不出现（改前那一版四棵树里出现过 9 处）；③ 两代名字都不在场时要当场抛错、错误里点名是哪一枚与两代各要什么名字（不许静默变 undefined）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/016-contract-sidebar.png",
+        "/tmp/dsh-sandbox-shots/017-contract-sidebar.png"
+      ],
+      "notes": "逐条核对：① 0.1.6-alpha.2（本机装的那一版）`npm run verify:lab -- --suite F-01` = **43/43 全过、16.1s**，`零 pageerror` 那条也为空（截图 016-contract-sidebar 是这一次的侧栏树页；对话区与设置页见 016-contract-chat / 016-contract-settings，同一轮的截图）；② 0.1.7-alpha.2（候选版本）同一套件里 React #130 的出现次数：**改前 9 处 → 改后 0 处**（`grep -o 'React error #130'` 数的；改后整轮 70 个套件的日志里也是 0 处），随之翻绿的两条断言是 `sidebar：首屏就绪（.dshOneTree_root）` 与 `sidebar：零槽位崩溃日志（slot entry crashed）`——自有插件这一版确实装起来并渲染了；③ 抛错那条由单测 `test/upstreamIconExports.test.ts` 的「两代名字都不在场时抛错…」与「只剩另一档时抛错」两条盯着（逐项断言错误文案里有 IconTrashOutline / IconTrashOutlineRegular / IconTrashOutline16）。**没到 43/43 的原因不在这条**：0.1.7 上另有一条启动期问题（`renderSlot('root') before any 'root' registration`，四棵树含不装我们插件的官方对照页都有，改前也在）让页面根本没装完，见 F-03。"
+    },
+    {
+      "id": "N-02",
+      "phase": "new-feature",
+      "name": "上游探针新增一项：官方图标导出名在场（26 枚，两代任一在场即通过）",
+      "expect": "探针每轮都要能读出「我们取用的 26 枚图标在官方产物里还在不在」，缺一枚就当场点名（这一族坏掉时页面上的表现是 React #130，看不出是哪枚图标）；读的是官方前端产物里那份导出表（primitives 被打进页面 chunk，磁盘上没有这个包）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "逐条核对：① 0.1.6-alpha.2（本机 profile 树）单项跑 = pass，detail 是「26 枚全部在场…2 个 js 产物、共 1322 KB」；② 0.1.7-alpha.2（候选树）整轮探针 24 项**全绿**，其中这一项 detail 是「26 枚全部在场…2 个 js 产物、共 1313 KB」（这一版的 26 枚全部按新名字取到了）；③ 负向对照三条都在单测里：抹掉一枚 ⇒ fail 且点名（detail 含 IconTrashOutline / 两代名字 / 「缺 1 枚」）、产物目录读不到 ⇒ fail 不降级、上一代名字在场 ⇒ 也算通过。**为什么不在 `clientContract.mjs` 那座 combo 里查**：combo 只出现官方插件自己引用过的图标名，我们这 26 枚里官方插件只用过 18 枚，照 combo 查会把另外 8 枚（IconChevronLeftOutline / IconCopyOutline / IconDownloadOutline / IconFolderOpenOutline / IconRefreshOutline / IconRightUpOutline / IconSettingsOutline / IconUserOutline）报成假红；理由与读法写在 `officialIdentifiers.mjs` 的 `checkOfficialIconExports` 文件头。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "0.1.6-alpha.2（实测通过的那一版）上的现有行为不变",
+      "expect": "本机装的那一版上：F-01 CONTRACT 43/43 与改前同值、`npm test` 全过、官方页面真机（自有插件装进官方 profile）照常工作。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/016-contract-chat.png",
+        "/tmp/dsh-sandbox-shots/016-contract-settings.png"
+      ],
+      "notes": "逐条核对：① `npm run verify:lab -- --suite F-01` = **43/43**（与改前同值，R-06 零越界 6/6 也绿）；② `npm test`（build + 1142 条单测）= **1142 通过 / 0 失败**；③ `npm run verify:plugins-official`（隔离 HOME + 临时 profile + 官方页面本身）= **39 项断言全过**，含「页面没有 Failed to load plugins」「工作区树在官方 sidebar.workspaces 槽位里渲染」「提交卡 / 会话导出 / 右键菜单都在」「页面零 pageerror、零 console error」；④ 两道静态自检（`scripts/check-i18n.sh` / `scripts/check-platform-compat.sh`）都 OK。"
+    },
+    {
+      "id": "F-03",
+      "phase": "new-feature",
+      "name": "0.1.7-alpha.2 的整轮读数与剩余红的归因",
+      "expect": "改完之后在 0.1.7-alpha.2 上：① 图标那一族清零（四个树里 React #130 一处都不出现）；② 整轮读数如实记录，剩下的红逐条归因——**哪条是真漂移、哪条是判据钉了 0.1.6 的形状**，不许为了让读数好看放宽判据。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/017-contract-chat.png",
+        "/tmp/dsh-sandbox-shots/017-contract-settings.png"
+      ],
+      "notes": "逐条核对（候选版本 0.1.7-alpha.2、`--from` 复用同一份安装、70 个套件整轮）：① **React #130 = 0 处**（改前 F-01 一个套件里就有 9 处；改前整轮 58 项红的根因就是它）——本条的目标达成；② 整轮 **70 项 5 过 / 65 红、断言 272 / 551**（过的五项：F-05 宿主能力口 7/7、F-10 fiber 契约 20/20、F-11 block list 存活性 20/20、F-39 空过 0/0、R-06 零越界 6/6）。红项归成两类：**第一类＝启动期问题**（`renderSlot('root') before any 'root' registration (boot order)`，整轮 33 处，四棵树**含不装我们插件的官方对照页 `sidebar-official`** 都有、改前那一轮也有 4 处）：页面没装完，凡是需要打开装配页的套件都在头一条断言上中止（约 50 项 0~1 条）——**这不是本条改出来的，也不是自有插件装不动**，需要另立 issue（线索：0.1.7 把 application 阶段切成两批——探针读数 bootstrap 1 条条目 + application 58 条 + application 3 条）。**第二类＝判据钉了 0.1.6 形状**（与上面那条无关，且**没有放宽**，照原样留着）：F-20 的「垃圾桶单条 path」与归档图标指纹、F-32 的「chevron 视框 `0 0 14 14` + `path@d` 逐字等于 0.1.6 定义」——官方 0.1.7-alpha.2 把这套图标重画过（垃圾桶 1 条实心 path → 5 条描边 path；chevron 视框 14 → 16、改描边画法），这几条在那一版上会红，理由已写进套件与 README 的对应行。**与文档里那份改前整轮（69 项 11 过 / 58 红）不可直接比**：那是另一个环境下的读数，且本轮与另外 6~8 条实验室轮次并发跑（ledger 的 machine 行有读数）；并发本身不是原因——同一时刻在 0.1.6-alpha.2 上单跑 F-01 仍是 43/43（见 R-01），且启动期问题在改前那一次的 F-01 里同样存在。"
+    }
+  ]
+}
