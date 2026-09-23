@@ -88,11 +88,28 @@ const OFFICIAL_SESSION_MENU_SLOT = 'sidebar.workspaces.session.menu.item'
 const OFFICIAL_UNARCHIVE_SECTION_LABELS = ['已归档会话', 'Archived sessions'] as const
 
 /**
- * #236 的签名（这一版上整棵树崩在那条上）：官方把图标导出名从尺寸后缀改成字重后缀，
- * 我们取用的 26 个名字全变 `undefined`，渲染时 React 抛 #130。**只有命中这条签名**才
- * 允许记事实跳过——签名不符就是未知原因，当场判红。
+ * **#236 那一版上「整棵侧栏树起不来」的签名**——只有命中其中一条才允许记事实跳过；
+ * 一条都不命中就是未知原因，当场判红。两条都实测过（2026-09-23 本机、候选版本装到
+ * 临时目录）：
+ *
+ * - `Minified React error #130`：官方把图标导出名从尺寸后缀改成字重后缀，我们取用的
+ *   26 个名字全变 `undefined`，渲染时 React 抛它（`slot entry crashed in
+ *   'sidebar.workspaces'` / `'sidebar.footer.action'`）。
+ * - `renderSlot('root') before any 'root' registration (boot order)`：0.1.7 上侧栏页
+ *   （含官方的 `sidebar-official` 对照页）连 root 条目都没注册上，F-01 的
+ *   「零 pageerror」抓到的就是它。
+ *
+ * **这条口子与 #239 无关**，判据是「改前改后逐字同值」：不带本改动的主线基线（`main`）
+ * 与带本改动的分支，在 0.1.7-alpha.2 上跑同一个 F-01，读数都是 **21/40**、侧栏页
+ * pageerror 都是上面第二条；而 0.1.6-alpha.2 上整轮 F-01 **43/43**、零 pageerror。
+ * **#236 落地之后这个口子要连同 `waitFor` 那一档一起删掉**：那时 0.1.7 上侧栏树能渲染，
+ * 本套件会直接跑真形状那一档（第 ② 段夹具看到槽位已声明、什么都不做），
+ * 「记事实跳过」这条路径不再有意义。
  */
-const ICON_RENAME_SIGNATURE = /Minified React error #1(3|30)/
+const BLOCKED_017_SIGNATURES: readonly RegExp[] = [
+  /Minified React error #1(3|30)/,
+  /renderSlot\('root'\) before any 'root' registration/,
+]
 
 interface ArchivedReading {
   /** 树底那一节在不在（节点数），列了几条。 */
@@ -213,7 +230,7 @@ export const ARCHIVED_RESTORE_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '归档之后的还原入口：树底「已归档」一节与官方设置页那一节的关系（#239）',
   expect:
-    '实验室自起的隔离实例 + 假宿主 + 真装配页（归档与取消归档**真的写这台实例**——还原入口可用的唯一可信证据就是会话真的回到列表里；用户那台实例全程只被只读探测）。① **这一代真实的形状**（不装夹具的那一页）：归档之后那条会话在树里**没有任何会话行**（它从列表里消失）；树根上那一格观测值（`data-dshone-tree-unarchive-entry`）说 `settings` ⟺ 设置页导航行里真有官方那一节（节名取自官方词典 `nav`：「已归档会话」/「Archived sessions」）、且树底那一节一个节点都不渲染、这条 id 在整页一个节点都没有（官方入口还在设置页里，自有树不该多出第二个入口）；说 `inline` ⟺ 设置页上**已经没有**官方那一节、而树底那一节在场。② **端到端的还原**（这一代是 `inline` 时直接跑；否则由夹具就地声明那条会话菜单槽位、把 0.1.7 那一代的形状造出来再跑，理由与自守见本文件文件头）：树底那一节恰好一节、列着刚归档的那一条、这条 id 整页只出现一次且就落在这一节里（= 官方那套会话行菜单在 dsh-one 的侧栏里一条都不渲染，「翻不出它」的可执行版本）；那一行上的「取消归档」常显、可点、几何非零、读屏标签带着这条会话的标题（文案取自插件词典，两种页面语言都认）；点它之后这一条从那一节消失、**回到它所属工作区的会话行上**，并飘一条「已取消归档 {标题}」的回执。③ 全程零 pageerror、零槽位崩溃、零装载未激活；**从不点归档确认弹窗**（归档这一步经官方 RPC 直接做，弹窗那一路由 F-15 / F-16 / F-17 判）。本机 0.1.7-alpha.2 上侧栏树整棵被 #236 挡着（图标导出名整批改名 → React #130），那一版上本套件只记一条带签名的事实（见 `ICON_RENAME_SIGNATURE`），端到端由第 ② 段夹具承载。',
+    '实验室自起的隔离实例 + 假宿主 + 真装配页（归档与取消归档**真的写这台实例**——还原入口可用的唯一可信证据就是会话真的回到列表里；用户那台实例全程只被只读探测）。① **这一代真实的形状**（不装夹具的那一页）：归档之后那条会话在树里**没有任何会话行**（它从列表里消失）；树根上那一格观测值（`data-dshone-tree-unarchive-entry`）说 `settings` ⟺ 设置页导航行里真有官方那一节（节名取自官方词典 `nav`：「已归档会话」/「Archived sessions」）、且树底那一节一个节点都不渲染、这条 id 在整页一个节点都没有（官方入口还在设置页里，自有树不该多出第二个入口）；说 `inline` ⟺ 设置页上**已经没有**官方那一节、而树底那一节在场。② **端到端的还原**（这一代是 `inline` 时直接跑；否则由夹具就地声明那条会话菜单槽位、把 0.1.7 那一代的形状造出来再跑，理由与自守见本文件文件头）：树底那一节恰好一节、列着刚归档的那一条、这条 id 整页只出现一次且就落在这一节里（= 官方那套会话行菜单在 dsh-one 的侧栏里一条都不渲染，「翻不出它」的可执行版本）；那一行上的「取消归档」常显、可点、几何非零、读屏标签带着这条会话的标题（文案取自插件词典，两种页面语言都认）；点它之后这一条从那一节消失、**回到它所属工作区的会话行上**，并飘一条「已取消归档 {标题}」的回执。③ 全程零 pageerror、零槽位崩溃、零装载未激活；**从不点归档确认弹窗**（归档这一步经官方 RPC 直接做，弹窗那一路由 F-15 / F-16 / F-17 判）。本机 0.1.7-alpha.2 上侧栏树整棵被 #236 挡着（图标导出名整批改名 → React #130，或连 root 条目都注册不上），那一版上本套件只记一条带签名的事实（见 `BLOCKED_017_SIGNATURES`），端到端由第 ② 段夹具承载。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const gateway = ctx.lab.gateway
@@ -250,18 +267,21 @@ export const ARCHIVED_RESTORE_SUITE: LabSuite = {
     })
     try {
       if (!sidebar.ready) {
-        // 本机 0.1.7-alpha.2 的形状：整棵侧栏树被 #236 挡着（图标名整批改名 → React #130）。
-        // 只认这条签名——签名不符就是未知原因，当场判红，不当「这一版量不到」放过去。
-        const iconCrash = sidebar.capture.pageErrors.some((line) => ICON_RENAME_SIGNATURE.test(line))
+        // 本机 0.1.7-alpha.2 的形状：整棵侧栏树被 #236 挡着（图标名整批改名）。只认那两条
+        // 签名——一条都不命中就是未知原因，当场判红，不当「这一版量不到」放过去。
+        const blocked = sidebar.capture.pageErrors.filter((line) =>
+          BLOCKED_017_SIGNATURES.some((pattern) => pattern.test(line)),
+        )
         check.ok(
-          '首屏没起来时，原因是已知的 #236 签名（图标导出名整批改名 → React #130）',
-          iconCrash,
+          '首屏没起来时，原因是已知的 #236 签名（图标导出名整批改名 → 侧栏树起不来）',
+          blocked.length > 0,
           sidebar.capture.pageErrors.slice(0, 1).join(' | ').slice(0, 300),
         )
         check.eq('这一版上自有树根节点确实不在场（读数就是「量不到」）', await sidebar.page.locator('[data-dshone-tree="root"]').count(), 0)
         check.fact(
-          '这一版上整个侧栏树被 #236 挡住（`Minified React error #130`），本套件在这一版拿不到这一节的读数；' +
-            '机制与端到端由 0.1.6 上「就地声明那条槽位」的夹具承载（见本文件文件头）。#236 落地后这一档自动变成真 0.1.7 上的验证',
+          '这一版上整个侧栏树被 #236 挡住（`Minified React error #130` / `renderSlot(\'root\') before any \'root\' registration`），' +
+            '本套件在这一版拿不到这一节的读数；机制与端到端由 0.1.6 上「就地声明那条槽位」的夹具承载（见本文件文件头）。' +
+            '#236 落地后这一档自动变成真 0.1.7 上的验证，这个口子要删掉',
         )
         screenshots.push(await shot(ctx, sidebar.page, 'archived-restore-017-blocked-by-236'))
         return screenshots
