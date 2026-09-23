@@ -1,0 +1,150 @@
+{
+  "title": "#233 设置面板：存活判定 + reveal 兜底 + 生命周期日志（宿主侧判据与回归）",
+  "branch": "agent/settings-panel-liveness",
+  "commit": "",
+  "environment": {
+    "mode": "node 24 —— 假 `vscode` 模块 + 假网关，真跑 `src/ui/assemblyView.ts`（宿主侧）；另有实验室整轮（真网关 + 真页面，见 R-02）",
+    "dsh": "0.1.6-alpha.2（判定用的是本机网关的形状；实验室 R-02 起的是隔离实例）",
+    "locale": "en",
+    "theme": "dark",
+    "date": "2026-09-23T00:00:00Z"
+  },
+  "coverageNote": "本任务改的是扩展宿主侧（面板生命周期、日志、共享 loopback mirror 的引用计数），不是页面里的东西：判据用 test/settingsPanelLiveness.test.ts（沿用 #223/#224 的假 vscode harness）真跑宿主代码。真桌面 VS Code 的 webview 宿主层（CSP / 剪贴板 / 原生菜单 / 多 webview 生命周期）不在本报告范围；页面侧由实验室整轮 F-01 / F-02（设置树在真实网关上装起来、槽位有内容、零崩溃）覆盖。",
+  "items": [
+    {
+      "id": "N-01",
+      "phase": "new-feature",
+      "name": "① 设置面板被关掉之后再点齿轮 → 建出新面板（不再一声不响）",
+      "expect": "关掉之后再点齿轮，必须真的建出一个新的设置面板（面板数 1 → 2、新面板的页面带官方 boot 注入），且不弹任何错误提示；日志里每次打开各留一行。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "判据（test/settingsPanelLiveness.test.ts 第 1 条）实跑读数：面板数 1 → 关闭后 activeSettings 清干净 → 再点齿轮面板数 2、新面板 webview.html 含 __DSH_BOOT__；留痕恰好两行 `settings open: panel=none branch=create result=ok`；messages 长度 0（用户不看到任何提示）。"
+    },
+    {
+      "id": "N-02",
+      "phase": "new-feature",
+      "name": "② 引用还在、webview 已死（用户现场那一档）→ 自愈：清坏引用 + 带现场的 warn + 建出新面板",
+      "expect": "宿主把 webview 收走（dispose 事件没送到扩展这边）之后点齿轮：不许把 `Webview is disposed` 抛给调用方（齿轮那条路不接异常），要清掉坏引用、留一条带现场的 warn，然后按「没开」新建出面板。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "实跑读数：__killWebview() 之后 revealAssembledSettings() 返回 false（不抛）、面板数 1 → 2、新面板含 __DSH_BOOT__；warn 恰好 1 条 `settings open: panel is already gone (panelDisposedAt=unobserved creating=no hostTeardown=no): Webview is disposed`（三个现场字段逐个断言）；留痕三行 = panel=none branch=create ok → panel=singleton:alive branch=reveal result=failed:Webview is disposed → panel=none branch=create ok；messages 长度 0。"
+    },
+    {
+      "id": "N-03",
+      "phase": "new-feature",
+      "name": "③ 连点两次齿轮 → 只建出一个面板（不增生）",
+      "expect": "还没有面板时连点两次、以及引用指着死面板时连点两次，都只该建出一个新面板；每次点击都要留痕。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "实跑读数：无面板时两次 `vscode.openSettings` 落在同一个在途创建上 → 等 400ms 后面板数仍是 1；死面板时连点两次 → 面板数 2（1 个死 + 1 个新），留痕 ≥ 4 行（每次点击都有）。"
+    },
+    {
+      "id": "N-04",
+      "phase": "new-feature",
+      "name": "④ 日志留痕：一次打开一行（含面板形态 / 分支 / 结果）；创建一条、销毁一条（带存活时长与原因）",
+      "expect": "打开留痕读得出「选中的面板是哪一类、走的是聚焦还是新建、结果如何」；创建与销毁各一条，销毁那条写得出存活时长与原因（我们自己替换 vs 用户/宿主关掉）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "实跑读数：`assembled settings: <mirror 源>` + `settings panel created` 各一条；再开一次（命令那条路）→ `settings panel replaced` 1 条、`created` 累计 2 条；销毁逐字 = `settings panel disposed: reason=replace age=<n>ms hostTeardown=no` 与 `settings panel disposed: reason=other age=<n>ms hostTeardown=no`（`age` 每次不同，断言与这里都折成 age=<n>ms；两个数字都是真实毫秒数，只是不逐字固定）。"
+    },
+    {
+      "id": "N-05",
+      "phase": "new-feature",
+      "name": "⑤ 共享 mirror 引用配平：坏引用那一跳也要还引用，最后一个引用放开后端口不再监听",
+      "expect": "设置面板与 chat 面板共用同一台 loopback mirror；死面板那一跳（它自己不会再 dispose）必须把它占的引用还掉，否则最后一个引用放开后端口还开着。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "实跑读数：有人拿着引用时端口 true；坏引用自愈之后新面板的 <base href> 与旧面板同一个 mirror、端口仍 true；关掉新面板 → 仍 true（侧栏 view 还拿着一份）；关掉侧栏 view → 端口不再应答（waitFor 3s 内成立）。负向对照见 N-10 的 G5。"
+    },
+    {
+      "id": "N-06",
+      "phase": "new-feature",
+      "name": "⑥ 命令那条路失败不静默：建面板失败时用户看到一行提示，留痕写明失败在哪一步",
+      "expect": "命令 `dshOne.assembledSettings` 在创建 / 装页失败时给用户一行可见提示，日志留痕里写明失败在哪一步，且这次失败不许漏下 mirror 引用。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "实跑读数：留痕 = `settings open: panel=none branch=create result=failed:create:stub: createWebviewPanel failed on purpose`；用户提示恰好一行 `Failed to open the settings panel: stub: createWebviewPanel failed on purpose`；收尾后 loopback 端口不再应答（失败那次没漏引用）。"
+    },
+    {
+      "id": "N-07",
+      "phase": "new-feature",
+      "name": "⑦ 准备步骤失败（网关清单拉不到）：既有的一行可见提示仍在，留痕写明失败在 manifest",
+      "expect": "清单拉不到时行为与改前一致（一行可见提示，不静默、也不多弹），日志留痕说得出断在哪一步。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "实跑读数：留痕 = `settings open: panel=none branch=create result=failed:manifest`；错误提示恰好 1 条（既有那条，没多弹也没少弹）。"
+    },
+    {
+      "id": "N-08",
+      "phase": "new-feature",
+      "name": "⑧ 宿主收摊带走面板：销毁那条带 hostTeardown=yes（与用户点关闭分得开）",
+      "expect": "扩展宿主开始收摊（deactivate）之后面板被销毁，销毁行要能读出「这是宿主带走的」，而不是「用户点关闭」。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "实跑读数：markHostDeactivating() 之后 dispose → `settings panel disposed: reason=other age=<n>ms hostTeardown=yes`（与 N-04 的 hostTeardown=no 对照）。这条判据留在测试文件最后：真宿主里 deactivate 一生只调一次，标志置位后同进程后续 dispose 都会按宿主收摊记。"
+    },
+    {
+      "id": "N-09",
+      "phase": "new-feature",
+      "name": "改前 / 改后日志样例（跑真实宿主代码得到，不是设想格式）",
+      "expect": "同一场景对两棵源码树各跑一遍，日志逐字给出来：改前点齿轮一行都没有；改后读得出断在哪一步。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "脚本 /tmp/dsh233-log-sample.mjs（同一场景：开机开一次 → 宿主收走 webview、dispose 事件不发 → 用户再点一次齿轮）。改前（main）：扩展日志共 3 行，点击之后**新增 0 行**，进程级 unhandledRejection `Error: Webview is disposed`（真宿主里这条没人接、不进日志文件），面板数仍 1。改后（本 worktree）：点击之后新增 `warn: settings open: panel is already gone (panelDisposedAt=unobserved creating=no hostTeardown=no): Webview is disposed` 与 `info: settings open: panel=singleton:alive branch=reveal result=failed:Webview is disposed`，接着新建（`assembled settings: http://127.0.0.1:53236` + `settings panel created` + `settings open: panel=none branch=create result=ok`），面板数 2，零 unhandled rejection。"
+    },
+    {
+      "id": "N-10",
+      "phase": "new-feature",
+      "name": "负向对照：逐条去掉守卫，对应判据必须红（读数）",
+      "expect": "每条守卫单独去掉时，指定判据必须变红；去掉不痛的（纯防御）如实记 0 条红。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "逐条实测（临时改写 src/ui/assemblyView.ts → 跑 test/settingsPanelLiveness.test.ts → 还原；已核对 git diff 为空、无残留）：G1 去掉 reveal 的兜底（保留存活判定）→ 红：② 当场 `Error: Webview is disposed`（异常冒到调用方），③④⑤⑥⑦⑧ 连带红。G2 只去掉存活判定那条分支（保留兜底）→ 0 条红（8/8 绿）：它是防御（dispose 处理器在同一个同步 tick 里也把引用清了，这一刻到不了），与 #223 对 chat 面板的结论同。G3 去掉在途创建串行化 → 红：③（`waitFor` 等「恰好 1 个面板」超时 = 连点建出了两个）。G4 去掉存活判定 + 去掉 reveal 兜底 + 去掉 dispose 里的清引用（= 报的现场那一档：前一步出问题导致清引用没执行）→ 红：①–⑧ 全红，① 是 5 秒超时（点击没生效）。G5 去掉「发现死面板时还 mirror 引用」→ 红：⑤（引用归零后端口关不掉）。G6 去掉创建失败的捕获（回到直接抛）→ 红：⑥（创建错误从没人接的那条路冒出去，用户看不到任何提示）。G7 try/finally 的作用（临时注入一个「清理步骤抛错」）：没有 finally → 端口仍应答 true（引用没还掉）；保留 finally → 端口不再应答 false（引用还清了）。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "npm test（全量单测，含本任务 8 条宿主侧判据）",
+      "expect": "全绿，零 fail。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "实测：tests 1102 / pass 1102 / fail 0 / cancelled 0（改前基线 1094 条，本轮新增 8 条 = test/settingsPanelLiveness.test.ts）。单跑本任务判据 `node --test test/settingsPanelLiveness.test.ts` = 8/8；与 chat 面板判据合跑 `node --test test/settingsPanelLiveness.test.ts test/chatPanelLiveness.test.ts` = 18/18。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "npm run verify:lab（装配实验室整轮：四棵树装起来、槽位有内容、零崩溃）",
+      "expect": "整轮按基线跑完（F-01 底座契约、设置树在真实网关上装得起来、槽位有内容、零 pageerror / 零 slot entry crashed）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "实测（整轮，全程跑完无中断）：69 项 = 68 pass / 1 fail，断言 3618 / 3620，exit 1，报告 test/assembly-lab/out/verify.lab.report.html（279 张截图内嵌），ledger out/verify.lab.ledger.json。与本条相关且必须绿的三条都绿：F-01 底座契约完备性 43/43（四棵树在真实网关上零崩溃、零缺失契约）、F-02 三棵树冒烟渲染 13/13（含设置页出真内容）、F-55 全新 DSH_HOME 上的 boot 27/27（三棵生产树都挂得上、零装载未激活、零 fiber FAILED）。唯一红的是 F-61（对话区断线提示，#202），两条失败断言为「拦掉事件流的那一页的就绪点没出现：conversation.composer.bar」与「零 pageerror：scope 'session-maybe' rendered without an installed adapter」——它是 chat 树断线提示那条既有红（#229 那一轮的读数也是 69 项 / 3620 条、F-61 红），与本条无关：本条只改设置面板那一摊，F-61 的断言面在 chat 树的 composer 就绪与 pageerror。第一次跑（09:11）中途收到 SIGTERM 被杀（F-61 之后 F-62…F-67 全是 0/1 或 browser closed 的连带红），那一轮读数不作数，已重跑一轮完整整轮。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "i18n 自检（scripts/check-i18n.sh）",
+      "expect": "无新增行漏同步；新增的 l10n key 两份 bundle 都有。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "实测输出：`[i18n] OK：分支 agent/settings-panel-liveness 相对 main 的新增行无 i18n 漏同步。` 新增键「Failed to open the settings panel: {0}」在 l10n/bundle.l10n.json 与 l10n/bundle.l10n.zh-cn.json 各一份（中译「设置面板打不开：{0}」）。"
+    },
+    {
+      "id": "R-04",
+      "phase": "regression",
+      "name": "平台兼容性自检（scripts/check-platform-compat.sh）",
+      "expect": "新增行里没有平台分支代码；有状态分叉时给出分支矩阵声明。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "实测输出：`[platform] OK：分支 agent/settings-panel-liveness 相对 main 的新增行没有平台分支代码、也没有状态分支（无需声明文件）。` 本次改动是宿主侧面板生命周期（WeakSet/WeakMap 记的存活与时刻、在途创建判断），没有任何进程 / 信号 / 路径 / 平台分叉；门禁的状态分支规则（探测变量名带状态词那几类）没有命中，故未提交 verify.<slug>.platform.json。按门禁口径「漏掉的部分由人工审查 ledger 兜底」，本条的分支读数写在本报告 N-01…N-10：存活标志真/假、在途创建有/无、reveal 成功/撞死面板、mirror 引用归零/未归零，逐条都有实跑结论。"
+    },
+    {
+      "id": "R-05",
+      "phase": "regression",
+      "name": "chat 面板既有行为不变（#223 / #224 的 10 条判据仍绿）",
+      "expect": "本次改动不碰 chat 面板那条已修好的路径，它那套判据必须一条不红。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "实测：`node --test test/chatPanelLiveness.test.ts` 10/10 绿（harness 只做了加法：多注册一条设置命令 + 齿轮入口 vscode.openSettings + 两个访问器，chat 用例逐字未改）。typecheck 也绿。"
+    }
+  ]
+}
