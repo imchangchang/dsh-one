@@ -38,7 +38,7 @@ code --user-data-dir /tmp/dsh-relcheck/ .
 - [ ] 基本可用性抽查：侧栏新建会话 → 发送一条消息 → 收到回复（侧栏与会话面板都正常）。
 - [ ] Windows 和 macOS 至少各过一遍上面的流程（spawn/杀进程路径分平台）。
 
-**曾经有一项「先手动 `dsh web --port 3080` 起实例再开面板，确认复用该实例且不 kill」，已删除**：那走的是 dsh 0.1.1 的无认证实例路径。版本范围现在是 `[0.1.6-alpha.1, 0.2.0)`（低于它不支持，见 README 的 version gate 与 `src/pure/versionGate.ts`），手动起的实例一律是认证实例，走上一条流程即可。
+**曾经有一项「先手动 `dsh web --port 3080` 起实例再开面板，确认复用该实例且不 kill」，已删除**：那走的是 dsh 0.1.1 的无认证实例路径。版本范围现在是 `[0.1.5-rc.2, 0.2.0)`（低于它不支持，见 README 的 version gate 与 `src/pure/versionGate.ts`），手动起的实例一律是认证实例，走上一条流程即可。
 
 ## README 与版本确认
 
