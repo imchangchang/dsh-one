@@ -7,6 +7,16 @@ on:
     branches: ['**']
   pull_request:
 
+env:
+  # 冒烟装哪个 dsh：**钉死具体版本**，不走 `@next` / 浮动范围。
+  # 2026-09-22 那次三平台整条红在装 dsh 这一步：`@next`（0.1.5-rc.3）的某个子包依赖范围
+  # （`@deepseek-ai/dsh-client-ui-sidebar-documentpreview@^0.1.5-rc.3`）当时在 registry 上
+  # 取不到，npm 直接 notarget。上游按批次发，同一批里个别子包晚几步到 registry 就会这样；
+  # 钉一个「整批都已发全、且 README『dsh 版本兼容跟踪』里实测过」的版本最省事。
+  # 换版本时先在本机确认：npm i -g --prefix /tmp/dsh-pin @deepseek-ai/dsh@<版本>，
+  # 再用 /tmp/dsh-pin/bin/dsh --version 打到出版本号。
+  DSH_SMOKE_VERSION: '0.1.6-alpha.2'
+
 jobs:
   ci:
     strategy:
@@ -32,7 +42,33 @@ jobs:
       # - windows：经 spawnDsh.js 跑 dsh --version 并验证日志非空（spawn-dsh-windows-output-pipe），
       #   同时保留 PowerShell 直跑作对照（验证「Windows 上 dsh 可用」）。
       - name: Install dsh (spawn smoke)
-        run: npm i -g @deepseek-ai/dsh@next
+        shell: bash
+        # 装的版本钉在文件头 env.DSH_SMOKE_VERSION；这里除了装，还要在失败时把
+        # 「上游某个包的依赖范围在 registry 上取不到」这一种原因点出来（2026-09-22
+        # 就是它把三平台一起弄红的，原文只有一行 npm notarget，看不出该换版本）。
+        run: |
+          echo "装 @deepseek-ai/dsh@${DSH_SMOKE_VERSION}（钉死的版本，理由见文件头 env 注释）"
+          if OUT="$(npm i -g "@deepseek-ai/dsh@${DSH_SMOKE_VERSION}" 2>&1)"; then
+            printf '%s\n' "$OUT"
+            echo "installed @deepseek-ai/dsh@${DSH_SMOKE_VERSION}"
+            exit 0
+          fi
+          printf '%s\n' "$OUT"
+          echo "--- 装 dsh 失败的诊断 ---"
+          MISSING="$(printf '%s\n' "$OUT" | grep -o 'No matching version found for [^ ]*' | head -1)"
+          if [ -n "$MISSING" ]; then
+            echo "上游有包装不上：${MISSING}"
+            echo "钉住的版本是 @deepseek-ai/dsh@${DSH_SMOKE_VERSION}——这一批发出来时某个子包的对应"
+            echo "版本在 registry 上取不到（晚发或已撤），不是本仓代码的问题。换一个整批发全的版本："
+            echo "  1) npm view @deepseek-ai/dsh versions --json   # 有哪些版本"
+            echo "  2) npm view @deepseek-ai/dsh dist-tags --json  # latest / next / alpha 各指哪个版本"
+            echo "  3) 本机试装：npm i -g --prefix /tmp/dsh-pin @deepseek-ai/dsh@<版本>，"
+            echo "     再用 /tmp/dsh-pin/bin/dsh --version 确认能跑出版本号"
+            echo "  4) 改 .github/workflows/ci.yml 的 env.DSH_SMOKE_VERSION；别改回 @next 或浮动范围"
+          else
+            echo "失败原因不是上面那种依赖范围取不到，看上面的 npm 输出。"
+          fi
+          exit 1
       - name: 'Spawn dsh smoke (posix: detached spawn)'
         if: runner.os != 'Windows'
         shell: bash
