@@ -28,22 +28,53 @@
  *    记录写在 `sessionStorage`（作用域 = 这一个页面实例，重载保留、新面板另算）。
  *    记录**写成功**才允许重载：存储不可用（隐私模式等）时**不重载**，直接落到失败
  *    提示条——写不下记录就没有「只用一次」的保证，宁可不救也不循环。
- * 2. **只认官方点出来的 id**：审计文本里的那条 id 是唯一输入。文本不是审计形状
- *    （正则不中）时什么都不动。id 在本页清单里摘不干净（不在 entries 里、在
- *    bootstrap 批里、是它所在批的唯一成员——官方 `parseBootManifest` 会拒绝空批与
- *    「不属于任何批的条目」）时也不重载，直接落到失败提示条：救不了就别浪费那一次。
+ * 2. **只认官方点出来的 id**：官方文本里的那条 id 是唯一输入（两种文本形状见
+ *    「两代两种失败文本」那一节）。文本不是那两种形状（正则不中）时什么都不动。
+ *    id 在本页清单里摘不干净（不在 entries 里、在 bootstrap 批里、是它所在批的唯一
+ *    成员——官方 `parseBootManifest` 会拒绝空批与「不属于任何批的条目」）时也不重载，
+ *    直接落到失败提示条：救不了就别浪费那一次。
  * 3. **必须留痕、必须上报**：摘了谁、因为什么都写成一行日志。在 VS Code webview 里
  *    探针（`probe.ts`）把 `console.warn` 转发进扩展日志，所以这一行**同时**落在宿主
  *    日志与开发者控制台；实验室里就是那条被 harness 采集的控制台行。**不能悄悄修好**
  *    ——否则 `verify:lab` 的 F-01「零装载未激活」就失去检测能力，漂移会变成永远
  *    发现不了。原始审计错误照旧原样打到控制台（这层钩子只旁听，不吞）。
  *
+ * ## 两代两种失败文本（0.1.5 线拿不到条数与「启动审计」这一层）
+ *
+ * 这层要救的现象是「某个条目起不来」，而官方把这件事**报出来**的形状随版本变过，所以
+ * 这里认两种文本（都只取它写出来的 id，别的一个字不猜）：
+ *
+ * - **启动审计（0.1.6-alpha.1 起，本层原来的唯一输入）**：
+ *   `web boot: <N> entry did not activate` + 每条一行 `<id>: import failed (…)` /
+ *   `<id>: pending (waiting for service: …)`。出处：`@deepseek-ai/dsh-web-frontend` 的
+ *   `dist/assets/index-*.js` 里 WebBoot 的 `assertEntriesActive`——它在官方把每条条目的装载
+ *   收进 `client-modules` 的 entries 协调器（`ClientEntries.start`）之后才跑得到；协调器把
+ *   每条自己的失败吞进它自己的失败表，整次启动不再因为一条起不来而中断，于是审计跑得到、
+ *   条数也报得出来。这一代因此同时有**条数**（#237 的规模判据用它）。
+ * - **loader entry 的失败行（0.1.5 线：`0.1.5-rc.2` / rc.3 实测）**：
+ *   `failed to <import|apply> loader entry <entryId> (<name>): <detail>`。那一代的 WebBoot 是
+ *   `await i.create({name})`（`i` = cordis loader）逐个创建、整批包在 `Promise.all` 里，
+ *   **第一条**失败就把整次启动打断：`run()` 的 catch 打一条 `console.error` 就完事，
+ *   上面那条审计**根本没机会跑**，页面上是官方那张 `Failed to load plugins` 卡。
+ *   出处：`@deepseek-ai/cordis-plugin-loader` 的 `updateError`
+ *   （``failed to ${stage} loader entry ${options.id} (${options.name}): ${detail}``，
+ *   由 `Entry._init` 的 import / apply 两处抛出），实测原文（0.1.5-rc.2 上的 `?drift=` 现场）：
+ *   `failed to import loader entry 94216a56 (@deepseek-ai/dsh-client-lab-drift): client-modules:
+ *   bundle … loaded without registering "…" via __ModuleLoader__.load`。
+ *   这一代**没有条数**可说（Promise.all 只把第一条失败交出来），所以规模判据（`SELF_HEAL_MAX_IDS`）
+ *   在这一代拿不到输入——能守的只有「一次重试」这条闸，最大代价是每个页面实例摘掉一条，
+ *   见 `verify:lab` 的 F-67 ④那一档。
+ *
+ * 日志与 `sessionStorage` 记录里的措辞沿用 `the boot audit`：这是这一层的简写（指「官方报出来的
+ * 启动失败」），两种文本形状都算——那句原文照旧逐字附在日志末尾，来源一眼可见。
+ *
  * ## #237 补上的两条边界（这一手不许缩放成灾难）
  *
  * 4. **一次点名太多就不摘**（`SELF_HEAL_MAX_IDS`）：那是系统性故障（整批没到 / 网关刚
  *    重启 / 上游改了装载形状），摘掉点名的那些既救不回来、又是按故障规模肢解本页清单。
  *    #237 的现场就是没有这条边界——49 条一路摘到 62 条。判据是**规模**，不是错误文案：
- *    两种故障在审计里都写 `import failed`。
+ *    两种故障在审计里都写 `import failed`。这条只在**报得出条数**的那种文本上成立
+ *    （见「两代两种失败文本」：0.1.5 线的失败行一次只写一条）。
  * 5. **记录用完要清**（`watchForBoot` 与 `act` 里那两条 one-way 路径）：这一页真的起来了
  *    （#root 出现过内容、审计静了一个窗口）或者「审计点名的那几条都不是我们摘掉的那几条」
  *    （= 那次摘除不是解药，#237 现场的形状）时就把记录删掉。记录说的是「上一轮为什么摘下
@@ -118,6 +149,13 @@ export function selfHealJs(): string {
   // ever used; nothing here guesses what else might be broken.
   var AUDIT = /^web boot: \\d+ entr(?:y|ies) did not activate/
   var ID_LINE = /^(\\S+): /
+  // The other shape the official code reports a broken entry in (the 0.1.5 line, measured on
+  // 0.1.5-rc.2): there WebBoot awaits every entry's cordis loader create inside one
+  // Promise.all, so the FIRST failing entry aborts the whole boot and what reaches the
+  // console is the loader's own wrapper - nothing prints a count and the audit above never
+  // runs. Quoted from @deepseek-ai/cordis-plugin-loader's updateError. Group 1 is the plugin
+  // name ("<id> (<name>): <detail>"), which is the id this layer can drop.
+  var ENTRY_FAIL = /^failed to (?:import|apply) loader entry \\S+ \\((\\S+)\\): /
   // The page's own log channel: in the VS Code webview probe.ts wraps console.warn and
   // forwards it to the extension log; in the lab it is the console line the harness
   // captures. The audit itself is never swallowed (below), so the drift stays visible.
@@ -220,6 +258,17 @@ export function selfHealJs(): string {
     }
     return ids
   }
+  // Ids named by the older carrier (see ENTRY_FAIL). One line names one entry, so this can
+  // only ever hand back the entries the official code actually printed - no guessing.
+  var entryFailIds = function (text) {
+    var lines = String(text).split("\\n")
+    var ids = []
+    for (var i = 0; i < lines.length; i++) {
+      var match = ENTRY_FAIL.exec(lines[i])
+      if (match !== null) ids.push(match[1])
+    }
+    return ids
+  }
   // Apply the recorded retry, if this page already used it (a reload lands here).
   var retried = read()
   if (retried !== null) {
@@ -293,7 +342,10 @@ export function selfHealJs(): string {
   var detect = function (text) {
     if (handled) return
     var ids = auditIds(text)
-    if (ids === null || ids.length === 0) return
+    // Older carriers name the entry too (see ENTRY_FAIL): the audit itself never runs on
+    // those generations, so this is the only shape that gets here.
+    if (ids === null) ids = entryFailIds(text)
+    if (ids.length === 0) return
     handled = true
     act(ids, text)
   }

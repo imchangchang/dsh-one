@@ -31,6 +31,15 @@ const audit = (lines: string[]): string => `web boot: ${String(lines.length)} en
 const PENDING = '@deepseek-ai/dsh-client-ui-plan: pending (waiting for service: uiConversation)'
 const IMPORT_FAILED = '@deepseek-ai/dsh-client-lab-drift: import failed (see console for the import error)'
 
+/**
+ * 0.1.5 线（`0.1.5-rc.2` / rc.3 实测）那一代的失败文本：官方那次启动审计跑不到，
+ * 控制台里是 loader 自己包的这一句（出处 `@deepseek-ai/cordis-plugin-loader` 的
+ * `updateError`：``failed to ${stage} loader entry ${options.id} (${options.name}): ${detail}``）。
+ * 括号里那个就是插件名 = 本层能摘的那条 id。形状照 0.1.5-rc.2 上的实测原文写。
+ */
+const legacyEntryFail = (name: string, detail = 'client-modules: bundle /plugins-local/??… loaded without registering it via __ModuleLoader__.load'): string =>
+  `failed to import loader entry 94216a56 (${name}): ${detail}`
+
 /** 一份最小的本页清单：bootstrap 批（loader 自己）+ application 批（两条官方 + 本树插件）。 */
 const bootWire = (): Record<string, unknown> => ({
   rev: 'rev-1',
@@ -258,6 +267,44 @@ test('文本不是审计形状：什么都不动（不重载、不记录、不�
   assert.equal(result.warns.length, 0)
   assert.equal(result.noticeShown, 0)
   assert.equal(record(result), null)
+})
+
+// ---------------------------------------------------------------------------
+// 0.1.5 线那一代的失败文本（见 legacyEntryFail 的注释）：那一代官方那次启动审计跑不到
+// （WebBoot 把逐条 create 包在 Promise.all 里，第一条失败就打断整次启动），控制台里只有
+// loader 自己包的那一句。这一层认它，救法与审计那一路完全相同（只试一次、只摘点名的）。
+// ---------------------------------------------------------------------------
+
+test('0.1.5 线那种失败文本（loader entry 那一路）：照常写下要摘谁并重载一次', () => {
+  const result = run({ emit: [legacyEntryFail('@deepseek-ai/dsh-client-lab-drift')] })
+  assert.equal(result.reloads, 1, '第一次就要重载一次')
+  assert.deepEqual(record(result)?.removed, ['@deepseek-ai/dsh-client-lab-drift'])
+  assert.match(record(result)?.reason ?? '', /failed to import loader entry 94216a56/, '记录里带「因为什么」（官方那段原文）')
+  assert.equal(result.warns.length, 1, '留痕：一条日志')
+  assert.match(result.warns[0] ?? '', /the boot audit named \[@deepseek-ai\/dsh-client-lab-drift\]/)
+  assert.match(result.warns[0] ?? '', /dropping \[@deepseek-ai\/dsh-client-lab-drift\] and reloading this page once/)
+  assert.match(result.warns[0] ?? '', /failed to import loader entry/, '日志里带官方原文（这一代的原文就是它）')
+  assert.deepEqual(
+    result.passedThrough,
+    [`Error: ${legacyEntryFail('@deepseek-ai/dsh-client-lab-drift')}`],
+    '原文原样透传（这层只旁听，不吞）',
+  )
+  assert.equal(result.noticeShown, 0, '救得回来的时候不该落失败提示条')
+})
+
+test('0.1.5 线那种失败文本：点名的 id 不在本页清单里时同样不浪费那一次重载', () => {
+  const result = run({ emit: [legacyEntryFail('@deepseek-ai/dsh-client-ui-nope')] })
+  assert.equal(result.reloads, 0)
+  assert.equal(record(result), null)
+  assert.match(result.warns[0] ?? '', /none of them can be dropped from this page's manifest; not reloading/)
+  assert.equal(result.noticeShown, 1, '落到失败提示条')
+})
+
+test('0.1.5 线那种失败文本：`apply` 那一档（同一条 wrapper、stage 不同）也认', () => {
+  const text = 'failed to apply loader entry 85868f4a (@deepseek-ai/dsh-client-lab-drift): boom'
+  const result = run({ emit: [text] })
+  assert.equal(result.reloads, 1)
+  assert.deepEqual(record(result)?.removed, ['@deepseek-ai/dsh-client-lab-drift'])
 })
 
 test('点名的 id 不在本页清单里：不浪费那一次重载，落到失败提示条', () => {
