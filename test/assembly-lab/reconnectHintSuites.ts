@@ -44,7 +44,7 @@ import {
   type LabTreeRoute,
 } from './labServer.ts'
 import { startFreshGateway } from './freshGateway.ts'
-import { bootstrapUrlOf, extractBootWire } from '../../src/ui/assembly/wireFilter.ts'
+import { bootstrapUrlOf, extractBootWire, parseRosterRevs, ROSTER_REVS_PARAM } from '../../src/ui/assembly/wireFilter.ts'
 import { SHELL_LOCALE } from '../../src/ui/assembly/shell/shellLocale.ts'
 // 只取类型（编译后不留 import，运行期没有环）：套件接口定义在 suites.ts 里。
 import type { LabSuite } from './suites.ts'
@@ -351,12 +351,11 @@ export const RECONNECT_HINT_SUITE: LabSuite = {
       )
       const lastStream = streamsAfter[0]
       const query = lastStream === undefined ? new URLSearchParams() : new URLSearchParams(lastStream.url.slice(lastStream.url.indexOf('?') + 1))
-      const baselineRaw = query.get('revs')
-      const baselinePairs = (baselineRaw ?? '')
-        .split(',')
-        .map((pair) => pair.split(':'))
-        .filter((pair) => pair.length === 2 && pair[0] !== '' && pair[1] !== '')
-        .map((pair) => [pair[0] as string, pair[1] as string] as [string, string])
+      const baselineRaw = query.get(ROSTER_REVS_PARAM)
+      // 用**生产那份解码端**（`wireFilter.parseRosterRevs`）解，不在这里另写一份：这一条判的
+      // 就是「页面编出去的那份基线 = 这一页 boot 那份清单」，两边各写一份解析会让「两份实现
+      // 一起错」看不出来（#243 的现场正是页面编码端与镜像解码端对不上）。
+      const baselinePairs = [...parseRosterRevs(baselineRaw ?? '')]
       const baselineGap = compareRosters(bootBefore, baselinePairs)
       check.fact(
         `重启后那条流：URL ${String(lastStream?.url.length ?? 0)} 字符、带基线 ${baselineRaw === null ? '否' : `是（${String(baselinePairs.length)} 对）`}、` +

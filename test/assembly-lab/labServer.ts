@@ -46,6 +46,12 @@ export const RETRY_THROTTLE_QUERY = 'retryThrottle'
 /** `?retryThrottle=` 的这一取值 = 不装重试限流（其余取值照常装）。 */
 export const RETRY_THROTTLE_OFF = 'off'
 
+/** 页面查询参数名：`?rosterRevs=raw` = 这一页把名册基线参数（`revs`）按改前那套原样拼接（#243 的负向对照用）。 */
+export const ROSTER_REVS_QUERY = 'rosterRevs'
+
+/** `?rosterRevs=` 的这一取值 = 原样拼接（不做百分号转义，见 `pageHtml.ts` 的 `legacyRosterRevs`）。 */
+export const ROSTER_REVS_RAW = 'raw'
+
 /**
  * 页面查询参数：这一页的清单与资产名从**哪一份**网关 HTML 来（#230）。
  *
@@ -332,6 +338,8 @@ export async function startLabServer(options: LabServerOptions): Promise<LabServ
       ...(query.get(SELF_HEAL_QUERY) === SELF_HEAL_OFF ? { selfHeal: false } : {}),
       // `?retryThrottle=off` = 这一页的传输层不装重试限流与失败日志限频（#229 的负向对照）。
       ...(query.get(RETRY_THROTTLE_QUERY) === RETRY_THROTTLE_OFF ? { retryThrottle: false } : {}),
+      // `?rosterRevs=raw` = 这一页把名册基线参数按改前那套原样拼接（#243 的负向对照）。
+      ...(query.get(ROSTER_REVS_QUERY) === ROSTER_REVS_RAW ? { legacyRosterRevs: true } : {}),
       localPluginIds: localPluginIdsOf(route.tree),
     })
   }
@@ -368,7 +376,7 @@ export async function startLabServer(options: LabServerOptions): Promise<LabServ
       ).join('\n      ')}
       <li><a href="${origin}/official">/official</a> — 网关原始 GUI（同一网关、同一个浏览器里做 A/B 对照用）</li>
     </ul>
-    <p class="note">URL 参数：<code>?theme=light</code> 切首帧主题；<code>?session=&lt;id&gt;</code> 给 chat 树注入启动会话；<code>?drift=sick:&lt;id&gt;</code> / <code>?drift=fresh:&lt;前缀&gt;</code> 造「某条目永远起不来」的现场（每次加载换 id 的那一档验「只试一次」）；<code>?selfHeal=off</code> 这一页不装启动自愈（负向对照）；<code>?retryThrottle=off</code> 这一页不装重试限流与失败日志限频（负向对照）；<code>?pageWire=pinned</code> 这一页用实验室启动那一刻那份网关 HTML 装配（= 生产里「VS Code 交回早先写下的那份 HTML」，网关重启之后那份就过期了）。</p>
+    <p class="note">URL 参数：<code>?theme=light</code> 切首帧主题；<code>?session=&lt;id&gt;</code> 给 chat 树注入启动会话；<code>?drift=sick:&lt;id&gt;</code> / <code>?drift=fresh:&lt;前缀&gt;</code> 造「某条目永远起不来」的现场（每次加载换 id 的那一档验「只试一次」）；<code>?selfHeal=off</code> 这一页不装启动自愈（负向对照）；<code>?retryThrottle=off</code> 这一页不装重试限流与失败日志限频（负向对照）；<code>?rosterRevs=raw</code> 这一页把名册基线参数按改前那套原样拼接（负向对照）；<code>?pageWire=pinned</code> 这一页用实验室启动那一刻那份网关 HTML 装配（= 生产里「VS Code 交回早先写下的那份 HTML」，网关重启之后那份就过期了）。</p>
   </body>
 </html>
 `

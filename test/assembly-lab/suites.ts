@@ -79,6 +79,7 @@ import { RETRY_THROTTLE_SUITE } from './retryThrottleSuites.ts'
 import { THIRD_PARTY_PLUGIN_SUITE } from './thirdPartySuites.ts'
 import { OFFICIAL_PIN_SUITE } from './officialPinSuites.ts'
 import { PROFILE_PLUGIN_SERVICE_SUITE } from './profilePluginServiceSuites.ts'
+import { ROSTER_REVS_SUITE } from './rosterRevsSuites.ts'
 import { ARCHIVED_RESTORE_SUITE } from './archivedRestoreSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
@@ -6675,4 +6676,10 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // 少一处合入热点。它判的是「这一代官方那套入口被我们遮蔽时，自有树补的那一节在不在、
   // 点得动」——按页面上的观测值分两侧，0.1.6 与 0.1.7 各跑一侧）。
   ARCHIVED_RESTORE_SUITE,
+  // #243 名册基线参数的编码：页面带上去的 id→rev 基线里出现分隔符（0.1.7 起官方把
+  // application 切成两个批，自有条目的整包缓存键里就带着一个「,」）时被截断，镜像据此
+  // 对齐等于告诉客户端「这几条变了」——客户端先拆后建，拆掉自有 frame 插件那一条时
+  // `root` 槽的注册随之撤销、整页白（F-73：#240 占了 F-71、#239 占了 F-72，按
+  // 「从未占用的继续」顺延；套件本体在 rosterRevsSuites.ts，同为独立文件，少一处合入热点）。
+  ROSTER_REVS_SUITE,
 ]
