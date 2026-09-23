@@ -1,8 +1,10 @@
 /**
- * #223 / #224 的宿主侧 harness：在 node 里用**真实宿主代码**跑「点会话 → 对话面板」
- * 这条通路（`src/ui/assemblyView.ts`），把判据要吃的几样东西交出去——建出来的面板、
- * 弹给用户的提示、扩展自己的日志行，以及把请求送进去的两个入口（侧栏桥消息
- * `dshOne.sessionSelected` 与宿主能力口 `dshOne.hostCall` + `session.openPanel`）。
+ * #223 / #224（chat 面板）与 #233（设置面板）共用的宿主侧 harness：在 node 里用**真实
+ * 宿主代码**跑「点会话 → 对话面板」与「点齿轮 → 设置面板」两条通路
+ * （`src/ui/assemblyView.ts`），把判据要吃的几样东西交出去——建出来的面板、弹给用户的
+ * 提示、扩展自己的日志行，以及把请求送进去的入口（侧栏桥消息 `dshOne.sessionSelected`、
+ * 宿主能力口 `dshOne.hostCall` 的 `session.openPanel` / `vscode.openSettings`、命令
+ * `dshOne.assembledChat` / `dshOne.assembledSettings`）。
  *
  * 三样替身，各自的边界写在该替身自己的文件/函数上：
  * - **`vscode` 模块**（`vscodeStub.ts`）：面板与 webview 的生命周期、可见提示、命令表；
@@ -56,6 +58,10 @@ export interface Harness {
     hasAssembledChatPanel(): boolean
     wasAssembledChatClosedByUser(): boolean
     openSessionInNewTab(sessionId: string): Promise<void>
+    /** #233：设置页「已开则聚焦」那一步（齿轮先问它，问不到才走命令）。 */
+    revealAssembledSettings(): boolean
+    /** #233：置「宿主开始收摊」标志（`deactivate` 的落点），销毁行的 hostTeardown 读它。 */
+    markHostDeactivating(): void
   }
   /** 让下一次 `createWebviewPanel` 抛错。 */
   setFailNextPanelCreate(fail: boolean): void
@@ -63,6 +69,8 @@ export interface Harness {
   clickSession(sessionId: string): void
   /** 侧栏页走宿主能力口 `session.openPanel`（会话行点击 / 新建会话那条路）。 */
   requestPanel(sessionId: string): void
+  /** 侧栏页的顶栏齿轮（#233）：宿主能力口 `vscode.openSettings`。 */
+  gearClick(): void
   /** 跑一条登记过的命令（`dshOne.assembledChat`：新建会话 / fork / 默认打开那条路）。 */
   runCommand(commandId: string): Promise<void>
   /** 造一个已经没了的面板（宿主收摊形状），供恢复路径那类判据用。 */
@@ -175,7 +183,18 @@ export async function startHarness(): Promise<Harness> {
 
   const view = await import('../../src/ui/assemblyView.ts')
   view.registerAssembledChat(context, manager, logger)
-  view.registerAssembledSidebar(context, manager, logger)
+  view.registerAssembledSettings(context, manager, logger)
+  // #233：设置页的齿轮走宿主能力口 `vscode.openSettings` → 侧栏 provider 的
+  // `onOpenSettings`。这里如实照 `extension.ts` 的 `openAssembledSettings` 接线复刻：
+  // 能聚焦就聚焦，聚焦不到（含引用指着死面板）才走命令全量新建。齿轮那条路在宿主能力口
+  // 里是**不等着调用**的（`hostBridge.ts` 的 `deps.openSettings()` 后面没有 await），
+  // 所以命令若是抛错，这里就是一个没人接的 rejection——判据「兜底不再静默」量它。
+  view.registerAssembledSidebar(context, manager, logger, {
+    onOpenSettings: () => {
+      if (view.revealAssembledSettings()) return
+      void Promise.resolve(registeredCommands.get('dshOne.assembledSettings')?.())
+    },
+  })
 
   const provider = stub.viewProviders.get('dshOne.chat') as { resolveWebviewView(v: unknown): void }
   const { webview, kill } = createStubWebview()
@@ -213,6 +232,8 @@ export async function startHarness(): Promise<Harness> {
       hasAssembledChatPanel: () => view.hasAssembledChatPanel(),
       wasAssembledChatClosedByUser: () => view.wasAssembledChatClosedByUser(),
       openSessionInNewTab: (sessionId: string) => view.openSessionInNewTab(sessionId),
+      revealAssembledSettings: () => view.revealAssembledSettings(),
+      markHostDeactivating: () => view.markHostDeactivating(),
     },
     setFailNextPanelCreate: stub.setFailNextPanelCreate,
     clickSession(sessionId: string): void {
@@ -231,6 +252,10 @@ export async function startHarness(): Promise<Harness> {
       const handler = registeredCommands.get(commandId)
       if (handler === undefined) throw new Error(`lab: command ${commandId} is not registered`)
       await handler()
+    },
+    gearClick(): void {
+      hostCallId += 1
+      webview.__receive({ type: 'dshOne.hostCall', id: `lab-call-${hostCallId}`, call: 'vscode.openSettings' })
     },
     newDeadPanel(): StubPanel {
       const panel = stub.window.createWebviewPanel('dshOne.assembledChat', 'lab dead panel') as StubPanel

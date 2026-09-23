@@ -185,6 +185,18 @@ COMPAT_BASE=<集成线分支> scripts/check-platform-compat.sh agent/my-task   #
 - 只有 `chat panel replaced`、没有 `deactivating` → 是**我们**换了单例（例如侧栏点了另一个会话），不是宿主；
 - 有 `disposed … reason=other` 但整份文件里没有 `deactivating` → 用户点了关闭，或者宿主是崩的（崩了不会调 deactivate）。
 
+设置面板（#233 起）同样逐条可读，关键字 `settings`：
+
+| 行 | 含义 |
+| --- | --- |
+| `settings open: panel=<none\|singleton:alive\|singleton:disposed> branch=<reveal\|create> result=…` | 一次「打开设置」的留痕：那一刻选中的面板是什么形态、走的是「已开则聚焦」还是「全量新建」、结果如何（`result=failed:<哪一步>` 指名断在哪：`service` / `manifest` / `mirror` / `create: …`）。侧栏齿轮那条路先落 `branch=reveal`，聚焦不成才由命令落 `branch=create`，所以一次点击可能是两行 |
+| `settings open: panel is already gone (…)` | 「已开则聚焦」撞上一个已经没了的面板：后面括号里是现场（`panelDisposedAt` / `creating` / `hostTeardown`），行尾是原始错误文字。清掉坏引用之后这一次打开按「没开」处理，接着走新建 |
+| `settings panel created` | 设置面板建立 |
+| `settings panel replaced` | 单例被**我们自己**替换掉（再开一次顶掉旧面板） |
+| `settings panel disposed: reason=replace\|other age=…ms hostTeardown=yes\|no` | 面板被销毁。`reason=replace` = 上面那条替换；`reason=other` 分两档：`hostTeardown=yes` = 扩展宿主正在收摊，`no` = 用户点关闭。`age` 是这个面板活了多久 |
+
+「点了齿轮没反应」这类报告按这个顺序读：先找 `settings open:` 那一行——**一行都没有**说明点击根本没到宿主（页面侧的问题）；有行就看 `result=`，它会指名断在哪一步（服务没起来 / 清单拉不到 / 本地代理起不来 / 建面板抛错 / 聚焦撞上死面板），每一档都配一行用户可见的提示。
+
 ## 历史验收清单（来自已关闭的 issue）
 
 下面三节是三条**已关闭** issue 的一次性人工验收清单（#177 实验室隔离、#169 面板重载后还在、#173 插件产物的缓存键）。内容今天仍可复跑——照步骤走一遍就能看出对错——但**不是待办**，不要当待做项清点。
