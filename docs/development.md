@@ -118,6 +118,15 @@ COMPAT_BASE=<集成线分支> scripts/check-platform-compat.sh agent/my-task   #
 规则写在 `scripts/platform-compat-rules.json`：每条规则带 `examples`（必须命中的真实写法）与 `counterExamples`（必须不命中的易误伤写法），扫描与校验的实现在 `scripts/platformCompatScan.mjs`（纯函数），两者由 `npm test` 的 `test/platformCompatGate.test.ts` 钉住——那份测试还包含**端到端负向对照**（在临时 git 仓库里造分支，跑真门禁脚本，断言「命中没声明 → 拒绝」「补上 → 放行」「不命中 → 不受影响」「缺矩阵 → 拒绝」）。匹配前会先剥注释（TypeScript / JavaScript 走整文件状态机，shell 与 PowerShell 按 `#` 逐行剥），所以注释里提到 `taskkill`、`process.platform` 不会命中；`docs/`、`test/`、`.md`、构建产物不在扫描范围内（文档里的命令举例、测试夹具不算平台路径）。要加平台写法（比如新出现某个平台专属命令），改规则数据 + 补一条用例即可。
 
 
+## CI（GitHub Actions）
+
+`.github/workflows/ci.yml` 在 **ubuntu / macos / windows 三个 runner** 上各跑一遍 `npm ci` → typecheck → test → build → package，再装一次 dsh 做启动冒烟（mac/ubuntu 验 POSIX detached spawn；windows 验 `spawnDsh.js` 的 `.cmd` 分发与日志非空）。矩阵**推送到任何分支都跑**（`push.branches: ['**']`），所以开发分支可以推到 origin 拿三平台读数——只有在 Windows 上才现形的问题，靠的就是这条路。
+
+两条约定：
+
+- **装的 dsh 版本钉在 `ci.yml` 的 `env.DSH_SMOKE_VERSION`**，不走 `@next`、也不写浮动范围。理由：上游按批次发布，同一批里个别子包晚几步到 registry 时，`@next` 指的整批就会 `npm error notarget` 装不上（2026-09-22 三平台一起红在这一步）。现在钉的是本仓实测过的那一版；换版本时先按 `ci.yml` 里那段注释在本机试装、能跑 `dsh --version` 再改。装不上时这一步会直接打出「哪个包的哪个范围取不到」和换版本的四步操作。
+- **提交标题不许带 `[skip ci]`**：它是给上游监控的徽章回写那种纯回写提交用的（`scripts/dsh-upstream-watch/watch.mjs` 的提交）。发布、合并、功能提交带上它，那次 push 的 CI 会被**整个静默跳过**——2026-09-22 发布 v2.0.3 的合并提交标题照抄了它，`gh api …/actions/runs?head_sha=46a3fcded3a4…` 查到 `total_count: 0`，表现是「CI 好像没跑」而不是「CI 失败」。
+
 ## 调试（F5 Extension Development Host）
 
 仓库带了 `.vscode/launch.json`。流程：

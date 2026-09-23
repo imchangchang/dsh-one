@@ -6,7 +6,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as path from 'node:path'
 import * as fs from 'node:fs/promises'
-import { scratchDirSync } from './scratchDirs.ts'
+import { removeScratchDir, scratchDirSync } from './scratchDirs.ts'
 import {
   COMMIT_SHA_ARG_RE,
   SESSION_ID_ARG_RE,
@@ -108,8 +108,8 @@ test('resolveAllowedDir 只认允许根之内的真实目录', async () => {
     // 允许根本身不存在（~/.dsh 未建）时不影响其它根
     assert.equal(await resolveAllowedDir(inside, [path.join(root, 'missing'), root]), await fs.realpath(inside))
   } finally {
-    await fs.rm(root, { recursive: true, force: true })
-    await fs.rm(outside, { recursive: true, force: true })
+    await removeScratchDir(root)
+    await removeScratchDir(outside)
   }
 })
 
@@ -121,8 +121,8 @@ test('resolveAllowedDir 解符号链接后判定（链接指到根外即拒绝�
     await fs.symlink(outside, link, 'dir')
     assert.equal(await resolveAllowedDir(link, [root]), null)
   } finally {
-    await fs.rm(root, { recursive: true, force: true })
-    await fs.rm(outside, { recursive: true, force: true })
+    await removeScratchDir(root)
+    await removeScratchDir(outside)
   }
 })
 
@@ -151,7 +151,7 @@ test('resolveQueryDir：会话工作区路径在允许根内时优先用它', as
     await fs.mkdir(sub)
     assert.equal(used(await resolveQueryDir(sub, vscodeFolder, roots)), await fs.realpath(sub))
   } finally {
-    for (const dir of [vscodeFolder, gatewayWorkspace, outside]) await fs.rm(dir, { recursive: true, force: true })
+    for (const dir of [vscodeFolder, gatewayWorkspace, outside]) await removeScratchDir(dir)
   }
 })
 

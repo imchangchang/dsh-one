@@ -31,6 +31,7 @@ import type { Duplex } from 'node:stream'
 import { assemblyPageHtml } from '../../src/ui/assembly/pageHtml.ts'
 import { cookieHeader, exchangeToken, startAssemblyMirror, type AssemblyMirror } from '../../src/server/assemblyMirror.ts'
 import { applyBootDrift, BOOT_DRIFT_QUERY, SELF_HEAL_OFF, SELF_HEAL_QUERY } from './bootDrift.ts'
+import { windowsPortHolder } from './portHolderWindows.ts'
 import { localBundleRev } from '../../src/server/localBundleRev.ts'
 import { registerVersion } from '../../src/server/serverAuth.ts'
 import { defaultOwnedPath, readOwnedRecord } from '../../src/server/ownedRecord.ts'
@@ -477,17 +478,20 @@ export function describeListenFailure(err: unknown, port: number): Error {
   }
   const holder = portHolder(port)
   return new Error(
-    `lab: 端口 ${port} 已被占用（EADDRINUSE），占用者：${holder ?? '（查不到是谁：lsof 不可用或没权限）'}` +
+    `lab: 端口 ${port} 已被占用（EADDRINUSE），占用者：${holder ?? '（查不到是谁：没有权限，或系统工具取不到）'}` +
       `——换一个端口（LAB_PORT=<n> npm run verify:lab），或先结束上面那个进程。`,
   )
 }
 
 /**
- * 谁占着这个端口：`lsof` 找 LISTEN 的进程号，`ps` 取它的命令行。取不到就返回
- * undefined——查不到是谁，也不该让报错本身再失败一次。
+ * 谁占着这个端口：POSIX 用 `lsof` 找 LISTEN 的进程号、`ps` 取它的命令行；Windows 上
+ * 这两个命令都没有（#235：windows-latest 上这条一直报「查不到是谁」），换用
+ * `netstat -ano` + `tasklist`，实现在 `portHolderWindows.ts`。取不到就返回 undefined
+ * ——查不到是谁，也不该让报错本身再失败一次。
  */
 export function portHolder(port: number): string | undefined {
   try {
+    if (process.platform === 'win32') return windowsPortHolder(port)
     const listing = execFileSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-Fp'], { encoding: 'utf8' })
     const pids = [...listing.matchAll(/^p(\d+)$/gm)].map((match) => match[1])
     if (pids.length === 0) return undefined

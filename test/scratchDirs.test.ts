@@ -60,7 +60,8 @@ function passedCount(stdout: string): number {
 test('scratchDir / scratchDirSync：进程退出时删干净（子进程实测）', () => {
   const root = scratchDirSync('dsh-scratch-guard-')
   const code = `
-    const mod = await import(process.env.DSH_SCRATCH_MODULE)
+    import { pathToFileURL } from 'node:url'
+    const mod = await import(pathToFileURL(process.env.DSH_SCRATCH_MODULE).href)
     await mod.scratchDir('dsh-state-test-')
     mod.scratchDirSync('dsh-owned-test-')
     console.log('made', process.env.TMPDIR)
@@ -68,6 +69,9 @@ test('scratchDir / scratchDirSync：进程退出时删干净（子进程实测�
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], {
     cwd: ROOT,
     encoding: 'utf8',
+    // 模块路径当**路径**交给子进程，子进程自己转 file:// URL 再 import：Windows 上
+    // 绝对路径（`D:\…`）直接喂给 ESM loader 会被当成协议拒绝（2026-09-22 windows-latest
+    // 上这条子进程就是因此没跑成）。
     env: { ...process.env, TMPDIR: root, DSH_SCRATCH_MODULE: path.join(TEST_DIR, 'scratchDirs.ts') },
   })
   assert.equal(r.status, 0, `子进程没跑成：\n${r.stdout}\n${r.stderr}`)

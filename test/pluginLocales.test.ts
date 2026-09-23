@@ -89,6 +89,15 @@ function dictKeysOf(body: string | undefined): { zh: string[]; en: string[] } | 
   return { zh: keySetOf(zh), en: keySetOf(en) }
 }
 
+/**
+ * 仓库相对路径、分隔符统一成 `/`：Windows 上 `path.relative` 给的是 `packages\…`，
+ * 而下面的判据按 `packages/` 前缀认插件包——2026-09-22 windows-latest 上就是
+ * 因为分隔符不同把「插件包里的词典块没进扫描面」误报成红的。
+ */
+function repoRel(file: string): string {
+  return path.relative(ROOT, file).split(path.sep).join('/')
+}
+
 /** 每个源码根下的顶层 `.ts` 文件（与搬家前的扫法一致：不递归进子目录）。 */
 function sourceFiles(): Array<{ label: string; full: string }> {
   const files: Array<{ label: string; full: string }> = []
@@ -96,7 +105,7 @@ function sourceFiles(): Array<{ label: string; full: string }> {
     for (const name of fs.readdirSync(dir).sort()) {
       if (!name.endsWith('.ts')) continue
       const full = path.join(dir, name)
-      files.push({ label: path.relative(ROOT, full), full })
+      files.push({ label: repoRel(full), full })
     }
   }
   return files

@@ -17,8 +17,9 @@ import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { spawnSync } from 'node:child_process'
-import { scratchDirSync } from './scratchDirs.ts'
+import { removeScratchDirSync, scratchDirSync } from './scratchDirs.ts'
 
 const ROOT = path.join(import.meta.dirname, '..')
 const MODULE_PATH = path.join(ROOT, 'scripts', 'labDoctor.mjs')
@@ -48,7 +49,8 @@ interface LabDoctor {
   diagnose(options?: { platform?: string; tmpdir?: string; home?: string }): { unsupported?: boolean; platform?: string }
 }
 
-const doctor = (await import(MODULE_PATH)) as LabDoctor
+// 说明符走 file:// URL（Windows 绝对路径不能直接喂给 ESM loader，见 test/esmImportSpecifiers.test.ts）。
+const doctor = (await import(pathToFileURL(MODULE_PATH).href)) as LabDoctor
 
 /** 真实验室实例的命令行长这样（`test/assembly-lab/labGateway.ts` 的 spawn 参数）。 */
 const labArgs = (port: number, extra: string[] = []): string =>
@@ -121,8 +123,8 @@ test('isLabHome：只认临时目录下、按实验室前缀建出来的家目�
     assert.equal(doctor.isLabHome(path.join(other, 'dsh-lab-home-XXXXXX'), tmp), false, '不在本次扫的临时目录里')
     assert.equal(doctor.isLabHome(path.join(os.homedir(), '.dsh'), tmp), false, '用户真实家目录')
   } finally {
-    fs.rmSync(tmp, { recursive: true, force: true })
-    fs.rmSync(other, { recursive: true, force: true })
+    removeScratchDirSync(tmp)
+    removeScratchDirSync(other)
   }
 })
 
@@ -168,7 +170,7 @@ test('classify：四条件逐条正反面对照（收错的防线全在这里）
     const real = at({ pid: owned.pid, dshHome: path.join(os.homedir(), '.dsh'), ppid: 1 })
     assert.equal(doctor.classify(real).verdict, 'owned')
   } finally {
-    fs.rmSync(tmp, { recursive: true, force: true })
+    removeScratchDirSync(tmp)
   }
 })
 
@@ -312,7 +314,7 @@ test(
           // 已经被脚本自己收掉的，正常
         }
       }
-      fs.rmSync(sandbox, { recursive: true, force: true })
+      removeScratchDirSync(sandbox)
     }
   },
 )
@@ -347,7 +349,7 @@ test(
       } catch {
         // 已经被脚本自己收掉的，正常
       }
-      fs.rmSync(sandbox, { recursive: true, force: true })
+      removeScratchDirSync(sandbox)
     }
   },
 )

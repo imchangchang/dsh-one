@@ -11,7 +11,7 @@ import * as fs from 'node:fs/promises'
 import { execFileSync } from 'node:child_process'
 import { remoteContainsCommit, runGitShow } from '../src/pure/gitShowCommand.ts'
 import { resolveQueryDir } from '../src/pure/hostCalls.ts'
-import { scratchDir } from './scratchDirs.ts'
+import { removeScratchDir, scratchDir } from './scratchDirs.ts'
 
 /** git 可用性探测（不可用则跳过整组）。 */
 function gitAvailable(): boolean {
@@ -51,7 +51,7 @@ async function makeRepo(label = 'a'): Promise<{ dir: string; hash: string; clean
   git('add', '.')
   git('commit', '-q', '-m', `feat: add two files (${label})`, '-m', 'body line')
   const hash = git('rev-parse', 'HEAD').trim()
-  return { dir, hash, cleanup: async () => fs.rm(dir, { recursive: true, force: true }) }
+  return { dir, hash, cleanup: async () => removeScratchDir(dir) }
 }
 
 test('runGitShow 查得到提交：作者/日期/message/变更统计/完整 hash/GitHub 链接', { skip: !hasGit }, async () => {
@@ -105,7 +105,7 @@ test('runGitShow 在非仓库目录回 found=false；git 缺席回 undefined', {
     const missing = await runGitShow('deadbeef', dir, { gitPath: 'dsh-one-git-does-not-exist' })
     assert.equal(missing, undefined)
   } finally {
-    await fs.rm(dir, { recursive: true, force: true })
+    await removeScratchDir(dir)
   }
 })
 
@@ -178,8 +178,8 @@ async function makeRepoWithRemote(): Promise<{
   git('commit', '-q', '-m', 'feat: local only')
   const localOnly = git('rev-parse', 'HEAD').trim()
   const cleanup = async (): Promise<void> => {
-    await fs.rm(dir, { recursive: true, force: true })
-    await fs.rm(remoteDir, { recursive: true, force: true })
+    await removeScratchDir(dir)
+    await removeScratchDir(remoteDir)
   }
   return { dir, pushed, localOnly, cleanup }
 }

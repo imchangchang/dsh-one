@@ -114,6 +114,11 @@
 
 CHANGELOG 写法见 skill **`changelog-conventions`**（正本在 `.agents/skills/changelog-conventions/`）：面向用户结果、一条一句、不写函数名/行号/内部术语。
 
+## 提交与 CI
+
+- **提交标题不许带 `[skip ci]`**（发布、合并、功能提交一律不许）：它只属于上游监控那种纯回写提交（`scripts/dsh-upstream-watch/watch.mjs` 的徽章回写）。带上它，那次 push 的 CI 会被**整个静默跳过**——2026-09-22 发布 v2.0.3 的合并提交标题照抄了它，那个 commit 的 CI run 数是 0（`gh api …/actions/runs?head_sha=46a3fcded3a4…`），看着像「CI 没跑」而不是「CI 失败」。
+- CI 的三平台矩阵（ubuntu / macos / windows）**推送到任何分支都跑**，开发分支可以推到 origin 拿平台读数。装 dsh 那一步的版本钉在 `.github/workflows/ci.yml` 的 `env.DSH_SMOKE_VERSION`，**别改回 `@next` 或浮动范围**（上游整批没发全时它们会 `notarget`）。细节见 `docs/development.md` 的「CI（GitHub Actions）」。
+
 ## backlog 维护
 
 见 skill **`backlog-github-issues`**（正本在 `.agents/skills/backlog-github-issues/`），本仓库的落地约定在 `docs/backlog/README.md`。一句话版：backlog 唯一事实源是 GitHub Issues——加条目 = 建 issue（默认 `b:open`，中文详细标题，正文首行写 slug）；认领 = `gh issue edit <n> --add-assignee @me --remove-label b:open --add-label b:doing` + comment，**认领后必须再 `gh issue view` 复核 assignee 是自己**；改状态 = 换 label + comment 留痕（`b:open` → `b:doing` → `b:done` → `b:closed`，合入测试有问题 `b:done` 退回 `b:open`）；引用统一用 `#N`；不要建任何手工索引表。

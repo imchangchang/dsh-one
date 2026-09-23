@@ -6,11 +6,19 @@
  * 就出在这里。这里只测能离线测的两段：找占用者、拼人话报错。整条退出路径
  * （自行退出、退出码、不留孤儿）由 `npm run verify:lab` 实测覆盖，见该目录
  * README 的「收尾与退出码」。
+ *
+ * Windows（#235 的定性结论）：原来的 `portHolder` 只用 `lsof` + `ps`，这两个命令
+ * Windows 上没有，所以这条诊断在 windows-latest 上**真的不工作**（不是测试环境
+ * 差异）——CI 上看到的就是「占用者：查不到是谁」。修法是产品侧按平台分派：
+ * Windows 走 `netstat -ano` + `tasklist`（`test/assembly-lab/portHolderWindows.ts`）。
+ * 上面两条用例在 CI 的 windows-latest 上真跑一遍这条分支；下面是它对 netstat 输出的
+ * 解析（纯函数，样本在本机也测得到）。
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as http from 'node:http'
 import { describeListenFailure, portHolder } from './assembly-lab/labServer.ts'
+import { parseWindowsListeners } from './assembly-lab/portHolderWindows.ts'
 
 /** 起一个只跑在本机的监听服务器，返回它占的端口与关闭函数。 */
 async function listenOnFreePort(): Promise<{ port: number; close: () => Promise<void> }> {
@@ -72,4 +80,28 @@ test('describeListenFailure：EADDRINUSE 报出端口、占用者与换端口提
 test('describeListenFailure：非 EADDRINUSE 的错误原样返回（不添油加醋）', () => {
   const err = new Error('lab: no launch token')
   assert.equal(describeListenFailure(err, 3179), err)
+})
+
+/**
+ * Windows 的 `netstat -ano` 样本（IPv4/IPv6、同名端口的不同进程、同端口的
+ * ESTABLISHED 连接、以及只在前缀上相同的另一个端口）。
+ */
+const NETSTAT_SAMPLE = `
+活动连接
+
+  协议  本地地址          外部地址        状态           PID
+  TCP    0.0.0.0:135            0.0.0.0:0              LISTENING       1040
+  TCP    0.0.0.0:445            0.0.0.0:0              LISTENING       4
+  TCP    127.0.0.1:50145        0.0.0.0:0              LISTENING       4688
+  TCP    [::]:50145             [::]:0                 LISTENING       4321
+  TCP    127.0.0.1:5014         0.0.0.0:0              LISTENING       9999
+  TCP    127.0.0.1:50145        127.0.0.1:52344        ESTABLISHED     4688
+`
+
+test('parseWindowsListeners：只认监听该端口的行，前缀相同的端口不算', () => {
+  assert.deepEqual(parseWindowsListeners(NETSTAT_SAMPLE, 50145), ['4688', '4321'])
+  // 5014 与 50145 只在数字前缀上相同：比整行找端口号会把它们认混
+  assert.deepEqual(parseWindowsListeners(NETSTAT_SAMPLE, 5014), ['9999'])
+  // 没人监听这个端口时返回空数组（调用方据此报「查不到是谁」）
+  assert.deepEqual(parseWindowsListeners(NETSTAT_SAMPLE, 50146), [])
 })

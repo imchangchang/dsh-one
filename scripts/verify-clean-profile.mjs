@@ -28,6 +28,7 @@ import * as fs from 'node:fs/promises'
 import * as net from 'node:net'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { chromium } from 'playwright'
 import { assertBuildArtifacts } from './check-build-artifacts.mjs'
 
@@ -249,7 +250,7 @@ async function main() {
     const token = readyUrl.searchParams.get('token')
 
     // 3) 起装配页服务（仓库真实模块：labServer + wireFilter + mirror）。
-    const labModule = await import(path.join(ROOT, 'test', 'assembly-lab', 'labServer.ts'))
+    const labModule = await import(pathToFileURL(path.join(ROOT, 'test', 'assembly-lab', 'labServer.ts')).href)
     const lab = await labModule.startLabServer({
       gateway,
       token,

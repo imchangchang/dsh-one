@@ -17,6 +17,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { scratchDirSync } from './scratchDirs.ts'
 
 const ROOT = path.join(import.meta.dirname, '..')
@@ -46,7 +47,9 @@ interface DriftModule {
   }): CheckRow
 }
 
-const mod = (await import(path.join(ROOT, 'scripts', 'dsh-upstream-watch', 'blockListDrift.mjs'))) as DriftModule
+// 说明符走 file:// URL：Windows 上绝对路径（`D:\…`）会被 ESM loader 当成协议拒绝，
+// 统一口径与回归判据见 test/esmImportSpecifiers.test.ts。
+const mod = (await import(pathToFileURL(path.join(ROOT, 'scripts', 'dsh-upstream-watch', 'blockListDrift.mjs')).href)) as DriftModule
 
 const CONVERSATION = '@deepseek-ai/dsh-client-ui-conversation'
 const PLAN = '@deepseek-ai/dsh-client-ui-plan'

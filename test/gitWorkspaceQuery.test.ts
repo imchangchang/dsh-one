@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as path from 'node:path'
 import * as fs from 'node:fs/promises'
-import { scratchDir } from './scratchDirs.ts'
+import { removeScratchDir, scratchDir } from './scratchDirs.ts'
 import { execFileSync } from 'node:child_process'
 import { queryCommitInWorkspace } from '../src/pure/gitWorkspaceQuery.ts'
 import { createTtlCache, type TtlCache } from '../src/pure/ttlCache.ts'
@@ -82,7 +82,7 @@ test('工作区根非仓库：仓库在 ./sub 与 ./a/b 时都能查到（并回
     const miss = await queryCommitInWorkspace('deadbeef', ws, freshCaches())
     assert.equal(miss?.found, false)
   } finally {
-    await fs.rm(ws, { recursive: true, force: true })
+    await removeScratchDir(ws)
   }
 })
 
@@ -95,7 +95,7 @@ test('查询根本身是仓库时走快路径（不回报 repoRelative，且不�
     assert.equal(result?.repoPath, undefined) // 快路径不盖仓库上下文（就是查询根本身）
     assert.equal(result?.scannedRoots, 1)
   } finally {
-    await fs.rm(ws, { recursive: true, force: true })
+    await removeScratchDir(ws)
   }
 })
 
@@ -108,7 +108,7 @@ test('深于限深的仓库不扫（maxDepth 收紧到 1 时 ./a/b 查不到）'
     const defaultDepth = await queryCommitInWorkspace(deepHash.slice(0, 7), ws, freshCaches())
     assert.equal(defaultDepth?.found, true)
   } finally {
-    await fs.rm(ws, { recursive: true, force: true })
+    await removeScratchDir(ws)
   }
 })
 
@@ -119,7 +119,7 @@ test('跳过目录里的仓库不扫（node_modules 下的提交查不到）', {
     const result = await queryCommitInWorkspace(hash.slice(0, 7), ws, freshCaches())
     assert.equal(result?.found, false)
   } finally {
-    await fs.rm(ws, { recursive: true, force: true })
+    await removeScratchDir(ws)
   }
 })
 
@@ -137,7 +137,7 @@ test('仓库数上限生效（maxRepos=1 时第二个仓库里的提交查不到
     assert.equal(opened?.repoRelative, 'b-repo')
     void firstHash
   } finally {
-    await fs.rm(ws, { recursive: true, force: true })
+    await removeScratchDir(ws)
   }
 })
 
@@ -167,7 +167,7 @@ test('缓存命中：同 hash 第二次查询不再重新发现仓库', { skip: 
     const third = await queryCommitInWorkspace(hash, await fs.realpath(path.join(ws, 'sub')), freshCaches())
     assert.equal(third?.found, true)
   } finally {
-    await fs.rm(ws, { recursive: true, force: true })
+    await removeScratchDir(ws)
   }
 })
 
@@ -186,7 +186,7 @@ test('时间预算耗尽 → 未找到 + truncated（不抛错）', { skip: !has
     })
     assert.equal(result?.found, false)
   } finally {
-    await fs.rm(ws, { recursive: true, force: true })
+    await removeScratchDir(ws)
   }
 })
 
@@ -196,6 +196,6 @@ test('git 缺席 → undefined（宿主按 git-missing 回执）', { skip: !hasG
     const result = await queryCommitInWorkspace('deadbeef', ws, { ...freshCaches(), gitPath: 'dsh-one-git-does-not-exist' })
     assert.equal(result, undefined)
   } finally {
-    await fs.rm(ws, { recursive: true, force: true })
+    await removeScratchDir(ws)
   }
 })
