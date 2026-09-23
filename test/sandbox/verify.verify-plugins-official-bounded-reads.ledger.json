@@ -1,7 +1,7 @@
 {
   "title": "DSH One 验收报告：#241 官方 web 真机脚本的断言不再因元件被卸载而中止",
   "branch": "agent/verify-plugins-official-bounded-reads",
-  "commit": "21ccb31edcd38ce0e78aa810802e54fec4253f71",
+  "commit": "2d3364a4e60d93cadf1a98e17acb44a05b796c47",
   "environment": {
     "mode": "官方 web 真机（隔离临时 HOME + 临时 profile + 独立端口 + headless Playwright；不起真 VS Code 窗口）",
     "dsh": "0.1.7-alpha.2（负向对照）/ 0.1.6-alpha.1、0.1.6-alpha.2（回归）",
