@@ -106,6 +106,16 @@ export interface AssemblyMirrorOptions {
   treeCombos?: ReadonlyArray<AssemblyTreeCombo>
   /** 可选：GET / 返回的装配页 HTML（调试用的单页形态；生产与实验室都不传）。 */
   assemblyPage?: () => string | undefined
+  /**
+   * 实验开关（#237）：true = 恢复**改前**那套本地件分类——段首 id 只认双引号，
+   * 「不在读到的整包里、名字又不像 `@dsh-one/*`」的 id 判成不认识的本地件并让**整份
+   * 请求**回 404（而不是只丢那一条）。
+   *
+   * 用途只有一处：实验室夹具的**负向对照**——同一个「profile 里装了第三方插件」的
+   * 现场，装上这个开关就该红（页面起不来），证明那条夹具真的抓得住这个 bug，而不是
+   * 因为别的原因碰巧绿。生产恒缺省（改后的口径见 serveCombo 的注释）。
+   */
+  legacyLocalClassification?: boolean
 }
 
 export function startAssemblyMirror(
@@ -128,7 +138,12 @@ export function startAssemblyMirror(
   const filteredGatewayCombo = (framePluginId: string): Promise<{ text: string; ids: ReadonlySet<string> }> => {
     let pending = comboCache.get(framePluginId)
     if (pending === undefined) {
-      pending = fetchFilteredGatewayCombo(target, blockedIdsOf(treeBlocks.get(framePluginId) ?? []), logger)
+      pending = fetchFilteredGatewayCombo(
+        target,
+        blockedIdsOf(treeBlocks.get(framePluginId) ?? []),
+        logger,
+        options.legacyLocalClassification === true,
+      )
       comboCache.set(framePluginId, pending)
       pending.catch(() => {
         if (comboCache.get(framePluginId) === pending) comboCache.delete(framePluginId)
@@ -208,19 +223,86 @@ export function startAssemblyMirror(
   })
 }
 
-/** 本地插件 id（路径穿越白名单的另一半；官方 id 永不落盘、不经此分支)。 */
+/**
+ * 我方案件的 id 形态（`@dsh-one/<小写连字符名>`）。**只用来决定「要不要去读盘」**，
+ * 不再用来判「这一条是不是我们的」（#237）——判据是来源：我们伺服的是
+ * `pluginsDir/<id>/client.js` 那份**本机产物**，见 serveCombo。它同时是路径穿越的
+ * 白名单（`..` 这类名字连读盘这一步都进不去）。
+ */
 const LOCAL_PLUGIN_RE = /^@dsh-one\/[a-z0-9-]+$/
 const CLIENT_SUFFIX = '/client.js'
+
+/** 段的起点：官方自注册 IIFE 的头部（切段用；允许 `load( {` 这类空白）。 */
+const SEGMENT_START_RE = /window\.__ModuleLoader__\.load\(\s*\{/g
+
+/**
+ * 段首那次注册调用里的 id。三种引号都要认：官方与自有产物写双引号，第三方打包器
+ * （实测 `@changfenhuang/dsh-genui` 0.11.0 的 lib/client.js，由 tsdown/esbuild 一类
+ * 产出）写成模板字面量 `id:\`@changfenhuang/dsh-genui\``——只认双引号时这条 id 进不了
+ * 「网关整包里有哪些 id」那张表，于是它被判成「本机插件」，进而让**整个请求**被拒
+ * （#237 现场）。
+ */
+const SEGMENT_ID_RE = /window\.__ModuleLoader__\.load\(\s*\{\s*id:\s*(?:"([^"]+)"|'([^']+)'|`([^`]+)`)/
+
+/** #237 之前那份只认双引号、不容空白的 id 正则（只有实验室夹具的负向对照用它）。 */
+const SEGMENT_ID_RE_LEGACY = /window\.__ModuleLoader__\.load\(\{\s*id:\s*"([^"]+)"/
+
+/**
+ * 只在段首这一小段里找 id：再往后是 factory 体，被压过的代码里到处都是 `id:` 属性。
+ * 300 个字符够官方与第三方两种写法的注册头（`{id:…,factory:…}`）用。
+ */
+const SEGMENT_ID_SCAN = 300
+
+/**
+ * 把一份整包按 `window.__ModuleLoader__.load({` 边界切成段，并读出每段开头的 id
+ * （读不出来时 `id` 为 `undefined`，调用方据此记一条诊断——那条段的归属我们看不见）。
+ *
+ * 导出是给 `node --test` 用的：切段与认 id 这件事实在太久没被单独测过，正是 #237 的
+ * 漏点（第三方产物换一种引号就漏一条）。
+ */
+export function splitComboSegments(
+  text: string,
+  idPattern: RegExp = SEGMENT_ID_RE,
+): { segment: string; id: string | undefined }[] {
+  const marks = [...text.matchAll(SEGMENT_START_RE)]
+  const out: { segment: string; id: string | undefined }[] = []
+  for (let i = 0; i < marks.length; i++) {
+    const start = marks[i].index
+    const end = i + 1 < marks.length ? marks[i + 1].index : text.length
+    const segment = text.slice(start, end)
+    const match = idPattern.exec(segment.slice(0, SEGMENT_ID_SCAN))
+    out.push({ segment, id: match?.[1] ?? match?.[2] ?? match?.[3] })
+  }
+  return out
+}
+
+/**
+ * 读我们自己那份插件产物；没有这个文件时返回 `null`（调用方按「我们不伺服这一条」处理）。
+ *
+ * 为什么不用「文件在不在」之外的判据：**来源**就是它——我们伺服的是本机
+ * `pluginsDir/<id>/client.js`；目录里没有的，就不是我们的（#237）。
+ */
+async function readLocalBundle(pluginsDir: string, id: string): Promise<Buffer | null> {
+  try {
+    return await fsp.readFile(path.join(pluginsDir, id, 'client.js'))
+  } catch {
+    return null
+  }
+}
 
 /**
  * 拉官方原 application combo 并剥掉 blockList 段（探针结论：网关 rev 是
  * 内容校验，重拼/单包错 rev 一律 404，唯一可靠来源是原 combo URL)。
  * 按 `window.__ModuleLoader__.load({` 边界切段、读段首 id 判定、拼接保留段。
+ *
+ * `legacyIds`（只有实验室夹具的负向对照传 true）恢复 #237 之前那份只认双引号的 id
+ * 提取，用来在同一个现场上证明「夹具真的抓得住这个 bug」。
  */
 async function fetchFilteredGatewayCombo(
   target: () => string | undefined,
   blockIds: readonly string[],
   logger: LogSink,
+  legacyIds = false,
 ): Promise<{ text: string; ids: ReadonlySet<string> }> {
   const gateway = target()
   if (gateway === undefined) throw new Error('local UI proxy: dsh service is not running')
@@ -234,33 +316,41 @@ async function fetchFilteredGatewayCombo(
   // 否则第二批的官方插件会被当成不存在的「本地插件」而被 404 掉。
   const appBatches = wire.batches.filter((b) => b.phase === 'application')
   if (appBatches.length === 0) throw new Error('local UI proxy: gateway wire has no application batch')
-  const segmentRe = /window\.__ModuleLoader__\.load\(\{/g
   const kept: string[] = []
   const dropped: string[] = []
-  // 官方整包里实际存在的 id：调用方用它区分「官方插件」与「本地自有插件」——
+  // 官方整包里实际存在的 id：调用方用它判断「网关那份是否已经带着这一条」——
   // 不能按 `@dsh-one/` 前缀猜：网关里也可能装了同组织的第三方/用户插件
   // （实测：用户自研的 @dsh-one/dsh-llm-provider 出现在网关清单里，按前缀会被
   // 误当本地件去读盘 → ENOENT → 502）。
   const ids = new Set<string>()
   let segmentCount = 0
+  let unidentified = 0
+  const idPattern = legacyIds ? SEGMENT_ID_RE_LEGACY : SEGMENT_ID_RE
   for (const app of appBatches) {
     const comboRes = await fetch(`${gateway}${app.url}`, { headers })
     if (!comboRes.ok) throw new Error(`local UI proxy: official combo HTTP ${comboRes.status}`)
     const text = await comboRes.text()
-    const marks = [...text.matchAll(segmentRe)]
-    segmentCount += marks.length
-    for (let i = 0; i < marks.length; i++) {
-      const start = marks[i].index
-      const end = i + 1 < marks.length ? marks[i + 1].index : text.length
-      const segment = text.slice(start, end)
-      const id = /\bid:\s*"([^"]+)"/.exec(segment.slice(0, 300))?.[1]
-      if (id !== undefined) ids.add(id)
-      if (id !== undefined && blockIds.includes(id)) {
-        dropped.push(id)
-        continue
+    for (const { segment, id } of splitComboSegments(text, idPattern)) {
+      segmentCount += 1
+      if (id === undefined) {
+        unidentified += 1
+      } else {
+        ids.add(id)
+        if (blockIds.includes(id)) {
+          dropped.push(id)
+          continue
+        }
       }
       kept.push(segment)
     }
+  }
+  if (unidentified > 0) {
+    // 认不出 id 的段落在「网关整包里有哪些 id」那张表里没有名字，于是它会被当成
+    // 「本机插件」去读盘——#237 就是这一处漏出来的（第三方产物换了种引号）。
+    // 单独记一条，别再让它静默。
+    logger.warn(
+      `assembly mirror: ${String(unidentified)} of ${String(segmentCount)} combo segment(s) had no segment-head id within ${String(SEGMENT_ID_SCAN)} chars (their ids are invisible to the local/official split, see #237)`,
+    )
   }
   if (kept.length + dropped.length !== segmentCount) {
     logger.warn(
@@ -275,9 +365,9 @@ async function fetchFilteredGatewayCombo(
 }
 
 /**
- * /plugins-local/??ids&rev=…：本地 combo。官方 id → 过滤版 application combo
- * （整段前置)；本地 id（shell)→ 读盘拼尾。纯拼接即正确（每段都是自注册
- * IIFE，注册顺序无关物化)。
+ * /plugins-local/??ids&rev=…：本地 combo。网关那份（过滤版 application combo，含第三方
+ * 插件的段）整段前置；**我们自己落盘的那些**（`pluginsDir/<id>/client.js`）读盘拼尾。
+ * 纯拼接即正确（每段都是自注册 IIFE，注册顺序无关物化)。
  */
 async function serveCombo(
   req: IncomingMessage,
@@ -308,22 +398,58 @@ async function serveCombo(
   const frameId = ids.find((id) => treeComboKeys.has(id)) ?? ''
   const rev = url.searchParams.get('rev') ?? 'noversion'
   try {
-    // 分类按**来源**而不是名字前缀（见 fetchFilteredGatewayCombo 的说明）：
-    // 官方整包里存在的 id → 由过滤版整包覆盖；不存在的 → 读本地插件目录。
+    // 分类按**来源**（#237）：能伺服的是**我们自己落盘的那份产物**
+    // （`pluginsDir/<id>/client.js` 存在），除此之外的一切——官方件、**第三方件**——
+    // 一律按网关那份原样走（网关整包里就带着它们的段）。名字形态（LOCAL_PLUGIN_RE）
+    // 只决定「要不要去读盘」，不决定「这一条是不是我们的」：第三方插件的 id 天然不
+    // 匹配它。
+    //
+    // **任何单点不认识都不许让整批失败**（这条是 #237 一半的现场）：从前这里对
+    // 「不在读到的整包里、名字又不像自有件」的 id 直接回 404，那个用户装了第三方插件
+    // 之后，这一页的**整批**模块一条都拿不到——连官方件一起 `import failed`，整页
+    // 起不来。现在单点不认识的后果只有它自己那一条：我们不伺服它，剩下的照旧全发出去。
     const official = await filteredGatewayCombo(frameId)
-    const gatewayIds = ids.filter((id) => official.ids.has(id))
-    const localIds = ids.filter((id) => !official.ids.has(id))
-    if (localIds.some((id) => !LOCAL_PLUGIN_RE.test(id))) {
-      logger.warn(`assembly mirror: rejected local combo ids ${localIds.join(',')}`)
-      res.writeHead(404, { 'access-control-allow-origin': '*' })
-      res.end('not found')
-      return
-    }
+    const legacy = options.legacyLocalClassification === true
     const parts: Buffer[] = []
-    if (gatewayIds.length > 0) parts.push(Buffer.from(official.text, 'utf8'))
-    for (const id of localIds) {
-      const file = await fsp.readFile(path.join(options.pluginsDir, id, 'client.js'))
-      parts.push(Buffer.concat([Buffer.from('\n'), file]))
+    const localFiles: Buffer[] = []
+    let localCount = 0
+    const leftToGateway: string[] = []
+    for (const id of ids) {
+      // 网关那份已经带着它（官方件，或者用户把我们自己的包装进了 profile——#165）
+      // 就不再读盘：同一个 id 两份段会让客户端当场抛 duplicate factory registration。
+      if (official.ids.has(id)) continue
+      if (!LOCAL_PLUGIN_RE.test(id)) {
+        if (legacy) {
+          // #237 之前的老行为（只有负向对照走这里）：判成「本地件」却不认识名字 → 整份回 404。
+          logger.warn(`assembly mirror: rejected local combo ids ${ids.filter((x) => !official.ids.has(x)).join(',')}`)
+          res.writeHead(404, { 'access-control-allow-origin': '*' })
+          res.end('not found')
+          return
+        }
+        leftToGateway.push(id)
+        continue
+      }
+      // 老行为下读不到就整份 502（外层 catch）；新口径下只丢那一条。
+      const file = legacy
+        ? await fsp.readFile(path.join(options.pluginsDir, id, 'client.js'))
+        : await readLocalBundle(options.pluginsDir, id)
+      if (file === null) {
+        leftToGateway.push(id)
+        continue
+      }
+      localCount += 1
+      localFiles.push(Buffer.concat([Buffer.from('\n'), file]))
+    }
+    // 请求里只要有一条不是我们自己伺服的就带上网关那份——它带的不只是被点名的那些
+    // 段，而是过滤后的**全部**保留段（官方按 URL 长度分批，这里逐批都拉过了）。
+    if (ids.length > localCount) parts.push(Buffer.from(official.text, 'utf8'))
+    parts.push(...localFiles)
+    if (leftToGateway.length > 0) {
+      // 单点不认识的落地方式：它由网关那份带着走；网关也没有时，只有那一条起不来
+      // （它自己报 import failed），其余照常。
+      logger.warn(
+        `assembly mirror: combo ids not served from ${options.pluginsDir} and not seen in the gateway combo (left to the gateway's own combo): ${leftToGateway.join(', ')}`,
+      )
     }
     res.writeHead(200, {
       'content-type': 'text/javascript; charset=utf-8',
@@ -399,10 +525,20 @@ async function serveGraphEvents(
   }
   const ids = (url.searchParams.get('ids') ?? '').split(',').filter((id) => id !== '')
   const treeBlockList = ids.length === 0 ? undefined : treeBlocks.get(ids[0] ?? '')
-  if (req.method !== 'GET' || treeBlockList === undefined || ids.some((id) => !LOCAL_PLUGIN_RE.test(id))) {
+  // 追加的自有插件 id（第一个之后的那些）里混进一条我们认不出的名字时**只丢那一条**，
+  // 不再让整条流回 404（#237 同一口径）：这条流一停，页面的名册就停在 boot 那一刻那份
+  // （退化成 0.1.6-alpha.1 的行为），比少补回一条条目严重得多。第一个 id 不是
+  // 「认不出的名字」那类问题——它决定取哪棵树的 block list，查不到就没法投影。
+  const extraIds = ids.slice(1).filter((id) => LOCAL_PLUGIN_RE.test(id))
+  if (req.method !== 'GET' || treeBlockList === undefined || ids[0] === undefined) {
     logger.warn(`assembly mirror: rejected graph events request (ids ${ids.join(',') || 'none'})`)
     reject(404, 'not found')
     return
+  }
+  if (extraIds.length !== ids.length - 1) {
+    logger.warn(
+      `assembly mirror: graph events request named ids that are not local plugin ids (kept the rest): ${ids.slice(1).filter((id) => !LOCAL_PLUGIN_RE.test(id)).join(',')}`,
+    )
   }
   // 逐帧投影要读明文：让网关别 gzip（网关的压缩中间件按 accept-encoding 决定）。
   // 其余头与 proxyHeaders 同口径（Origin/Referer 改写为网关权威、cookie 服务侧附加），
@@ -441,7 +577,7 @@ async function serveGraphEvents(
   // 没带 / 解析不出来（老页面、别的调用方）= 只过滤、不对齐，与这条参数出现之前逐字相同。
   const baseline = parseRosterRevs(url.searchParams.get(ROSTER_REVS_PARAM) ?? '')
   const project = (graph: BootWire): BootWire => {
-    const filtered = filterWire(graph, treeBlockList, ids[0] ?? '', ids.slice(1), localRev, (line) => logger.warn(line))
+    const filtered = filterWire(graph, treeBlockList, ids[0] ?? '', extraIds, localRev, (line) => logger.warn(line))
     return baseline.size === 0 ? filtered : alignRosterRevs(filtered, baseline)
   }
   res.writeHead(200, {

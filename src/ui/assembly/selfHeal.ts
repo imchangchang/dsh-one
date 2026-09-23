@@ -37,6 +37,18 @@
  *    日志与开发者控制台；实验室里就是那条被 harness 采集的控制台行。**不能悄悄修好**
  *    ——否则 `verify:lab` 的 F-01「零装载未激活」就失去检测能力，漂移会变成永远
  *    发现不了。原始审计错误照旧原样打到控制台（这层钩子只旁听，不吞）。
+ *
+ * ## #237 补上的两条边界（这一手不许缩放成灾难）
+ *
+ * 4. **一次点名太多就不摘**（`SELF_HEAL_MAX_IDS`）：那是系统性故障（整批没到 / 网关刚
+ *    重启 / 上游改了装载形状），摘掉点名的那些既救不回来、又是按故障规模肢解本页清单。
+ *    #237 的现场就是没有这条边界——49 条一路摘到 62 条。判据是**规模**，不是错误文案：
+ *    两种故障在审计里都写 `import failed`。
+ * 5. **记录用完要清**（`watchForBoot` 与 `act` 里那两条 one-way 路径）：这一页真的起来了
+ *    （#root 出现过内容、审计静了一个窗口）或者「审计点名的那几条都不是我们摘掉的那几条」
+ *    （= 那次摘除不是解药，#237 现场的形状）时就把记录删掉。记录说的是「上一轮为什么摘下
+ *    这些」，不是对某条目的永久判决——不清的话，根因修好了这一页也照旧每次加载都摘一遍
+ *    （#237 的现场里那份记录从写下到用户手动清 sessionStorage 都在）。
  */
 
 /** 这一次重试的记录（作用域 = 一个页面实例，重载保留）。 */
@@ -52,6 +64,30 @@ export const SELF_HEAL_MARK = 'data-dshone-self-heal'
 
 /** 审计文本进日志/记录时截断到这个长度（够看清 id 与原因，不把整段错误灌进日志）。 */
 const TEXT_LIMIT = 400
+
+/**
+ * 一次审计最多摘几条（#237）。**超过就不摘**——一次点名这么多条目，那不是「某个插件
+ * 起不来」，而是系统性故障（我们转发的那一份整包整批没到、网关刚重启、上游改了装载
+ * 形状……），摘掉点名的那些既救不回来、又是在按系统性故障的规模**肢解本页清单**：
+ * #237 的现场就是这么从 49 条一路摘到 62 条的（记录还存在 sessionStorage 里、从不
+ * 清除，每次加载继续摘）。
+ *
+ * 为什么判据是「条数」而不是「错误属于 import 那一类」：两种故障在审计文本里都可能写
+ * `import failed`——#237 现场是整批 49 条（系统性），而 #228 那一手要救的场合也可能
+ * 只有一条（那一条自己的代码就是取不到、或它等的服务没了）。判据落在**规模**上，
+ * 两种场合才分得开；系统性那一类（一次几十条）天然远超这个阈值。
+ */
+export const SELF_HEAL_MAX_IDS = 3
+
+/**
+ * 页面启动一次、清单里没有任何条目起不来（= 官方启动审计没报错）时，把记录清掉
+ * （#237 的另一半）。不清的后果：根因修好之后这一页照旧每次加载都摘一遍——那份记录
+ * 是「上一轮为什么摘」的**状态**，不是对某条目的永久判决。
+ *
+ * 判据落在「页面上真的渲染出东西了，而审计一次都没报」：官方那次审计一定发生在它
+ * 渲染自己的失败卡之前（`console.error` 是最早的载体），所以「#root 里出现了子节点 +
+ * 审计没报」= 这一页真的起来了。
+ */
 
 /**
  * 自愈脚本（`pageHtml` 以内联 `<script nonce>` 注入，位置**在 `__DSH_BOOT__` 赋值之后、
@@ -70,6 +106,11 @@ export function selfHealJs(): string {
   var MARK = ${JSON.stringify(SELF_HEAL_MARK)}
   var FAILURE_API = ${JSON.stringify('__DSH_ONE_PAGE_FAILURE__')}
   var LIMIT = ${String(TEXT_LIMIT)}
+  // At most this many entries are ever dropped at once (see SELF_HEAL_MAX_IDS): an audit
+  // naming more than that is a systematic failure (a whole batch never arrived, the gateway
+  // was restarted, upstream changed how entries load), and amputating this page's manifest
+  // at that scale cannot fix it - it only strips entries the page still needs.
+  var MAX_DROP = ${String(SELF_HEAL_MAX_IDS)}
   // The official boot audit (WebBoot.run in the frontend bundle) collects every loader
   // entry that is not active and throws ONE Error whose first line is this sentence, then
   // names each entry on its own line - "<id>: pending (waiting for service: x)" or
@@ -201,9 +242,22 @@ export function selfHealJs(): string {
     try { api.show() } catch (ignored) {}
   }
   var handled = false
+  // Forgetting the record (see SELF_HEAL_STORAGE_KEY): two one-way paths, both write one line.
+  var forget = function (why) {
+    try { sessionStorage.removeItem(KEY) } catch (ignored) {}
+    report("the retry record is cleared - " + why)
+  }
   var act = function (ids, text) {
     var trimmed = String(text).replace(/\\s+/g, " ").trim().slice(0, LIMIT)
     if (retried === null) {
+      // Too many entries at once = a systematic failure, not one broken entry: report it and
+      // touch nothing (see MAX_DROP). Dropping them would gut this page's manifest without
+      // fixing anything, and the record would keep doing it on later loads.
+      if (ids.length > MAX_DROP) {
+        report("the boot audit named " + ids.length + " entries (more than " + MAX_DROP + "), which is a systematic failure rather than one broken entry; dropping nothing - " + trimmed)
+        notice(trimmed)
+        return
+      }
       var droppable = []
       for (var i = 0; i < ids.length; i++) {
         if (canDrop(globalThis.__DSH_BOOT__, ids[i])) droppable.push(ids[i])
@@ -222,6 +276,17 @@ export function selfHealJs(): string {
       try { location.reload() } catch (ignored) {}
       return
     }
+    // This load carried the record. If the audit now names none of the entries that record
+    // dropped, that drop was not the remedy for what is broken now (the #237 scene: the
+    // dropped ids never come back, fresh ones keep showing up) - so it must not be carried
+    // into later loads.
+    var relevant = false
+    for (var j = 0; j < ids.length; j++) {
+      if (retried.removed.indexOf(ids[j]) !== -1) relevant = true
+    }
+    if (!relevant) {
+      forget("the boot audit named none of the entries this page dropped ([" + retried.removed.join(", ") + "])")
+    }
     report("the boot audit failed again after the single retry; dropping nothing more - " + trimmed)
     notice(trimmed)
   }
@@ -232,6 +297,44 @@ export function selfHealJs(): string {
     handled = true
     act(ids, text)
   }
+  // Clear the record once this page has served its purpose (see SELF_HEAL_STORAGE_KEY's note):
+  // the record says "the previous load failed and here is what got dropped", and it must not
+  // outlive the reason it was written. Signal = "#root has shown content, and the audit stayed
+  // quiet for a settle window".
+  //
+  // Why a window rather than "there is content": our own frame plugin mounts into #root as soon
+  // as its entry activates, which happens *before* the official audit is computed (official
+  // run(): load all entries, wait for them, and only then audit). So content can appear on a
+  // page that is about to fail (measured in the lab on this very scene). Both directions are
+  // one-way loose ends and this one is the cheap side: never clearing keeps a plugin out of
+  // this page's manifest forever after the cause is gone (the #237 harm), while clearing early
+  // costs one extra reload the next time the page is opened while the entry is still broken
+  // (that load re-writes the record when it strips).
+  var BOOT_QUIET_TICKS = 4
+  var BOOT_TICK_MS = 500
+  var watchForBoot = function () {
+    if (retried === null) return
+    if (typeof setTimeout !== "function") return
+    var doc = typeof document === "undefined" ? undefined : document
+    if (doc === undefined || typeof doc.getElementById !== "function") return
+    var quiet = 0
+    var tick = function () {
+      if (handled) return
+      var root = doc.getElementById("root")
+      var children =
+        root === null || root === undefined || root.childNodes === null || root.childNodes === undefined
+          ? 0
+          : root.childNodes.length
+      quiet = children > 0 ? quiet + 1 : 0
+      if (quiet >= BOOT_QUIET_TICKS) {
+        forget("this page rendered with the recorded drop in place and the boot audit stayed quiet for " + String(BOOT_QUIET_TICKS * BOOT_TICK_MS) + "ms")
+        return
+      }
+      try { setTimeout(tick, BOOT_TICK_MS) } catch (ignored) {}
+    }
+    try { setTimeout(tick, BOOT_TICK_MS) } catch (ignored) {}
+  }
+  watchForBoot()
   // console.error is the earliest carrier: the official run() logs the audit error before
   // it renders its own failure card. Pass everything through unchanged.
   var originalError = console.error

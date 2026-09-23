@@ -68,6 +68,7 @@ export const SCRATCH_PREFIXES: readonly string[] = [
   // test/assembly-lab（`npm run verify:lab`）
   'dsh-lab-fresh-home-',
   'dsh-lab-home-',
+  'dsh-lab-thirdparty-',
   'dsh-one-lab-plugins-',
   // scripts/（验收脚本，不在 `npm test` 里，但同族）
   'dsh-clean-profile-',

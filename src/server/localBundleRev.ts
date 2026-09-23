@@ -11,7 +11,8 @@ import type { Dirent } from 'node:fs'
  * 命中 HTTP 缓存、整包网络字节≈0）。而这份整包里拼着两半内容——**官方那半**（网关
  * 下发的、我们剥掉 block list 之后剩下的段）与**我们自己的那半**
  * （`dist/assembly/plugins/<id>/client.js`）——此前 rev 却只有官方那一半
- * （`appBatches[0].rev`）。于是我们重建自己的 bundle 时 URL 与 ETag 都不变，webview
+ * （`appBatches[0].rev`，#237 起改成 `applicationComboRev`：全部 application 批的 rev
+ * 并起来）。于是我们重建自己的 bundle 时 URL 与 ETag 都不变，webview
  * 吃满 24 小时的 immutable 缓存（连条件请求都不发）：改了样式 reload 也看不到，
  * 扩展升级后用户也可能停在旧界面（#173）。
  *

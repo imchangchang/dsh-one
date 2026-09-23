@@ -315,6 +315,29 @@ export const SETTINGS_BLOCK_LIST: ReadonlyArray<BlockedPlugin> = [
 /** block list → id 列表。 */
 export const blockedIdsOf = (list: ReadonlyArray<BlockedPlugin>): string[] => list.map((b) => b.id)
 
+/**
+ * 网关**官方那半**整包的内容版本：把所有 application 批的 `rev` 并起来（`#237` 那一轮审的
+ * 「第一批 = 全部」同族假设之一）。
+ *
+ * 为什么不是一个批的 rev：过滤后的整包**覆盖每一批的保留段**（#165 起逐批拉），所以这份键
+ * 该代表每一批。
+ *
+ * **实测口径**（0.1.6-alpha.2，同一个 profile 起两次实例）：批的 rev 不是内容哈希，而是
+ * **每进程一份的会话值**——两次启动里两批的 rev 各不相同（`26e588296384`/`2f3068e25a00` 与
+ * `76f10095f02e`/`3c4be8c0cad1`）。也就是说内容一变必然重启，重启后每一批的 rev 都跟着变，
+ * 所以**今天两种写法在「内容变了没有」这件事上等价**：这不是在修一个已经踩到的洞，而是让
+ * 这个键真的代表它所覆盖的内容，不再依赖「所有批的 rev 总是一起变」这条**没人验过**的上游
+ * 性质（网关哪天真按内容分批算 rev，第一批不变而第二批变时，只取第一批就会漏）。
+ *
+ * 批与批之间用一个不可能出现在 rev 里的分隔符 `,` 并起来——所以每一段都先过
+ * `encodeURIComponent`（`~` 这类字符不会被它转义，`,` 会被转成 `%2C`）：单批时结果与
+ * 从前逐字相同（[0-9a-f-] 那类 rev 编码后不变），多批时分段互不含糊。
+ */
+export function applicationComboRev(wire: BootWire): string {
+  const batches = wire.batches.filter((batch) => batch.phase === 'application')
+  return batches.map((batch) => encodeURIComponent(batch.rev)).join(',')
+}
+
 
 
 /** sidebar 树 blocked id。 */
@@ -570,10 +593,10 @@ export function extractFrontendAssets(html: string): GatewayAssets {
  * 追加自有外框插件 entry 与共用插件（默认追加主题跟随插件，三棵树都装），并入
  * application 批；bootstrap 批原样不动。
  *
- * combo URL 的 rev 是我们拼的缓存键：官方那半（网关算出来的 `appBatches[0].rev`）
- * 加本地那半（`localRev`，见 comboRev 的推导）。官方下发的 application 批可能不止
- * 一个（combo URL 有长度上限，官方按图里的顺序切段，见 filterWire 内的注释）：
- * 这里跨全部批过滤，再把它们合回一个批。
+ * combo URL 的 rev 是我们拼的缓存键：官方那半（网关那几批 application 的 `rev` 并起来，
+ * 见 `applicationComboRev`）加本地那半（`localRev`，见 comboRev 的推导）。官方下发的
+ * application 批可能不止一个（combo URL 有长度上限，官方按图里的顺序切段，见 filterWire
+ * 内的注释）：这里跨全部批过滤，再把它们合回一个批。
  */
 export function filterWire(
   wire: BootWire,
@@ -641,10 +664,12 @@ export function filterWire(
   // 而两边的 bundle 同源（build.mjs 把包产物拷进 dist/assembly/plugins），取哪一份
   // 都不改行为（#165 干净 profile 上 chat / sidebar 树打不开的第二个原因）。
   const localIds = [framePluginId, ...extraPluginIds].filter((id) => !entries.some((e) => e.id === id))
-  const appRev = appBatches[0].rev
+  const appRev = applicationComboRev(wire)
   // combo URL 的 rev 就是 webview 的缓存键（镜像按 URL 原样回 24h `immutable`），
   // 它必须同时代表这份整包的两半内容：
-  //   - 官方那半 = appRev（网关按内容校验算出的版本，官方自己就把它挂在原 combo URL 上）；
+  //   - 官方那半 = appRev（每一批各有一份 rev，全部并进键里；这份 rev 是**每进程一份的
+  //     会话值**而不是内容哈希，见 applicationComboRev 的实测记录——并起来是为了让键真的
+  //     代表正文覆盖到的每一批，而不是只代表第一批）；
   //   - 本地那半 = localRev（dist/assembly/plugins 的内容哈希，宿主每次装配现算）。
   // 只带 appRev 时，我们重建自己的 bundle 不改 URL、也不改镜像的 ETag，webview 吃满
   // 24h immutable 缓存（连条件请求都不发）→ 改了样式 reload 也看不到，扩展升级后用户

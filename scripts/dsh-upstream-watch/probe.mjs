@@ -8,7 +8,7 @@
  *
  * 行为：用临时 DSH_HOME 起 `dsh web --host 127.0.0.1 --port <空闲端口> --no-open`，
  * 逐项核实 dsh-one 实际依赖的 **wire 面**（启动/认证/unary RPC/WS 流）、**网关前端
- * 产物**（伺服面里的 `/` 启动契约标记、首个 batch 的 combo 端点、Origin 栅栏——
+ * 产物**（伺服面里的 `/` 启动契约标记、application 批的 combo 端点、Origin 栅栏——
  * #67 的 N1–N3）、**客户端契约面**（网关下发的 combo 里我们必须存在的 slot 名 /
  * root 级 hook 名 / 取用过的字段与方法名，取法见 clientContract.mjs）与 **官方产物面**
  * （本机已安装的官方包文件：必须还在的内部标识符——静默失效型依赖，取法见
@@ -405,8 +405,10 @@ function ancestors(dir) {
  *   （`__ModuleLoader__` 门面 / `__DSH_BOOT__` 清单 / 主题预置脚本的 `const preference`），
  *   且 `__DSH_BOOT__` 能解析出 ≥ 40 个 entries——dsh-one 的装配页逐字照抄这三段
  *   （pageHtml.ts：门面 + 主题预置 + 内联 wire）。
- * - N2 `combo-endpoint`：从清单取**首个** batch 的 combo URL 请求，200 且 body > 10 KB
- *   ——dsh-one 的 mirror 就是拉这个端点（`/plugins/??…&rev=`）再按插件段过滤的。
+ * - N2 `combo-endpoint`：从清单取 **application 批**的 combo URL 请求，200 且 body > 10 KB
+ *   ——dsh-one 的 mirror 就是拉这个端点（`/plugins/??…&rev=`）再按插件段过滤的；取
+ *   application 批而不是「第一个 batch」（#237 顺手改的口径）：批的排列顺序不是契约，
+ *   而这一面要验的正是镜像依赖的那一条。
  * - N3 `origin-fence`：带 cookie POST 同一方法两次——`Origin: http://127.0.0.1:1` 被网关
  *   信任栅栏拒（403）、`Origin: <网关权威>` 才通（200），证明 mirror 把 Origin 改写为
  *   网关权威这一手仍然必要且有效。
@@ -418,7 +420,7 @@ function ancestors(dir) {
 const BOOT_HTML_MARKERS = ['__ModuleLoader__', '__DSH_BOOT__', 'const preference']
 /** N1：`__DSH_BOOT__.entries` 的下限——官方 0.1.6-alpha.1 实测 56，掉到 40 以下说明清单被换过写法。 */
 const MIN_BOOT_ENTRIES = 40
-/** N2：首个 batch 的 combo 下限（0.1.6-alpha.1 实测 bootstrap 批 20.8 KB）。 */
+/** N2：combo 的下限（0.1.6-alpha.1 实测 bootstrap 批 20.8 KB、application 批数 MB）。 */
 const MIN_COMBO_BYTES = 10 * 1024
 
 async function probeBootSurface(baseUrl, cookie) {
@@ -462,14 +464,20 @@ async function probeBootSurface(baseUrl, cookie) {
   })
 
   // N2
-  const n2Name = `combo 端点（__DSH_BOOT__ 首个 batch）：HTTP 200 且 body > ${MIN_COMBO_BYTES / 1024} KB`
-  const firstBatch = (Array.isArray(bootWire?.batches) ? bootWire.batches : [])[0]
+  //
+  // 取**application 批**（镜像那一路真正拉的就是它：过滤版整包按批剥段），只在没有 application
+  // 批时退回第一个——「第一个 batch 是什么」不是契约（bootstrap 恰好在最前是今天的形状，
+  // 同一条假设在 #165 / #178 已经各踩过一次），而这里的用途是「镜像依赖的那条 combo 端点还能不能
+  // 取到内容」。detail 里照旧打出取的是哪个 phase，免得读数看不出验的是哪一批。
+  const n2Name = `combo 端点（__DSH_BOOT__ 的 application 批）：HTTP 200 且 body > ${MIN_COMBO_BYTES / 1024} KB`
+  const batches = Array.isArray(bootWire?.batches) ? bootWire.batches : []
+  const firstBatch = batches.find((batch) => batch?.phase === 'application') ?? batches[0]
   if (htmlError !== null) {
     out.push({ id: 'combo-endpoint', name: n2Name, status: 'fail', detail: `取不到 HTML：${htmlError}` })
   } else if (manifestError !== null) {
     out.push({ id: 'combo-endpoint', name: n2Name, status: 'fail', detail: `取不到清单：${manifestError}` })
   } else if (firstBatch?.url === undefined) {
-    out.push({ id: 'combo-endpoint', name: n2Name, status: 'fail', detail: '__DSH_BOOT__.batches 为空或首个 batch 没有 url' })
+    out.push({ id: 'combo-endpoint', name: n2Name, status: 'fail', detail: '__DSH_BOOT__.batches 为空，或取到的那一批没有 url' })
   } else {
     try {
       const res = await fetch(new URL(firstBatch.url, baseUrl), { headers })

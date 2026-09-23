@@ -1,0 +1,103 @@
+{
+  "title": "#237 profile 里的第三方插件不再让装配页整块带崩（整包分类按来源 + 自愈收手 + 记录清除）验收报告",
+  "branch": "agent/third-party-plugin-safe",
+  "commit": "a6446a07",
+  "environment": {
+    "mode": "浏览器验证（装配实验室：仓库真实模块 + 实验室自起的隔离实例［临时 DSH_HOME / 随机端口 / 跑完按 PID 收］+ 假宿主）+ **真包真网关的镜像直测**（把现场那个第三方包装进隔离 profile，对着仓库里这份镜像实现发一次整包请求）+ 单测（node --test）+ 两道静态自检",
+    "dsh": "0.1.6-alpha.2（本机安装）",
+    "locale": "zh（隔离实例的设置文档钉死）",
+    "theme": "dark",
+    "driver": "playwright chromium + test/assembly-lab/verify.ts（整轮 70 项，含新增的 F-69）+ 临时 DSH_HOME 上的真网关",
+    "date": "2026-09-23"
+  },
+  "coverageNote": "覆盖：整包的分类与伺服（镜像的 combo 路由与事件流路由）、页面清单的过滤、启动自愈的规模边界与记录生命周期、实验室与单测两层的判据。不覆盖：真 VS Code 窗口 / webview 宿主层（CSP、剪贴板、原生菜单、多 webview 生命周期）——本条改动全在宿主侧镜像与页面内联脚本里，宿主层一个字节没碰；沙盒（code-server 里装真 vsix 看观感）对本条不适用：本条的可见结果就是「装了第三方插件的那一页能不能起来」，判据就是新套件 F-69（含负向对照）。**未验到的一处如实记**：`filterWire` 那条「把每一批的 rev 都并进缓存键」的改动，没能造出「同一进程里第一批内容不变、第二批变」的现场（实测批 rev 是每进程一份的会话值，见 N-06），只做到了单测与不回归。",
+  "items": [
+    {
+      "id": "N-01",
+      "phase": "new-feature",
+      "name": "隔离 profile 里装了第三方插件时，装配页照常起来、那个插件的条目真的在页面上跑起来（F-69 场景①②）",
+      "expect": "现造一个合成的第三方插件包（浏览器半复刻现场那个包的形状：一行、`id:` 写成模板字面量），用官方命令 `dsh plugin --profile web add file:<目录>` 装进隔离 profile，起一台实例，再用缺省口径（= 生产口径）的实验室服务器开侧栏树页面：页面应该**照常起来**、那个插件的条目**在页面上真的执行了**（它自己往 `<html>` 写的标记属性与那个全局都等于它的 id）、零装载未激活 / 零槽位崩溃 / 零 pageerror，那条整包从进程侧取回来是 HTTP 200 且正文里含它的段。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/f-69-1-third-party-in-profile-boots.png"
+      ],
+      "notes": "读数（F-69 15/15，17.8 秒）：① 前提——本页清单里那条第三方 id 出现 **1** 次、它所在 application 批的 entries **1** 次、批的 combo URL **1** 次（这一页确实要取它，不是「网关没下发所以无关」）；② 正面——就绪、自有树 **46** 个节点、标记属性与全局都 = `@dsh-external/dsh-lab-third-party`、整包 **HTTP 200 / 3371565 字节**（含它的段 = true）、装载未激活 **0** 行、pageerror **0** 条、镜像日志 4 行里含「整份拒绝」**0** 行。\n- 截图 `f-69-1-third-party-in-profile-boots.png`：侧栏树正常渲染的那一页。"
+    },
+    {
+      "id": "N-02",
+      "phase": "new-feature",
+      "name": "负向对照：把分类换回改前那一套，同一个现场必须红（F-69 场景③ + 真包直测）",
+      "expect": "同一台网关、同一棵树、同一条整包 URL，把分类换回改前那一套（只认双引号的 id + 不认识就整份 404）之后：整包必须回 **404**、镜像日志里出现现场那句 `rejected local combo ids …`、页面**起不来**（就绪点不出现、插件的标记属性为空、控制台里是官方那句 `web boot: … did not activate`）。缺了这一档就说明不了夹具真的抓得住这个 bug。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/f-69-2-negative-control-legacy-classification.png"
+      ],
+      "notes": "甲、**真包 + 真网关 + 仓库里这份镜像实现**（现场那个包 `@changfenhuang/dsh-genui` 0.11.0 装进隔离 profile，请求 = 那个 application 批的全部 58 条 id 加一条自有 id）：改前那套分类 **HTTP 404**，日志逐字是 `assembly mirror: rejected local combo ids @changfenhuang/dsh-genui,@dsh-one/vscode-chat-ui-layout`（与用户现场那句同一形状）；缺省口径 **HTTP 200 / 5412741 字节**，正文里含 genui 的段。\n- 该 wire 只有 **2 个批**（bootstrap 1 条 + application 58 条，那个插件就在这 58 条里）⇒ 「只覆盖第一批」那条假设不成立（application 批只有一个）；那一批的整包 **58 个段**，只认双引号的正则读出 **57 条**，三种引号都认才是 58 条——根因就是这条 id 的写法。\n乙、实验室里同一现场（同一台网关、同一棵树、同一条 URL，`legacyLocalClassification` 开关）：整包 **404**、页面起不来（就绪 false、标记属性 null）、控制台里 `web boot: 50 entries did not activate` 与 `…: import failed`、镜像日志 8 行里含「整份拒绝」**3** 行。\n- 截图 `f-69-2-negative-control-legacy-classification.png`：那一页停在官方失败卡上的样子。"
+    },
+    {
+      "id": "N-03",
+      "phase": "new-feature",
+      "name": "同一段逻辑的确定性判据（test/assemblyMirrorComboIds.test.ts，4 个用例）",
+      "expect": "把「切段 / 认段首 id / 分类」这层单独钉住：三种引号都认、认不出的段如实报 undefined；每条 id 与它所在段的写法无关；那条第三方 id 不再让整份请求失败（官方段与本地产物照旧伺服）；名单里有、产物却没有的那一条**只丢它自己**；改前那套分类下同一请求必须 404；网关那份已带的自有 id 不重复伺服（#165）。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "`node --test test/assemblyMirrorComboIds.test.ts`：4/4 全过。\n- 读数为整包正文的特征串：第三方那段在正文里、官方保留段在正文里、我们自己落盘的 `__LAB_LOCAL_BUNDLE__` 在正文里、缺产物的那一条只出现在日志里（`not served from … and not seen in the gateway combo`）。\n- 这一层之所以要有：单测里能做到「名单里有产物却没有」与「网关那份也带着同一条」这两种真页面上造不出来的组合。"
+    },
+    {
+      "id": "N-04",
+      "phase": "new-feature",
+      "name": "自愈的规模边界：一次点名太多（> 3）时一条都不摘、不重载（F-67 场景④）",
+      "expect": "一次点名超过 `SELF_HEAL_MAX_IDS`（3）条 = 系统性故障的形状（#237 现场那一页 49 条）：**一条都不摘**、**不重载**、本页清单三处照旧、`<html>` 上没有摘过的痕迹、`sessionStorage` 里没有写下记录、失败提示条落在页面上。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/f-67-4-too-many-at-once.png"
+      ],
+      "notes": "读数（F-67 33/33，50.3 秒；`?drift=many:4`，条数 = 阈值 3 + 1）：loads=**1**、点名的条数 4、清单三处 **4 / 4 / 0**、痕迹 **null**、记录 **null**、提示条 **1** 枚；日志里那行写明「这么多条一起报是系统性故障、一条都不摘」并带上官方审计原文。\n- 配对读数（阈值之内，F-67 场景②）：点名 1 条时照旧摘掉并重载一次 → 加载 **2** 次。判据是**规模**，不是错误文案——两种故障在审计里都写 `import failed`。"
+    },
+    {
+      "id": "N-05",
+      "phase": "new-feature",
+      "name": "自愈记录用完要清：页面起来了、或点名的那几条都不是它摘掉的（F-67 场景②③⑤ + 单测 3 条）",
+      "expect": "那份「上一轮摘了谁」的记录不许比它存在的理由活得更久：这一页**真的起来了**（#root 出现过内容、审计静了 1000ms）就清掉；审计报出来但**点名的那几条都不是它摘掉的**（= 那次摘除不是解药，#237 现场的形状）也清掉；只有「点名还是那一条」时留着。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "读数（F-67）：自愈成功那一页的记录被清（日志 `the retry record is cleared - this page rendered with the recorded drop in place and the boot audit stayed quiet for 1000ms`）；「只试一次」那一页的记录也被清（日志 `the retry record is cleared - the boot audit named none of the entries this page dropped ([@deepseek-ai/dsh-client-lab-drift-fresh-…])`），而该页的「只试一次」判据（加载次数停在 2、不再摘、落失败提示条）全部照旧。\n- 单测（`test/assemblySelfHeal.test.ts` 18/18）：三条记录生命周期用例（起来→清 / 点名别人→清 / 点名自己→留）＋「带记录的这一轮才装定时器」。"
+    },
+    {
+      "id": "N-06",
+      "phase": "new-feature",
+      "name": "同类假设逐处审：批 rev 的键、探针 N2、`localBundleRev`、`selfHeal` 的批遍历",
+      "expect": "把「第一批 = 全部」这一族假设逐处给结论：改了，或写清为什么不用改。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "① `wireFilter.ts` 的 `appBatches[0].rev` → **改**成 `applicationComboRev`（每一批的 rev 并进键，单批时与从前逐字相同）。**实测口径**（同一个 profile 起两次实例）：批的 rev 不是内容哈希而是**每进程一份的会话值**——两次启动里两批的 rev 各不相同（`26e588296384`/`2f3068e25a00` 与 `76f10095f02e`/`3c4be8c0cad1`），所以内容一变必然重启、所有批的 rev 一起变 ⇒ 今天两种写法等价，这是让键真的代表正文覆盖到的每一批（不再依赖「所有批的 rev 总是一起变」这条没人验过的性质）。单测：两个 application 批时键里两批的 rev 都在、内容不变时键不抖（`test/wireFilter.test.ts` 那条多批用例 + `test/comboCacheRev.test.ts`）。\n② `assemblyMirror.ts` 的 `appBatches`：**核过，不用改**——它本来就是按 `phase === 'application'` 取**全部**批（#165 起）。\n③ `localBundleRev.ts`：**不用改**——它按整目录内容算（不挑 id、不看批），只更新了注释口径。\n④ `selfHeal.ts` 的 `batchOf`：**不用改**——它遍历所有批找 id 所在的那一批，正是「id 落在哪一批都行」的写法。\n⑤ `scripts/dsh-upstream-watch/probe.mjs` 的 N2「首个 batch」：**改**成取 application 批（批的排列顺序不是契约，而这一面要验的正是镜像依赖的那一条）。实跑 `node scripts/dsh-upstream-watch/probe.mjs --command dsh`：**23 通过 / 0 失败 / 0 跳过**，N2 读数 `HTTP 200，4830.1 KB（phase=application）`。\n⑥ `src/pure/blockListDerivation.ts` 与 `scripts/dsh-upstream-watch/blockListDrift.mjs`：**已知缺口，本轮不改**——两者只读**本机已安装的官方包**（`~/.dsh/profiles/node_modules/@deepseek-ai`，58 件），profile 里的第三方插件对它们不可见；第三方插件若 inject 了我们某棵树里没有的服务，症状与 #225 那类一模一样而离线算不出来。建议两条：把「第三方插件等不到服务」做成实验室夹具的一档（合成插件声明一个树里没有的服务，运行期就能红），或给 `blockListDrift` 加一个可选的 profile 输入（CI 保持现状）。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "两道静态自检（dev-merge 的门禁）",
+      "expect": "i18n 与平台兼容性两道自检都过；新增行里若出现平台分支/状态分叉，要提交 `verify.<slug>.platform.json`。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "`bash scripts/check-i18n.sh` → `[i18n] OK：分支 agent/third-party-plugin-safe 相对 main 的新增行无 i18n 漏同步。`\n- `bash scripts/check-platform-compat.sh` → `[platform] OK：… 新增行没有平台分支代码、也没有状态分支（无需声明文件）。`（本轮新增的 `readLocalBundle` 是「读不到就返回 null」的 try/catch，未命中该脚本的平台/状态分叉判据，因此不需要 `verify.third-party-plugin-safe.platform.json`。）"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "整轮浏览器验证（`npm run verify:lab`，70 项）",
+      "expect": "整轮在干净 profile 上不回归：70 项全过，含既有的 F-57（combo 缓存键）、F-61（断线提示/名册对齐）、F-67（自愈）与新增的 F-69。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "**整轮 70 项 3651 条断言、3651 通过、零红**（上一轮即 #230 那一轮是 69 项 3626 条、零红 → 本轮 F-67 由 23 条加到 33 条、加 F-69 的 15 条）。逐项读数与上一轮同值的关键几条：F-57 **16/16**（6.6 秒）、F-58 **39/39**、F-61 **23/23**、F-62 **22/22**、F-67 **33/33**、F-69 **15/15**、R-06 **6/6**。\n- 报告：`/tmp/lab237-full/verify.lab.report.html`（70 项、截图 284 张）。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "`npm test`（1131 条）与 `npm run typecheck`",
+      "expect": "全过。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "`npm test` → **1131 条、1131 通过、0 失败**（新增：`assemblyMirrorComboIds.test.ts` 4 条、`assemblySelfHeal.test.ts` 12 → 18 条）。`npm run typecheck` 无输出（通过）；`npm run build` 成功（产物含 `dist/assembly/plugins/**` 与宿主半）。"
+    }
+  ]
+}

@@ -165,6 +165,12 @@ export interface LabServerOptions {
    * 静默跳过的来源（#193）。所以由起实验室的那一层把事实传进来（`verify.ts` 知道）。
    */
   external?: boolean
+  /**
+   * 实验开关（#237）：这台实验室的 mirror 用**改前**那套本地件分类（只认双引号 id +
+   * 整份拒绝），只有夹具的负向对照传 true——见 `AssemblyMirrorOptions.
+   * legacyLocalClassification`。生产恒缺省。
+   */
+  legacyLocalClassification?: boolean
 }
 
 export interface LabServer {
@@ -289,6 +295,7 @@ export async function startLabServer(options: LabServerOptions): Promise<LabServ
   const mirror: AssemblyMirror = await startAssemblyMirror(() => gateway, log, {
     pluginsDir: options.pluginsDir,
     treeCombos: ASSEMBLY_TREES.map((tree) => ({ framePluginId: tree.framePluginId, blockList: tree.blockList })),
+    ...(options.legacyLocalClassification === true ? { legacyLocalClassification: true } : {}),
   })
 
   /** 漂移现场的序号：`?drift=fresh:` 一档按**每次页面加载**换一个新 id（见 bootDrift.ts）。 */

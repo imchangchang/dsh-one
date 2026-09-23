@@ -410,7 +410,9 @@ test('filterWire：block 项落在第二个 application 批里也照常剥掉（
   assert.equal(filtered.batches.length, 2)
   const app = filtered.batches[1]
   assert.equal(app.phase, 'application')
-  assert.equal(app.rev, `rev-batch-1-${LOCAL_REV}`, '官方那半沿用第一个 application 批的 rev，本地那半拼在后面')
+  // #237：官方那半是**两个** application 批的 rev 并起来（此前只取第一批——第二批里
+  // 某件官方产物一升级，缓存键不变、webview 就停在旧字节上）。
+  assert.equal(app.rev, `rev-batch-1,rev-batch-2-${LOCAL_REV}`, '官方那半覆盖每一批，本地那半拼在后面')
   assert.deepEqual(app.entries, ['@deepseek-ai/dsh-client-ui-chat', CHAT_FRAME_PLUGIN_ID, THEME_FOLLOW_PLUGIN_ID])
   assert.equal(app.url.includes('directory-picker-native'), false, 'combo URL 不得含被 block 的段')
 })

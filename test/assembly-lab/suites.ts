@@ -76,6 +76,7 @@ import { TAG_PRESETS_SUITE } from './tagPresetSuites.ts'
 import { TAG_COLOR_UNUSED_SUITE, TAG_GROUP_RECYCLE_SUITE } from './tagRecycleColorSuites.ts'
 import { SELF_HEAL_SUITE } from './selfHealSuites.ts'
 import { RETRY_THROTTLE_SUITE } from './retryThrottleSuites.ts'
+import { THIRD_PARTY_PLUGIN_SUITE } from './thirdPartySuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
@@ -6638,4 +6639,9 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // 「从未占用的继续」顺延；套件本体在 retryThrottleSuites.ts，同为独立文件，
   // 少一处合入热点。它自起一台隔离实例并**真的把它停掉**造现场，见那个文件头）。
   RETRY_THROTTLE_SUITE,
+  // #237 profile 里的第三方插件不再让整页起不来（F-69：F-01…F-68 与 R-06 已占，按
+  // 「从未占用的继续」顺延；套件本体在 thirdPartySuites.ts，同为独立文件，少一处合入
+  // 热点。它自起一台实例、往它的**隔离 profile** 里装一个合成的第三方插件造现场，
+  // 见 thirdPartyPlugin.ts 的文件头）。
+  THIRD_PARTY_PLUGIN_SUITE,
 ]

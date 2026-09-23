@@ -19,6 +19,10 @@
  * - `sick:<id>`：**每次加载都**加同一个 id —— 自愈能救（摘掉它，重载后这一页正常）。
  * - `fresh:<前缀>`：**每次加载换一个 id**（`<前缀>-<序号>`）—— 自愈救不了（摘掉的那条
  *   在下一轮不存在了，新的一条又冒出来），用来验「只试一次，再失败就落到失败提示条」。
+ * - `many:<条数>`（#237）：一次往清单里塞这么多条没人注册的条目 —— 官方审计一次点名
+ *   这么多条，正是**系统性故障**的形状（#237 现场：把第三方插件那个用户那一页的
+ *   49 条一次性报出来），自愈按规模阈值收手：一条都不摘、落到失败提示条。
+ *   条数与 `SELF_HEAL_MAX_IDS` 的关系由 F-67 那一档自己说清楚（要用大于阈值的值）。
  *
  * ## 为什么 id 不进批的 combo URL
  *
@@ -54,28 +58,47 @@ export const STABLE_DRIFT = 'sick'
 /** 每轮换 id 的漂移（自愈救不了）的 spec 前缀。 */
 export const FRESH_DRIFT = 'fresh'
 
+/** 一次塞很多条的漂移（系统性故障的形状，验 #237 的规模阈值）的 spec 前缀。 */
+export const MANY_DRIFT = 'many'
+
+/** `many:` 那一档的 id 前缀（`?drift=many:<条数>` 只要给条数，id 由这里拼）。 */
+export const MANY_DRIFT_ID_PREFIX = '@deepseek-ai/dsh-client-lab-drift-many'
+
 /**
  * 把漂移条目并进这一页的清单。
  *
  * @param wire - 该树过滤后的清单（`filterWire` 的产物）。
- * @param spec - `sick:<id>` 或 `fresh:<前缀>`（见文件头）；形状不对直接抛，别静默放过
- *   ——套件里那个现场要是不成立，红的是「页面没被挡住」一类读起来莫名其妙的断言。
- * @param seq - 调用方给的序号（实验室按**每次加载**递增）：`fresh:` 用它换新 id。
+ * @param spec - `sick:<id>` / `fresh:<前缀>` / `many:<条数>`（见文件头）；形状不对直接抛，
+ *   别静默放过——套件里那个现场要是不成立，红的是「页面没被挡住」一类读起来莫名其妙的
+ *   断言。
+ * @param seq - 调用方给的序号（实验室按**每次加载**递增）：`fresh:` 用它换新 id，
+ *   `many:` 用它让同一页的两次加载拿到两组不同的 id。
  */
 export function applyBootDrift(wire: BootWire, spec: string, seq: number): BootWire {
   const colon = spec.indexOf(':')
   const kind = colon === -1 ? '' : spec.slice(0, colon)
   const value = colon === -1 ? '' : spec.slice(colon + 1)
-  if (value === '' || (kind !== STABLE_DRIFT && kind !== FRESH_DRIFT)) {
-    throw new Error(`lab: drift spec must be "${STABLE_DRIFT}:<id>" or "${FRESH_DRIFT}:<prefix>", got ${JSON.stringify(spec)}`)
+  if (value === '' || (kind !== STABLE_DRIFT && kind !== FRESH_DRIFT && kind !== MANY_DRIFT)) {
+    throw new Error(
+      `lab: drift spec must be "${STABLE_DRIFT}:<id>", "${FRESH_DRIFT}:<prefix>" or "${MANY_DRIFT}:<count>", got ${JSON.stringify(spec)}`,
+    )
   }
-  const id = kind === STABLE_DRIFT ? value : `${value}-${String(seq)}`
-  const row: BootWireEntry = { id, url: `/plugins-local/??${id}/client.js&rev=lab-drift`, rev: 'lab-drift' }
+  const count = Number(value)
+  if (kind === MANY_DRIFT && (!Number.isInteger(count) || count < 1)) {
+    throw new Error(`lab: "${MANY_DRIFT}:" needs a positive integer count, got ${JSON.stringify(value)}`)
+  }
+  const ids =
+    kind === STABLE_DRIFT
+      ? [value]
+      : kind === FRESH_DRIFT
+        ? [`${value}-${String(seq)}`]
+        : Array.from({ length: count }, (_, index) => `${MANY_DRIFT_ID_PREFIX}-${String(seq)}-${String(index)}`)
+  const rows: BootWireEntry[] = ids.map((id) => ({ id, url: `/plugins-local/??${id}/client.js&rev=lab-drift`, rev: 'lab-drift' }))
   return {
     ...wire,
-    entries: [...wire.entries, row],
+    entries: [...wire.entries, ...rows],
     batches: wire.batches.map((batch) =>
-      batch.phase === 'application' ? { ...batch, entries: [...batch.entries, id] } : batch,
+      batch.phase === 'application' ? { ...batch, entries: [...batch.entries, ...ids] } : batch,
     ),
   }
 }

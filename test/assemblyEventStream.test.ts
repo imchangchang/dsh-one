@@ -18,7 +18,8 @@
  * 2. 非 graph 帧（`rebuilt` 帧、`: connected` 注释行）原样透传，一个字不动；
  * 3. 投影不了（清单与 block list 对不上）时**丢帧**而不是放行——放行会立刻把页面洗白，
  *    丢帧只让页面保持自己那份 roster（退化成 alpha.1 的行为）；
- * 4. HTTP 契约：未知树 / 非法 id / 非 GET 一律 404，页面断开时上游连接一起收掉。
+ * 4. HTTP 契约：未知树 / 非 GET 一律 404；追加列表里混进不认识的名字时**只丢那一条**
+ *    （#237），页面断开时上游连接一起收掉。
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -198,15 +199,17 @@ test('镜像事件流：投影不了就丢帧（不放行未过滤的 roster）'
   }
 })
 
-test('镜像事件流：未知树 / 非法 id / 非 GET 都是 404', async () => {
+test('镜像事件流：未知树 / 非 GET 是 404；追加列表里混进不认识的名字只丢那一条（#237）', async () => {
   const dir = await pluginsDir()
   const gateway = await startStubGateway()
-  const mirror = await startAssemblyMirror(() => gateway.origin, silent, {
+  const warnings: string[] = []
+  const mirror = await startAssemblyMirror(() => gateway.origin, { ...silent, warn: (line: string) => warnings.push(line) }, {
     pluginsDir: dir,
     treeCombos: [{ framePluginId: CHAT_FRAME_PLUGIN_ID, blockList: CHAT_BLOCK_LIST }],
   })
   try {
-    for (const query of ['', `?ids=@dsh-one/not-a-tree`, `?ids=${CHAT_FRAME_PLUGIN_ID},@deepseek-ai/evil`]) {
+    // 第一个 id 决定取哪棵树的 block list：缺了它、或它不是一棵树，就没法投影 —— 404。
+    for (const query of ['', '?ids=@dsh-one/not-a-tree']) {
       const res = await fetch(`${mirror.origin}/plugins-local/events${query}`)
       assert.equal(res.status, 404, `应当 404：${query}`)
       await res.text()
@@ -214,6 +217,20 @@ test('镜像事件流：未知树 / 非法 id / 非 GET 都是 404', async () =>
     const post = await fetch(`${mirror.origin}/plugins-local/events?ids=${CHAT_FRAME_PLUGIN_ID}`, { method: 'POST' })
     assert.equal(post.status, 404, '只认 GET')
     await post.text()
+    // 追加列表（第一个之后的那些）是「要补回 roster 的自有插件 id」：混进一条不认识的名字时
+    // **只丢那一条**，整条流照旧开得出来（#237 同一口径——这条流一停，页面的名册就停在 boot
+    // 那一刻那份）。被丢的那条要点名记在日志里，不能静默。
+    const frames = await readFrames(
+      `${mirror.origin}/plugins-local/events?ids=${CHAT_FRAME_PLUGIN_ID},@deepseek-ai/evil,${EXTRA_PLUGIN_ID}`,
+      3,
+    )
+    assert.equal(frames[0], ': connected\n\n', '混进不认识的名字时整条流照常开得出来')
+    assert.ok(frames[1]?.startsWith('data: {"type":"graph"'), `graph 帧照旧投影：${String(frames[1])}`)
+    assert.ok(
+      warnings.some((line) => line.includes('@deepseek-ai/evil')),
+      `日志里点名被丢掉的那条：${warnings.join(' | ')}`,
+    )
+    assert.ok(!warnings.some((line) => line.includes(EXTRA_PLUGIN_ID)), '认得出的那条不许被丢')
   } finally {
     mirror.dispose()
     gateway.close()
