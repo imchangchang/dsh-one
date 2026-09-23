@@ -333,14 +333,19 @@ export const OFFICIAL_PIN_SUITE: LabSuite = {
       const key = String(session.cwd)
       byCwd.set(key, [...(byCwd.get(key) ?? []), session])
     }
+    // 一组「同一工作区里至少两条有标题的会话」当迁移目标（置顶后要看它排到组内第一）；
+    // 方向目标取**另一个工作区**里的一条——同一个组里已经有被迁移置顶的那条时，方向目标
+    // 置顶后不会（也不该）排到它前面（两份都是置顶、组内保持原相对顺序），断言会假红。
     const pair = [...byCwd.values()].find((group) => group.length >= 2) ?? []
+    const pairKey = [...byCwd.entries()].find(([, group]) => group === pair)?.[0]
+    const otherGroup = [...byCwd.entries()].find(([key, group]) => key !== pairKey && group.length >= 1)?.[1] ?? []
     check.fact(
-      `网关读数：${String(sessions.length)} 条会话（可用 ${String(usable.length)} 条、${String(byCwd.size)} 个工作区），选中的那一组 ${String(pair.length)} 条`,
+      `网关读数：${String(sessions.length)} 条会话（可用 ${String(usable.length)} 条、${String(byCwd.size)} 个工作区），选中那一组 ${String(pair.length)} 条、方向目标那一组 ${String(otherGroup.length)} 条`,
     )
     const migrateTarget = pair[0]
-    const directionTarget = pair[1]
+    const directionTarget = otherGroup[0]
     if (migrateTarget === undefined || directionTarget === undefined) {
-      check.ok('网关上取到同一工作区里两条有标题的会话当夹具', false, `pair=${String(pair.length)}`)
+      check.ok('网关上取到两个不同工作区里的会话当夹具', false, `pair=${String(pair.length)} other=${String(otherGroup.length)}`)
       return screenshots
     }
     check.fact(
