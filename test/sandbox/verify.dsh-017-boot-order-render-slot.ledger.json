@@ -10,7 +10,7 @@
     "image": "n/a（没有走沙盒 code-server）",
     "date": "2026-09-23T14:00:00Z"
   },
-  "coverageNote": "本报告的证据来自浏览器验证（`node scripts/verify-lab-version.mjs --from <候选树> --suite …`）与确定性单测，不是沙盒截图：这一条改的是页面开那条 roster 事件流时带上去的基线参数的**编码格式**，判据在「页面还活不活得下来」（零那条启动期装配错、槽位锚点在）与「那条参数解回来对不对」，截图看不出口径。**没验到的**：① 0.1.7-alpha.2 的**整轮**读数（#243 的边界写明必须在独占窗口重跑——这一轮机器上有另外 3 条实验室轮次并发，本轮只跑 F-01 / F-61 / F-72 三个套件）；② 0.1.7 上 F-20（垃圾桶单条 path 与归档图标指纹）与 F-32（chevron 视框 `0 0 14 14` + `path@d`）这两条判据钉的是 0.1.6 的图标形状，官方 0.1.7 把这套图标重画过——按 #243 的边界属「相关但独立的一条」，本轮**一个字没改**（改判据不是放宽的理由要单独定夺）；③ 真桌面 VS Code 宿主层（CSP / 剪贴板 / 原生菜单 / 多 webview 生命周期）无改动；④ 平台专项（Windows/Linux）不在范围（`scripts/check-platform-compat.sh` 判「无平台分支代码、也无状态分支」）。",
+  "coverageNote": "本报告的证据来自浏览器验证（`node scripts/verify-lab-version.mjs --from <候选树> --suite …`）与确定性单测，不是沙盒截图：这一条改的是页面开那条 roster 事件流时带上去的基线参数的**编码格式**，判据在「页面还活不活得下来」（零那条启动期装配错、槽位锚点在）与「那条参数解回来对不对」，截图看不出口径。**没验到的**：① 0.1.7-alpha.2 的**整轮**读数（#243 的边界写明必须在独占窗口重跑——这一轮机器上有另外 3 条实验室轮次并发，本轮只跑 F-01 / F-61 / F-73 三个套件）；② 0.1.7 上 F-20（垃圾桶单条 path 与归档图标指纹）与 F-32（chevron 视框 `0 0 14 14` + `path@d`）这两条判据钉的是 0.1.6 的图标形状，官方 0.1.7 把这套图标重画过——按 #243 的边界属「相关但独立的一条」，本轮**一个字没改**（改判据不是放宽的理由要单独定夺）；③ 真桌面 VS Code 宿主层（CSP / 剪贴板 / 原生菜单 / 多 webview 生命周期）无改动；④ 平台专项（Windows/Linux）不在范围（`scripts/check-platform-compat.sh` 判「无平台分支代码、也无状态分支」）。",
   "items": [
     {
       "id": "N-01",
@@ -21,12 +21,12 @@
       "screenshots": [
         "/tmp/dsh-sandbox-shots/roster-revs-default.png"
       ],
-      "notes": "逐条核对：① **改前**（候选 0.1.7-alpha.2、同一份代码、只跑 F-01）＝ **24/40**，四棵树（sidebar / sidebar-official / chat / settings）各报一条 `renderSlot('root') before any 'root' registration (boot order)`，日志里「boot order」出现 4 次；② **改后**（同一棵树、同一命令）＝ **43/43（16.3s）**，日志里「boot order」出现 **0 次**、`React error #130` 0 次、`slot entry crashed` / `did not activate` 各 0 条；四棵树的实际渲染也回来了（自有树会话行、官方浏览区会话行、对话区 composer 槽位、设置内容区都量到内容）——同一版上 F-72 那一页的截图 roster-revs-default.png 就是「chat 树在 0.1.7 上完整渲染」的样子；③ 同一轮把 F-61（名册版本对齐那条现场套件）从改前的 10/23 带到 22/23，剩下的那一条与本次改动无关，见「剩余红」一行；④ 0.1.6-alpha.2 上同一套件 43/43（见 R-01）。**机制侧的现场**（页内实测时间线，也是这条修复的因果证据）：改前页面在 244ms 就已渲染完成（root 槽 + 10 个槽位锚点都在），269ms 官方那条 roster 流推来第一帧名册，279ms root 槽与所有锚点一起消失，281ms 抛装配错、React 把整棵 root 卸掉——**先渲染成功、后自己拆空**，不是「一开始就装不起来」。"
+      "notes": "逐条核对：① **改前**（候选 0.1.7-alpha.2、同一份代码、只跑 F-01）＝ **24/40**，四棵树（sidebar / sidebar-official / chat / settings）各报一条 `renderSlot('root') before any 'root' registration (boot order)`，日志里「boot order」出现 4 次；② **改后**（同一棵树、同一命令）＝ **43/43（16.3s）**，日志里「boot order」出现 **0 次**、`React error #130` 0 次、`slot entry crashed` / `did not activate` 各 0 条；四棵树的实际渲染也回来了（自有树会话行、官方浏览区会话行、对话区 composer 槽位、设置内容区都量到内容）——同一版上 F-73 那一页的截图 roster-revs-default.png 就是「chat 树在 0.1.7 上完整渲染」的样子；③ 同一轮把 F-61（名册版本对齐那条现场套件）从改前的 10/23 带到 22/23，剩下的那一条与本次改动无关，见「剩余红」一行；④ 0.1.6-alpha.2 上同一套件 43/43（见 R-01）。**机制侧的现场**（页内实测时间线，也是这条修复的因果证据）：改前页面在 244ms 就已渲染完成（root 槽 + 10 个槽位锚点都在），269ms 官方那条 roster 流推来第一帧名册，279ms root 槽与所有锚点一起消失，281ms 抛装配错、React 把整棵 root 卸掉——**先渲染成功、后自己拆空**，不是「一开始就装不起来」。"
     },
     {
       "id": "N-02",
       "phase": "new-feature",
-      "name": "F-72：基线参数逐条成对，且负向对照必须重新红",
+      "name": "F-73：基线参数逐条成对，且负向对照必须重新红",
       "expect": "页面真的发出去的那条流 URL 上的 `revs` 参数，用生产那份解码端解回来逐条等于本页 `__DSH_BOOT__` 那份清单（rev 不同 / 多出 / 缺失三项都空）；镜像按基线对齐后推来的那一帧逐条同 rev；页面照常（零 pageerror、槽位锚点在）。**负向对照**（`?rosterRevs=raw`，同一页、同一份清单、只把编码换回改前那套原样拼接）：基线必须对不上、页面必须重新整块白（槽位锚点 0 枚 + 那条 boot-order 报错在场）。清单形状不成立（只有一个 application 批）时那一档记事实，并断言这一档零那条报错。",
       "result": "pass",
       "screenshots": [
@@ -51,19 +51,19 @@
       "expect": "改完之后 0.1.7-alpha.2 上还红的项要逐条定性：哪条是本条没覆盖的真漂移、哪条是判据钉了 0.1.6 的形状；后者不许为了让读数好看而放宽，理由要写进报告。整轮读数没跑就如实说明。",
       "result": "pass",
       "screenshots": [],
-      "notes": "逐条核对（本轮只跑了 F-01 / F-61 / F-72 三个套件，整轮待独占窗口）：① **F-61 22/23**，唯一那条红是第 ⑤ 段的**现场有效性**——它要求「`?pageWire=pinned` 伺服的那份 HTML 里 bootstrap 批的 rev 与重启后网关下发的那个**不同**」，而 0.1.7 起批与条目的 rev 是**文件元数据哈希**（`dsh-client-modules/lib/index.js` 的 `artifactRevision`：mtimeMs / ctimeMs / size），同一棵树重启两次得到同一个值（实测 `stale=8ac5bef7ad8b live=8ac5bef7ad8b`），所以这个「HTML 过期」的现场在那一版上造不出来——**判据钉的是 0.1.6 的每进程随机 rev 形状**，不是本条改出来的（#236 那一轮的 F-61 里同一条也是红的）；② **F-20 / F-32** 两条按 #243 的边界属「相关但独立」，官方 0.1.7 重画了那套图标（垃圾桶 1 条实心 path → 5 条描边 path；chevron 视框 14 → 16）——本轮**未动判据**；③ 三样合起来（F-61 ⑤ / F-20 / F-32）是同一类：「判据钉了 0.1.6 的形状」，建议另立一条按版本分档或改钉不随版本变的事实，理由与本轮读数写进 issue #243 的 comment；④ **整轮读数未跑**（#243 的边界：必须独占窗口），所以 `docs/dsh-compat-checklist.md` 里 0.1.7 的状态**本轮一个字没改**。"
+      "notes": "逐条核对（本轮只跑了 F-01 / F-61 / F-73 三个套件，整轮待独占窗口）：① **F-61 22/23**，唯一那条红是第 ⑤ 段的**现场有效性**——它要求「`?pageWire=pinned` 伺服的那份 HTML 里 bootstrap 批的 rev 与重启后网关下发的那个**不同**」，而 0.1.7 起批与条目的 rev 是**文件元数据哈希**（`dsh-client-modules/lib/index.js` 的 `artifactRevision`：mtimeMs / ctimeMs / size），同一棵树重启两次得到同一个值（实测 `stale=8ac5bef7ad8b live=8ac5bef7ad8b`），所以这个「HTML 过期」的现场在那一版上造不出来——**判据钉的是 0.1.6 的每进程随机 rev 形状**，不是本条改出来的（#236 那一轮的 F-61 里同一条也是红的）；② **F-20 / F-32** 两条按 #243 的边界属「相关但独立」，官方 0.1.7 重画了那套图标（垃圾桶 1 条实心 path → 5 条描边 path；chevron 视框 14 → 16）——本轮**未动判据**；③ 三样合起来（F-61 ⑤ / F-20 / F-32）是同一类：「判据钉了 0.1.6 的形状」，建议另立一条按版本分档或改钉不随版本变的事实，理由与本轮读数写进 issue #243 的 comment；④ **整轮读数未跑**（#243 的边界：必须独占窗口），所以 `docs/dsh-compat-checklist.md` 里 0.1.7 的状态**本轮一个字没改**。"
     },
     {
       "id": "R-01",
       "phase": "regression",
       "name": "0.1.6-alpha.2（实测通过的那一版）上零回归",
-      "expect": "同一份代码在 0.1.6-alpha.2 上：F-01 CONTRACT 仍 43/43、F-61 仍 23/23、新套件 F-72 照常绿、`npm test` 全过，两道静态自检（i18n / 平台兼容性）照旧 OK。",
+      "expect": "同一份代码在 0.1.6-alpha.2 上：F-01 CONTRACT 仍 43/43、F-61 仍 23/23、新套件 F-73 照常绿、`npm test` 全过，两道静态自检（i18n / 平台兼容性）照旧 OK。",
       "result": "pass",
       "screenshots": [
         "/tmp/dsh-sandbox-shots/016-f01-sidebar.png",
         "/tmp/dsh-sandbox-shots/016-f01-sidebar-official.png"
       ],
-      "notes": "逐条核对（候选 0.1.6-alpha.2，按钉版流程现装的一份干净树）：① F-01 **43/43（16s 级）**、F-61 **23/23**（名册版本对齐那三段都绿——那条路径现在读的是新格式，解码端对旧格式仍然宽容）、本条的 F-72 **7/7**、R-06 零越界 **6/6**；② `npm test`（build + 全量单测）**全过**；③ `scripts/check-i18n.sh` = OK、`scripts/check-platform-compat.sh` = OK（「新增行没有平台分支代码、也没有状态分支」）；④ 为什么那一版本来就零红：它的 application 只有一个批，自有条目的整包缓存键里没有逗号，改前的原样拼接在那里无歧义（探针读数：镜像日志 `1 application batch(es)`）。"
+      "notes": "逐条核对（候选 0.1.6-alpha.2，按钉版流程现装的一份干净树）：① F-01 **43/43（16s 级）**、F-61 **23/23**（名册版本对齐那三段都绿——那条路径现在读的是新格式，解码端对旧格式仍然宽容）、本条的 F-73 **7/7**、R-06 零越界 **6/6**；② `npm test`（build + 全量单测）**全过**；③ `scripts/check-i18n.sh` = OK、`scripts/check-platform-compat.sh` = OK（「新增行没有平台分支代码、也没有状态分支」）；④ 为什么那一版本来就零红：它的 application 只有一个批，自有条目的整包缓存键里没有逗号，改前的原样拼接在那里无歧义（探针读数：镜像日志 `1 application batch(es)`）。"
     }
   ]
 }

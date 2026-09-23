@@ -1,5 +1,5 @@
 /**
- * 名册基线参数的编码套件（#243，F-72）。
+ * 名册基线参数的编码套件（#243，F-73）。
  *
  * ## 现场是什么
  *
@@ -152,7 +152,7 @@ function queryOf(url: string): URLSearchParams {
 }
 
 export const ROSTER_REVS_SUITE: LabSuite = {
-  id: 'F-72',
+  id: 'F-73',
   phase: 'new-feature',
   name: '名册基线的编码（#243）：页面带上去的 id→rev 基线逐条成对，推来的名册因此逐条同 rev、页面不被自己拆空',
   expect:

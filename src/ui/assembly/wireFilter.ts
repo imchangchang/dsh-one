@@ -502,7 +502,7 @@ export function projectGraphFrame(frame: string, project: (graph: BootWire) => B
  * 在宿主的 node 侧不存在），所以共享的是**格式**（就这一行），实现各写一份。这条「各写一份」
  * 的风险有两条常驻判据盯着：`test/assemblyEventStream.test.ts` 把页面那份编码端真跑一遍、
  * 再拿这里的解码端解回来逐条比对（#243——格式是从 `id:rev` 逗号分隔改过来的，改的就是
- * 「值里出现分隔符怎么办」），`verify:lab` 的 F-72 在真页面上比对「传上去的基线 = 本页
+ * 「值里出现分隔符怎么办」），`verify:lab` 的 F-73 在真页面上比对「传上去的基线 = 本页
  * boot 那份清单」。
  */
 export const ROSTER_REVS_PARAM = 'revs'

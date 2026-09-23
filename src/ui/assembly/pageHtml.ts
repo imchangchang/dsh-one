@@ -123,7 +123,7 @@ export interface AssemblyPageOptions {
    * 用途只有一处：负向对照——同一个「rev 里带逗号」的清单（0.1.7 起官方把 application
    * 切成两批，我们那份整包缓存键就是「批 rev 用逗号并起来 + 本地内容哈希」，于是自有条目
    * 的 rev 里真的带着逗号）下，改成转义就照常、改回原样就照旧被解析截断、页面照旧整块白
-   * （`verify:lab` 的 F-72 两条分支各跑一遍）。生产恒缺省。
+   * （`verify:lab` 的 F-73 两条分支各跑一遍）。生产恒缺省。
    */
   legacyRosterRevs?: boolean
 }
