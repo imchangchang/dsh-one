@@ -32,6 +32,13 @@
  * 它**不**复刻那个包的行为（不注册任何槽位、不认识任何官方服务），因为本夹具要验的是
  * 「一个第三方插件在场时装配页还能不能起来」，不是那个插件自己能不能渲染。
  *
+ * ## 两档现场：什么都不等 / 等一个本树没有的服务（#242）
+ *
+ * `services` 缺省空表（F-69 那一档：插件在哪棵树里都装得下）；传
+ * {@link THIRD_PARTY_SERVICE}（F-70 那一档）就得到另一种现场——插件 inject 了一个
+ * **侧栏树挡掉了提供方**的服务，于是它在那里停在 pending、被页面自愈摘掉，而在对话区树里
+ * 正常起来。这一档存在的理由：让「离线算出来的『这棵树放不下它』」与运行期读数对得上。
+ *
  * ## 规则（与 freshGateway.ts 同口径，为的是不打扰用户与其它 session）
  *
  * - 隔离 `HOME`（`dsh plugin add` 认的是它）+ 该 HOME 下的 `DSH_HOME`（起实例用它）；
@@ -55,16 +62,32 @@ export const THIRD_PARTY_MARK = 'data-lab-third-party'
 export const THIRD_PARTY_GLOBAL = '__LAB_THIRD_PARTY__'
 
 /**
- * 合成包的浏览器半：**一行、id 用模板字面量**（见文件头的形状说明），module 面与自有
- * 插件一致（`inject` + `apply`）。
+ * 合成包**等不到**的那个服务（#242 的现场）：`uiConversation` 的提供方是官方
+ * `@deepseek-ai/dsh-client-ui-conversation`，而**侧栏树把它挡掉了**（见
+ * `src/ui/assembly/wireFilter.ts` 的 `SIDEBAR_ONLY`），对话区树里它在。
+ *
+ * 所以同一个插件在两棵树里的读数正好相反——侧栏树里停在 `pending (waiting for service: …)`、
+ * 对话区树里正常起来。这条服务的名字与两棵树的差别都是**官方侧的事实**（#225 的现场日志里
+ * 逐字出现过 `@deepseek-ai/dsh-client-ui-plan: pending (waiting for service: uiConversation)`）。
  */
-const CLIENT_JS =
-  'window.__ModuleLoader__.load({id:`' +
-  THIRD_PARTY_PLUGIN_ID +
-  '`,factory:e=>{var t={exports:{}},n=t.exports;Object.defineProperty(n,Symbol.toStringTag,{value:`Module`});' +
-  `var inject=[];function apply(ctx){try{globalThis["${THIRD_PARTY_GLOBAL}"]="${THIRD_PARTY_PLUGIN_ID}"}catch(e){}` +
-  `try{document.documentElement.setAttribute("${THIRD_PARTY_MARK}","${THIRD_PARTY_PLUGIN_ID}")}catch(e){}}` +
-  'n.inject=inject;n.apply=apply;return n}});'
+export const THIRD_PARTY_SERVICE = 'uiConversation'
+
+/**
+ * 合成包的浏览器半：**一行、id 用模板字面量**（见文件头的形状说明），module 面与自有
+ * 插件一致（`inject` + `apply`）。`services` 是它 inject 的服务（缺省空表 = 什么都不等，
+ * 也就是 F-69 那一档）。
+ */
+function clientJs(services: readonly string[]): string {
+  const table = services.map((service) => `\`${service}\``).join(',')
+  return (
+    'window.__ModuleLoader__.load({id:`' +
+    THIRD_PARTY_PLUGIN_ID +
+    '`,factory:e=>{var t={exports:{}},n=t.exports;Object.defineProperty(n,Symbol.toStringTag,{value:`Module`});' +
+    `var inject=[${table}];function apply(ctx){try{globalThis["${THIRD_PARTY_GLOBAL}"]="${THIRD_PARTY_PLUGIN_ID}"}catch(e){}` +
+    `try{document.documentElement.setAttribute("${THIRD_PARTY_MARK}","${THIRD_PARTY_PLUGIN_ID}")}catch(e){}}` +
+    'n.inject=inject;n.apply=apply;return n}});'
+  )
+}
 
 /** `dsh` 可执行文件（与 freshGateway 同一个口径：`LAB_DSH` 可换）。 */
 const DSH = process.env.LAB_DSH ?? 'dsh'
@@ -91,10 +114,16 @@ export async function startGatewayWithThirdPartyPlugin(options: {
   timeoutMs?: number
   /** 每一行实例输出（诊断用）。 */
   onLine?: (line: string) => void
+  /**
+   * 这个合成插件 inject 哪些服务（缺省空表 = 什么都不等，也就是 F-69 那一档）。
+   * 传一个本树没有的服务（如 {@link THIRD_PARTY_SERVICE}）就得到「插件在这棵树里起不来」
+   * 的现场（F-70 / #242）。
+   */
+  services?: readonly string[]
 } = {}): Promise<ThirdPartyGateway> {
   const profileHome = await scratchDir('dsh-lab-thirdparty-')
   const packageDir = path.join(profileHome, 'source', 'dsh-lab-third-party')
-  await writeSyntheticPackage(packageDir)
+  await writeSyntheticPackage(packageDir, options.services ?? [])
   const installLog: string[] = []
   try {
     installLog.push(
@@ -139,7 +168,7 @@ export async function startGatewayWithThirdPartyPlugin(options: {
 }
 
 /** 写出合成包（清单 + 补丁 + 宿主半 + 浏览器半；见文件头）。 */
-async function writeSyntheticPackage(dir: string): Promise<void> {
+async function writeSyntheticPackage(dir: string, services: readonly string[]): Promise<void> {
   await fsp.mkdir(path.join(dir, 'lib'), { recursive: true })
   await fsp.writeFile(
     path.join(dir, 'package.json'),
@@ -162,7 +191,7 @@ async function writeSyntheticPackage(dir: string): Promise<void> {
     `# 合成第三方插件的 profile 层补丁：只插自己一行（形状与自有插件包一致）。\n- insert:\n    - id: lab-third-party\n      name: '${THIRD_PARTY_PLUGIN_ID}'\n`,
   )
   await fsp.writeFile(path.join(dir, 'lib', 'index.js'), `export const name = 'lab-third-party'\nexport function apply() {}\n`)
-  await fsp.writeFile(path.join(dir, 'lib', 'client.js'), CLIENT_JS)
+  await fsp.writeFile(path.join(dir, 'lib', 'client.js'), clientJs(services))
 }
 
 /** 页面上那两个读数（标记属性 + 全局）：夹具用它断言这个第三方插件真的跑起来了。 */
