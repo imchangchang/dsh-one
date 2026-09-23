@@ -280,10 +280,18 @@ export const IDENTIFIER_DEPENDENCIES = [
     where: 'packages/dsh-workspace-tree/src/workspaceTree/types.ts:19',
   },
   {
+    /**
+     * 作用域仍是 `dsh-api-session-controller`：0.1.6-alpha.2 起这个插件在 combo 里独立成段，
+     * 0.1.7-alpha.2 起它连同 workspace-controller 一起被挪进**第二批 application 批**
+     * （段 id 不变、只是换了一批下发）。探针因此必须扫全部 application 批，否则这条会
+     * 假红——#232 的 `byId` 就是这么报出来的（`batchesToScan` 与 probe.mjs 的注释记了原因）。
+     */
     names: ['byId'],
     scope: ['@deepseek-ai/dsh-api-session-controller'],
     why: 'sessions 服务快照的 id → 会话摘要表（自有行标题/cwd/未读都取自它）',
-    where: 'packages/dsh-workspace-tree/src/workspaceTree/tree.ts:257,279、packages/dsh-workspace-tree/src/workspaceTreePlugin.ts:182',
+    where:
+      'packages/dsh-workspace-tree/src/workspaceTree/tree.ts:1306,1308,1313、' +
+      'packages/dsh-workspace-tree/src/workspaceTreePlugin.ts:452',
   },
   {
     /**
