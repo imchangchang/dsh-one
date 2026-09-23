@@ -12,7 +12,7 @@
  * - **块头与侧栏的工作区行同一套折叠语言**（#144）：同一枚箭头图标与同一套展开标记、
  *   同一格箭头位、同一行高（见 `styles.ts` 那条规则上方的逐项取值）；
  * - 每行行尾**直接列出两枚动作**（#144：此前是「还原」文字按钮 + ⋯ 二级菜单）——
- *   「还原」（`IconRefreshOutline16`）与「永久归档」（`IconTrashOutline16`，按错误色），
+ *   「还原」（`IconRefreshOutline`）与「永久归档」（`IconTrashOutline`，按错误色），
  *   几何取侧栏行尾动作按钮同一档；永久归档是**终点动作**（走官方 `archiveSession`），
  *   所以这一枚只发请求、由树层的确认弹窗执行（本件不直接执行）。
  *
@@ -52,14 +52,8 @@
  * 渲染的树区域是自有渲染范围内的事（同 #81 的处置）。
  */
 import { createElement as h, useEffect, useRef, useState } from 'react'
-import {
-  IconChevronLeftOutline14,
-  IconRefreshOutline16,
-  IconTrashOutline16,
-  IconTriangleRightFill14,
-  Menu,
-  Tooltip,
-} from '@deepseek-ai/dsh-client-ui-primitives'
+import { Menu, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { officialIcon } from '@dsh-one/dsh-plugin-kit/officialIcons'
 import {
   recycleCount,
   sessionStatuses,
@@ -70,6 +64,11 @@ import {
 import { displayTitle, timeLabel } from './format.ts'
 import { PinMark, SessionStatusDots } from './rows.ts'
 import type { Translate } from './types.ts'
+
+const IconChevronLeftOutline = officialIcon('IconChevronLeftOutline')
+const IconRefreshOutline = officialIcon('IconRefreshOutline')
+const IconTrashOutline = officialIcon('IconTrashOutline')
+const IconTriangleRightFill = officialIcon('IconTriangleRightFill')
 
 /** 抽屉档位（占面板高的比例）：默认半高；提手上拉到 90%。 */
 const DRAWER_HEIGHT_DEFAULT = 0.5
@@ -312,7 +311,7 @@ export function RecycleDrawer({
           disabled: total === 0,
           onClick: kind === 'empty' ? onEmpty : onRestoreAll,
         },
-        kind === 'empty' ? h(IconTrashOutline16, { size: 14 }) : h(IconRefreshOutline16, { size: 14 }),
+        kind === 'empty' ? h(IconTrashOutline, { size: 14 }) : h(IconRefreshOutline, { size: 14 }),
       ),
     })
   }
@@ -351,11 +350,11 @@ export function RecycleDrawer({
           title: tr('recycle.back'),
           // 图标名（自有契约，与入口行主区那枚 `data-dshone-tree-icon` 同一做法）：
           // 官方组件渲染出来的 DOM 里没有图标名，验证套件要认「组件」只能靠标记 + 渲染指纹。
-          'data-dshone-tree-icon': 'IconChevronLeftOutline14',
+          'data-dshone-tree-icon': 'IconChevronLeftOutline',
           'data-dshone-tree-action': 'recycle-close',
           onClick: onClose,
         },
-        h(IconChevronLeftOutline14, {}),
+        h(IconChevronLeftOutline, {}),
       ),
       h(
         'span',
@@ -435,7 +434,7 @@ function RecycleBlock({
       h(
         'span',
         { className: 'dshOneTree_drawerGroupArrow' },
-        h(IconTriangleRightFill14, { className: `dshOneTree_arrow${collapsed ? '' : ' dshOneTree_arrowOpen'}` }),
+        h(IconTriangleRightFill, { className: `dshOneTree_arrow${collapsed ? '' : ' dshOneTree_arrowOpen'}` }),
       ),
       h('span', { className: 'dshOneTree_drawerGroupLabelText' }, label),
       h('span', { className: 'dshOneTree_drawerGroupCount' }, String(group.sessions.length)),
@@ -515,13 +514,13 @@ function RecycleRow({
     {
       id: 'restore',
       label: h('span', { 'data-dshone-tree-item': 'recycle-restore' }, tr('recycle.restore')),
-      icon: h(IconRefreshOutline16, { size: 14 }),
+      icon: h(IconRefreshOutline, { size: 14 }),
       disabled: busy,
     },
     {
       id: 'archive',
       label: h('span', { 'data-dshone-tree-item': 'recycle-archive' }, tr('menu.archiveForever')),
-      icon: h(IconTrashOutline16, { size: 14 }),
+      icon: h(IconTrashOutline, { size: 14 }),
       disabled: busy,
     },
   ]
@@ -582,7 +581,7 @@ function RecycleRow({
               onRestore(node.id)
             },
           },
-          h(IconRefreshOutline16, {}),
+          h(IconRefreshOutline, {}),
         ),
       }),
       h(Tooltip, {
@@ -602,7 +601,7 @@ function RecycleRow({
               onArchive(node.id)
             },
           },
-          h(IconTrashOutline16, {}),
+          h(IconTrashOutline, {}),
         ),
       }),
     ),

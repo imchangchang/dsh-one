@@ -44,6 +44,21 @@
  *
  * 偏保守的代价是「少加载一个本来就不渲染的 entry」；反过来（少挡）会让整页 boot
  * 失败，所以这条判据的方向只能是这个。
+ *
+ * ## 表外的插件：profile 里用户装的第三方插件（#242）
+ *
+ * 本文档前面说的「表」= 官方内置那批插件。用户的 profile 里还可能有他自己装的第三方插件
+ * （`dsh.profile.bundles` 里非 `@deepseek-ai` 的包，例如现场那件 `@changfenhuang/dsh-genui`），
+ * 它们**不在这张表里**，处置也**不同**：
+ *
+ * - **永不被补进清单**（`profilePlugins` 参数）：它们不是我们的件，把它们写进清单等于替用户
+ *   把插件从这棵树里静默移除；而少挡的风险（整页 boot 失败）在这里也不适用——挡掉它并不会
+ *   让它激活。
+ * - **但要被检查**（{@link unplaceableProfilePlugins}）：第三方插件 inject 了本树没有的服务时，
+ *   它在这棵树里会停在 `pending (waiting for service: …)`——官方启动审计点名它、页面自愈
+ *   把它从本页清单里摘掉（一条日志），一次点名太多条时整页落到失败卡。这件事**原来离线
+ *   算不出来**（输入里根本没有它），现在算得出来、报得出去，怎么处置由维护者定。
+ * - 它们**提供的**服务照常算数（别把第三方插件提供的服务当成「没了」）。
  */
 
 /** 一件插件的服务面：它等哪些服务、它提供哪些服务。 */
@@ -86,40 +101,78 @@ export interface BlockListDerivation {
   added: readonly DerivedBlockAddition[]
 }
 
+/** 补全与检查共用的输入：谁被挡了、表里有哪些插件、表外还有哪些插件。 */
+export interface BlockListInput extends PluginFacesInput {
+  blocked: readonly string[]
+}
+
+/** 表内/表外的插件集合（`BlockListInput` 里除「谁被挡了」之外的那一半）。 */
+export interface PluginFacesInput {
+  /** 官方各 entry 的服务面（id 用清单里的同一个 id 空间）。 */
+  plugins: readonly PluginServiceFace[]
+  /**
+   * 只贡献「提供方」的非官方插件：三棵树的 frame 插件（顶替官方 `dsh-client-ui-layout`
+   * 提供的 `layout`，见 `src/ui/assembly/shell/*LayoutPlugin.ts` 的 `reflect.provide('layout', …)`）。
+   */
+  localProviders?: readonly PluginServiceFace[]
+  /**
+   * profile 里用户自己装的第三方插件（`dsh.profile.bundles` 里非官方的那些，#242）。
+   *
+   * 与 `localProviders` 一样**永不被补进清单**——它们不是我们的件，不该被我们的清单挡掉；
+   * 区别是它们要**被检查**：{@link unplaceableProfilePlugins} 点出哪些在这棵树里等不到服务。
+   * 提供方那一半照常算数（第三方插件提供的服务也是真服务，别把它当成「没了」）。
+   */
+  profilePlugins?: readonly PluginServiceFace[]
+}
+
+/** 表里所有插件（含表外那些只贡献提供方的）按服务名建索引。 */
+function providerMap(input: BlockListInput): Map<string, string[]> {
+  const providers = new Map<string, string[]>()
+  for (const p of [...input.plugins, ...(input.localProviders ?? []), ...(input.profilePlugins ?? [])]) {
+    for (const service of p.provides) {
+      const list = providers.get(service)
+      if (list === undefined) providers.set(service, [p.id])
+      else list.push(p.id)
+    }
+  }
+  return providers
+}
+
+/**
+ * 一件插件在**这一棵树**里等不到的服务：有提供方、但提供方全被挡掉的那些。
+ *
+ * 判据只认这一种（`providers.get(service) !== undefined`）。「一个提供方都找不到」的服务
+ * 不算——静态表看不见宿主半与运行时挂出来的服务，拿它判会得出假红（见 `isFrameworkService`
+ * 与 `unresolvedServices` 的分工）。
+ */
+function lostServices(face: PluginServiceFace, providers: ReadonlyMap<string, string[]>, blocked: ReadonlySet<string>): string[] {
+  return face.needs.filter((service) => {
+    const list = providers.get(service)
+    return list !== undefined && list.every((id) => blocked.has(id))
+  })
+}
+
 /**
  * 补全一棵树的 block list。
  *
  * @param input.blocked - 这棵树现有的手写清单（形态类与已核过的服务级条目都在里面）。
- * @param input.plugins - 官方各 entry 的服务面（id 用清单里的同一个 id 空间）。
+ * @param input.plugins - 官方各 entry 的服务面（id 用清单里的同一个 id 空间）；只有它们会被补进清单。
  * @param input.localProviders - 只贡献「提供方」的自有插件（顶替了某个官方包的角色，
  *   例如三棵树各自的 frame 插件提供 `layout`）。它们不会被补进清单——自有插件不下线。
+ * @param input.profilePlugins - profile 里用户自己装的第三方插件：同样不会被补进清单，
+ *   只贡献提供方，另外由 {@link unplaceableProfilePlugins} 检查（见 {@link BlockListInput}）。
  */
-export function deriveBlockList(input: {
-  blocked: readonly string[]
-  plugins: readonly PluginServiceFace[]
-  localProviders?: readonly PluginServiceFace[]
-}): BlockListDerivation {
+export function deriveBlockList(input: BlockListInput): BlockListDerivation {
   const blocked = new Set(input.blocked)
   const ordered = [...blocked]
   const added: DerivedBlockAddition[] = []
   for (;;) {
-    const providers = new Map<string, string[]>()
-    const addProvider = (service: string, id: string): void => {
-      const list = providers.get(service)
-      if (list === undefined) providers.set(service, [id])
-      else list.push(id)
-    }
-    for (const p of input.plugins) for (const s of p.provides) addProvider(s, p.id)
-    for (const p of input.localProviders ?? []) for (const s of p.provides) addProvider(s, p.id)
+    const providers = providerMap(input)
 
     const round: DerivedBlockAddition[] = []
     for (const p of input.plugins) {
       if (blocked.has(p.id)) continue
-      const lost = p.needs.filter((service) => {
-        const list = providers.get(service)
-        // 没有提供方的服务（框架/主机层）永远在；有提供方、但提供方全被挡掉 = 这个服务没了。
-        return list !== undefined && list.every((id) => blocked.has(id))
-      })
+      const lost = lostServices(p, providers, blocked)
       if (lost.length === 0) continue
       blocked.add(p.id)
       ordered.push(p.id)
@@ -136,6 +189,30 @@ export function deriveBlockList(input: {
 }
 
 /**
+ * profile 里用户自己装的第三方插件中，**在这棵树里等不到服务**的那几件（#242）。
+ *
+ * 为什么单独一个函数、不混进 `deriveBlockList` 的 `added`：那两份的**处置**不同。
+ * 补进 `added` 的意思是「把它挡掉」，而第三方插件不是我们的件——把它写进清单等于替用户
+ * 把他的插件从这棵树里静默移除（运行期那一条还能留下自愈的日志，清单里那一挡什么痕迹都没有）。
+ * 所以这里只**报出来**：这些件在这棵树里会停在 `pending (waiting for service: …)`，
+ * 官方启动审计会点名它、页面自愈会把它从本页清单里摘掉（一条日志），怎么处置由维护者定
+ * ——补上那个服务的提供方（放行官方件）、接受这件插件在这棵树里缺位、或换一棵树。
+ *
+ * 顺序与去重：入参顺序，同一件只报一次。
+ */
+export function unplaceableProfilePlugins(input: BlockListInput): DerivedBlockAddition[] {
+  const providers = providerMap(input)
+  const blocked = new Set(input.blocked)
+  const out: DerivedBlockAddition[] = []
+  for (const p of input.profilePlugins ?? []) {
+    const lost = lostServices(p, providers, blocked)
+    if (lost.length === 0) continue
+    out.push({ id: p.id, waitingFor: lost, providers: [...new Set(lost.flatMap((s) => providers.get(s) ?? []))] })
+  }
+  return out
+}
+
+/**
  * 手写清单里「服务规则算不出来」的那几条。
  *
  * 判法：把某一条**单独**从清单里拿掉、再跑一遍补全——它不会被补回来，就说明它的存在
@@ -146,11 +223,7 @@ export function deriveBlockList(input: {
  * 只是为了让维护者知道「规则解释得了清单的哪一部分」：规则解释不了的那部分，上游换写法
  * 时得靠人复核。
  */
-export function unaccountedBlocks(input: {
-  blocked: readonly string[]
-  plugins: readonly PluginServiceFace[]
-  localProviders?: readonly PluginServiceFace[]
-}): string[] {
+export function unaccountedBlocks(input: BlockListInput): string[] {
   return input.blocked.filter((id) => {
     const without = input.blocked.filter((x) => x !== id)
     return !deriveBlockList({ ...input, blocked: without }).blocked.includes(id)
@@ -163,13 +236,17 @@ export function unaccountedBlocks(input: {
  * 这不是 block list 判据，是**取法自检**：官方换一种写法挂服务（例如不再用
  * `super(ctx, "X")` / `ctx.reflect.provide("X", …)`）时，提供方就抓不到了——那时
  * 这个函数会点出那些服务名，让探针报红而不是把「提供方全被挡掉」判成假。
+ *
+ * 提供方一侧含 `localProviders` 与 `profilePlugins`：某个服务只由自有插件或用户装的
+ * 第三方插件提供时，它就是**有提供方**的（别报成「取法漏了」，那是假红）。
+ * 需求一侧只看 `plugins`（官方件）——第三方插件要的服务在不在，由
+ * {@link unplaceableProfilePlugins} 按另一条判据回答。
  */
-export function unresolvedServices(input: {
-  plugins: readonly PluginServiceFace[]
-  localProviders?: readonly PluginServiceFace[]
-}): string[] {
+export function unresolvedServices(input: PluginFacesInput): string[] {
   const provided = new Set<string>()
-  for (const p of [...input.plugins, ...(input.localProviders ?? [])]) for (const s of p.provides) provided.add(s)
+  for (const p of [...input.plugins, ...(input.localProviders ?? []), ...(input.profilePlugins ?? [])]) {
+    for (const s of p.provides) provided.add(s)
+  }
   const needed = new Set<string>()
   for (const p of input.plugins) for (const s of p.needs) needed.add(s)
   return [...needed].filter((s) => !provided.has(s) && !isFrameworkService(s)).sort()

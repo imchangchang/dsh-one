@@ -67,16 +67,13 @@
  *   `sessions.binding(id).session.rename` / `sessions.search` /
  *   `uiWorkspace.forkSession` / `uiWorkspace.archiveSession` /
  *   `workspaces.rename` / `workspaces.delete`（出处逐个标在代码处）。
- * - 图标与原语：全部取官方 primitives 种子表——`IconFolderOpen16` /
- *   `IconFolderClose16` / `IconFolderOpenOutline16` / `IconTriangleRightFill14` /
- *   `IconEllipsisOutline16` / `IconPlusOutline16` / `IconSearchOutline16` /
- *   `IconCloseFill14` / `IconPersonalizationOutline16` / `IconEditOutline16` /
- *   `IconTrashOutline16` / `IconBranchOutline16` / `IconArchiveOutline20` /
- *   `IconRightUpOutline16` / `IconCheckOutline16` / `IconChecklistOutline14` /
- *   `IconCopyOutline16` / `IconAlarmClockOutline16`（#110 活跃定时任务标记）/
- *   `StateDot` / `Menu` / `Tooltip` / `HoverCard` / `Modal` / `Button` /
- *   `relativeTime`。**终端图标是自绘 SVG**（官方 79 个 `Icon*` 里没有终端件，
- *   逐个看过导出表；出处与理由见 `workspaceTree/rows.ts`）。
+ * - 图标与原语：图标全部经 `@dsh-one/dsh-plugin-kit/officialIcons` 取官方 primitives
+ *   的件（26 枚的两代名字对照与选档依据见 `src/pure/officialIcons.ts`；官方
+ *   0.1.7-alpha.2 把图标导出名从尺寸后缀整批换成档位后缀，按老名字具名导入会静默变
+ *   `undefined`、渲染时才炸成 React #130，所以取用口统一收在那里）；原语直接取种子表
+ *   的 `StateDot` / `Menu` / `Tooltip` / `HoverCard` / `Modal` / `Button` / `relativeTime`。
+ *   **终端图标是自绘 SVG**（0.1.6-alpha.1 那份导出表的 79 个 `Icon*` 里没有终端件，
+ *   逐个看过；出处与理由见 `workspaceTree/rows.ts`）。
  *
  * **多开入口（#72）**：会话行菜单（仍是官方 `Menu` 原语，`items` 多一项
  * `openInNewTab`）与**行右键**都能开出这个菜单，菜单项走宿主能力口。逐层举证：

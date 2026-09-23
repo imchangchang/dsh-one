@@ -78,6 +78,7 @@ import { SELF_HEAL_SUITE } from './selfHealSuites.ts'
 import { RETRY_THROTTLE_SUITE } from './retryThrottleSuites.ts'
 import { THIRD_PARTY_PLUGIN_SUITE } from './thirdPartySuites.ts'
 import { OFFICIAL_PIN_SUITE } from './officialPinSuites.ts'
+import { PROFILE_PLUGIN_SERVICE_SUITE } from './profilePluginServiceSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
@@ -6645,6 +6646,11 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // 热点。它自起一台实例、往它的**隔离 profile** 里装一个合成的第三方插件造现场，
   // 见 thirdPartyPlugin.ts 的文件头）。
   THIRD_PARTY_PLUGIN_SUITE,
+  // #242 profile 里的第三方插件 inject 了一个本树没有的服务（F-70：F-01…F-69 与 R-06
+  // 已占，按「从未占用的继续」顺延；套件本体在 profilePluginServiceSuites.ts，同为独立
+  // 文件，少一处合入热点）。它用同一份合成插件、只是让插件 inject 一个**侧栏树没有、
+  // 对话区树有**的服务，把「离线算出来的『这棵树放不下它』」与运行期读数钉在一起。
+  PROFILE_PLUGIN_SERVICE_SUITE,
   // #240 置顶这份状态在 dsh-one 与官方 web 之间是同一份（F-71：F-01…F-70 与 R-06 已占
   // ——F-70 归 #242 的「第三方插件 inject 了本树没有的服务」，按「从未占用的继续」顺延；
   // 套件本体在 officialPinSuites.ts，同为独立文件，少一处合入热点。它同一台实例上同时

@@ -72,7 +72,7 @@ dsh-one 是 dsh 的客户端（gateway HTTP/WS RPC + webview 嵌入），上游�
 - **F-54 交互活性（44/47）**：红的三条全在 composer 的 ＋ 上（`present=false`）。官方那一代没有 `pickFiles`，这个控件根本不在场，套件里「＋ 点不动时页面必须留一行能指名道姓的失败」「把不合契约的贡献摘掉之后 ＋ 必须恢复」这两条的前提就不成立。属 #234 的 (B) 类（判据钉的是 0.1.6 才有的形状），叠着一个真实能力缺口（那一代没有 ＋）。
 - **F-67 启动自愈（7/23）**：页面加载次数停在 1、没摘条目、也没落失败提示条——自愈整族在这版没生效，与 #234 在 0.1.2-rc.1 上看到的**同一签名**。这一条因此不再是 rc1 独有：它是这一代（0.1.5 及更早）的共同表现，具体成因仍属 #234 的 (C) 未定性项，本次没查。
 
-## 自动化探针项（probe.mjs，23 项）
+## 自动化探针项（probe.mjs，24 项）
 
 探针分三类：**伺服面**（wire——网关对外的 HTTP/WS 接口。含装配形态直引的那两样网关前端产物：`/` 的 HTML 与 `/plugins/??` 的 combo——上游改了交互方式或改了产物写法，都在这一面现形）、**客户端契约面**（combo——装配线直引官方前端插件代码，官方的 slot 名、hook 名、字段名就是我们的 ABI）与**官方产物面**（本机已安装的官方包文件——静默失效型依赖：坏了不报错、只是不生效；含每棵树 block list 的补全检查）。三类都由 `.github/workflows/dsh-upstream-watch.yml` 每日 04:00 UTC+8 跑。
 
@@ -117,18 +117,19 @@ dsh-one 是 dsh 的客户端（gateway HTTP/WS RPC + webview 嵌入），上游�
 
 清单不是凭记忆写的：每条都写明理由（`why`）与我方使用点（`where`），并由 `test/upstreamClientContract.test.ts` 保证「清单里的名字在 `src/` 里确实还有取用点、`where` 指向的文件确实存在」。**新增依赖 = 在 clientContract.mjs 的三张表里加一行**（名字、理由、使用点、期望的官方出处）；不再依赖就把该行删掉，否则测试会提醒。
 
-### 官方产物面（2 项，`scripts/dsh-upstream-watch/officialIdentifiers.mjs` + `blockListDrift.mjs`）
+### 官方产物面（3 项，`scripts/dsh-upstream-watch/officialIdentifiers.mjs` + `blockListDrift.mjs`）
 
 做法：读**本机已安装的官方包文件**（只读磁盘，不起网关、不走网络），按存在性逐个查标识符还在不在——查的是「装到本机的这版官方包内容变了没有」，与上面 combo 面（查网关下发的产物写法）互补。官方包目录按可信度找三处：① 被测实例自己的 profile（`<DSH_HOME>/profiles/node_modules`，网关实际加载的那一份——**不是每种安装方式都会建它**，实测 npm `--prefix` 装的 dsh 只建 `profiles/web`）；② 被测 dsh **自己安装树**里的官方包（从 `--command` 的可执行文件与 `--cwd` 往上逐级找 `node_modules/@deepseek-ai`，全局装 / `--prefix` 装 / 源码构建三种形态都落在这里）；③ 本机默认 `~/.dsh` 的 profile（#179 点名的那个路径，**可能不是本次被测版本**）。结果行的 detail 会写明读的是哪一份；三处都没有时报红并列出找过的地方（取不到就不能显示成「没问题」）。已安装包里的条目是符号链接，读之前按真身解析。
 
 | id | 检查内容 | 判定方式 |
 |---|---|---|
 | official-identifiers | 11 条官方内部标识符在场（下表），任一条消失即 fail | 逐条在它的**出处文件**里按**形状**查存在性（不比对内容）；不成立时报出条目名、出处文件与我方使用点 |
-| block-list-drift | 三棵树的 block list 覆盖官方**服务依赖**闭包（#227，`blockListDrift.mjs` + `src/pure/blockListDerivation.ts`） | 离线读本机官方包：每件的服务面 = bundle 导出的 `inject`（它等哪些服务）＋提供服务的调用点（`super(ctx, "X")` / `ctx.reflect.provide("X", …)`）。按规则「一棵树挡掉的包，凡是等它的 entry 也一起挡掉」补全，与 `wireFilter.ts` 的清单对比：**少挡一条即 fail**（点出它、它等的服务、被挡的提供方）；规则算不出来的手写条目（形态/角色理由）只报读数——多挡无害，少挡才让整页 boot 失败。取不到就红：一个官方包都没读到、某件 bundle 解析不出 `inject` 导出、或有插件在等的服务在官方包里找不到提供方（框架/主机层那一族 `loader` / `modules` / `remote.*` 除外）。 |
+| official-icon-exports | 我们取用的 **26 枚官方图标**的导出名在场（#236），任一枚两代名字都不在场即 fail | 官方前端把 primitives 打进了页面自己那份 chunk（`@deepseek-ai/dsh-web-frontend/dist/assets/index-*.js`），所以读那份产物：逐枚查「这一代的名字（`<基名><档位>`）或上一代的名字（尺寸后缀名）」**至少一个在场**（对照表与运行时的取用口是同一份 `src/pure/officialIcons.ts`）。不成立时**当场报出是哪一枚**、两代各要什么名——名字消失时页面上的表现是自有插件崩成 React #130（元素类型 `undefined`），那句话看不出是哪枚图标。产物目录读不到时报红，不降级。 |
+| block-list-drift | 三棵树的 block list 覆盖官方**服务依赖**闭包（#227），以及 profile 里的第三方插件在这三棵树里**放不放得下**（#242，同一份 `blockListDrift.mjs` + `src/pure/blockListDerivation.ts`） | 离线读本机官方包：每件的服务面 = bundle 导出的 `inject`（它等哪些服务）＋提供服务的调用点（`super(ctx, "X")` / `ctx.reflect.provide("X", …)`）。按规则「一棵树挡掉的包，凡是等它的 entry 也一起挡掉」补全，与 `wireFilter.ts` 的清单对比：**少挡一条即 fail**（点出它、它等的服务、被挡的提供方）；规则算不出来的手写条目（形态/角色理由）只报读数——多挡无害，少挡才让整页 boot 失败。**第三方插件**（#242）从 profile 的 `dsh.profile.bundles` 读，只报不挡：某棵树里它等的服务的提供方全被挡掉即 fail（点名插件、服务、被挡的提供方），处置由维护者定。取不到就红：一个官方包都没读到、某件（官方或第三方）bundle 读不到或解析不出 `inject` 导出、`dsh.profile.bundles` 点了名的第三方包装在 node_modules 下找不到、或有插件在等的服务在官方包里找不到提供方（框架/主机层那一族 `loader` / `modules` / `remote.*` 除外）。 |
 
 这条的**判据是服务**，不是 `package.json` 的 `dsh.client.inject`：后者是**模块 id** 表（wire 里每个 entry 的 `inject` 就是它），只决定装载顺序——按它做闭包会把三棵树里真正要用的官方件一起挡掉（实测 chat 2 → 38、sidebar 13 → 39、settings 14 → 38 条，把对话区与官方侧栏壳都算进去了），而依赖方并不会因为对方被挡而不激活（对话区那棵树挡了 `ui-layout`、`ui-conversation` 的模块表里就列着它，对话区照样全绿）。真正决定启动审计的是 bundle 里的**服务名**表：缺一个服务，cordis 就停在 `pending (waiting for service: X)`——#225 那起事故（侧栏树挡了 `ui-conversation` 却没挡等它的 `ui-plan`）正是这一类。
 
-**本机实测读数（0.1.6-alpha.2，58 件官方前端包）**：三棵树逐棵 少挡 0 条——对话区 手写 2 / 补全后 2（规则算不出 2：`ui-layout`、`ui-sidebar`，都是形态类）、侧栏位 13 / 13（规则算不出 7）、设置页 14 / 14（规则算不出 14；这棵树下线 ui-conversation 之外的那几件全是形态理由，服务规则本来就不解释它们）。**负向对照**：把 `@deepseek-ai/dsh-client-ui-plan` 从侧栏清单里删掉（= #225 事故前的样子）→ 当场 fail，文案是「侧栏位 少挡了 1 条：`@deepseek-ai/dsh-client-ui-plan`（等 `uiConversation`；提供方全被挡：`@deepseek-ai/dsh-client-ui-conversation`）」；加回去立刻 pass。纯函数单测见 `test/blockListDerivation.test.ts`（现场、多层依赖、同名服务有别的提供方时不误伤、只补不删、框架服务不传播、两处取法自检），探针模块单测与合成产物的负向对照见 `test/blockListDrift.test.ts`。
+**本机实测读数（0.1.6-alpha.2，58 件官方前端包 + 2 件 profile 第三方插件）**：三棵树逐棵 少挡 0 条——对话区 手写 2 / 补全后 2（规则算不出 2：`ui-layout`、`ui-sidebar`，都是形态类）、侧栏位 13 / 13（规则算不出 7）、设置页 14 / 14（规则算不出 14；这棵树下线 ui-conversation 之外的那几件全是形态理由，服务规则本来就不解释它们）；profile 里那两件（`@dsh-one/dsh-llm-provider`、`@changfenhuang/dsh-genui`）要的服务三棵树里都有，**放不下 0 件**。**负向对照（#227 那条）**：把 `@deepseek-ai/dsh-client-ui-plan` 从侧栏清单里删掉（= #225 事故前的样子）→ 当场 fail，文案是「侧栏位 少挡了 1 条：`@deepseek-ai/dsh-client-ui-plan`（等 `uiConversation`；提供方全被挡：`@deepseek-ai/dsh-client-ui-conversation`）」；加回去立刻 pass。**负向对照（#242 那条，合成产物）**：`<root>/profiles/web` 里放一件 inject `uiConversation` 的第三方插件 → fail，文案是「侧栏位 放不下 profile 里的第三方插件 1 件：`@dsh-external/dsh-lab-third-party`（等 `uiConversation`；提供方全被挡：`@deepseek-ai/dsh-client-ui-conversation`）」；把它从那份输入里拿掉 → 回到 pass（= 改前看不见它的样子）。纯函数单测见 `test/blockListDerivation.test.ts`（现场、多层依赖、同名服务有别的提供方时不误伤、只补不删、框架服务不传播、两处取法自检、第三方插件只报不挡），探针模块单测与合成产物的两处负向对照见 `test/blockListDrift.test.ts`；运行期那一半（侧栏树里插件停在 pending、自愈摘掉它、同一件在对话区树正常起）见实验室 F-70。
 
 这 11 条按 **#96 审计 comment 第七节**的核实结果列（基线 dsh 0.1.6-alpha.1，逐条在本机 `~/.dsh/profiles/node_modules/@deepseek-ai` 上只读核对过），每条的出处文件如下：
 

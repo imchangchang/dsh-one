@@ -1,7 +1,10 @@
 /** 批量选择：进入多选的入口 API、勾选标记（含组头三态）、动作条。 */
 import { createElement as h } from 'react'
-import { Button, IconCheckOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { officialIcon } from '@dsh-one/dsh-plugin-kit/officialIcons'
 import type { Translate } from './types.ts'
+
+const IconCheckOutline = officialIcon('IconCheckOutline')
 
 // ---------------------------------------------------------------------------
 // #81 功能 4：批量选择（选择态与批量动作条）
@@ -62,7 +65,7 @@ export function SelectMark({
       className:
         `dshOneTree_checkBox${filled ? ' dshOneTree_checkOn' : ''}${disabled === true ? ' dshOneTree_checkOff' : ''}`,
     },
-    on ? h(IconCheckOutline16, { size: 12 }) : partial === true ? h('span', { className: 'dshOneTree_checkDash' }) : null,
+    on ? h(IconCheckOutline, { size: 12 }) : partial === true ? h('span', { className: 'dshOneTree_checkDash' }) : null,
   )
 }
 

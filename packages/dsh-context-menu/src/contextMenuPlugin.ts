@@ -60,8 +60,12 @@
  * 菜单关闭 / 取消 / 执行动作后移除。清理按「全量扫属性再删」实现，重复开关不留残留。
  */
 import { createElement as h, useEffect, useRef, useState } from 'react'
-import { IconCheckOutline16, IconCopyOutline16, Menu, Tooltip, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Menu, Tooltip, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
+import { officialIcon } from '@dsh-one/dsh-plugin-kit/officialIcons'
 import { mountOnConversation } from '@dsh-one/dsh-plugin-kit/mountPoints'
+
+const IconCheckOutline = officialIcon('IconCheckOutline')
+const IconCopyOutline = officialIcon('IconCopyOutline')
 
 /** 右键目标高亮用的自有属性（只加属性，不改官方 DOM 结构）。 */
 const TARGET_ATTR = 'data-dshone-menu-target'
@@ -239,11 +243,11 @@ function ContextMenuLayer({ t }: LayerProps) {
   // 图标放进 label 槽（不是 icon 槽）才能拿到 label-primary 前景色，icon 槽是
   // 官方的次级色（--dsw-alias-label-tertiary），单图标项用次级色会发灰。
   //
-  // 尺寸 14：官方图标集里**没有 IconCopyOutline14**（导出表实测：含 Copy 的只有
-  // IconCopyOutline16；14 档只覆盖 check/chevron/close/globe/link/queue/refresh/
-  // send/settings/think 等一部分），所以用官方图标件自己支持的显式尺寸参数
-  // `{ size: 14 }`——官方同样这么用（ui-workspace 的 `IconArchiveOutline20, { size: 16 }`），
-  // 属于用官方组件、不是自绘。14 在 40px 项里约占 35%（16 时是 40%）。
+  // 尺寸 14：官方图标件都收显式 `size` 参数，给 14 就按 14px 渲染（官方自己也这么用：
+  // ui-workspace 里回收站的几个动作传的是 `IconArchiveOutlineRegular, { size: 14 }`），
+  // 属于用官方组件、不是自绘。0.1.6 那代 Copy 只有 16 一档，靠的就是这个参数把它渲染成
+  // 14px；0.1.7 起改成按描边档分 Medium / Regular（对照见 `src/pure/officialIcons.ts`），
+  // 尺寸参数照旧。14 在 40px 项里约占 35%（16 时是 40%）。
   const items = [
     {
       id: 'copy-inline-code',
@@ -252,7 +256,7 @@ function ContextMenuLayer({ t }: LayerProps) {
           h(
             'span',
             { className: `${ICON_ITEM_CLASS} dshOneMenu_copied`, 'aria-label': tr('copied'), [ICON_ITEM_ATTR]: '' },
-            h(IconCheckOutline16, { size: 14 }),
+            h(IconCheckOutline, { size: 14 }),
             h('span', { className: 'dshOneMenu_copiedText' }, tr('copied')),
           )
         : // 常态：只有一个官方复制图标，悬浮由官方 Tooltip 给「复制」提示
@@ -262,7 +266,7 @@ function ContextMenuLayer({ t }: LayerProps) {
             h(
               'span',
               { className: ICON_ITEM_CLASS, 'aria-label': tr('copyInlineCode'), [ICON_ITEM_ATTR]: '' },
-              h(IconCopyOutline16, { size: 14 }),
+              h(IconCopyOutline, { size: 14 }),
             ),
           ),
     },

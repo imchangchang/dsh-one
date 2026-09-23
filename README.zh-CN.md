@@ -115,7 +115,7 @@ flowchart LR
 
 ### dsh 版本兼容跟踪
 
-定时 GitHub Action（[dsh-upstream-watch](.github/workflows/dsh-upstream-watch.yml)）每天检查 [dsh 上游 release](https://github.com/deepseek-ai/deepseek-harness/releases)：发现新版本就在 CI 上自动跑一轮兼容性探针，共 23 项，分三面——伺服面（wire + 网关伺服的前端产物：`/` 的启动契约、combo（插件整包）端点、Origin 栅栏）、客户端契约面（装配直引的官方 slot 名、root 级 hook、字段与方法名）、官方产物面（本机已安装官方包里的内部标识符）；结果建 `upstream-watch` issue 记录。顶部最后两个徽章分别显示上游最新 release 与最近一次探针结论；完整测试清单、逐版本读数与已知的不通项见 [docs/dsh-compat-checklist.md](docs/dsh-compat-checklist.md)。
+定时 GitHub Action（[dsh-upstream-watch](.github/workflows/dsh-upstream-watch.yml)）每天检查 [dsh 上游 release](https://github.com/deepseek-ai/deepseek-harness/releases)：发现新版本就在 CI 上自动跑一轮兼容性探针，共 24 项，分三面——伺服面（wire + 网关伺服的前端产物：`/` 的启动契约、combo（插件整包）端点、Origin 栅栏）、客户端契约面（装配直引的官方 slot 名、root 级 hook、字段与方法名）、官方产物面（本机已安装官方包里的内部标识符，以及我们取用的 26 枚官方图标的导出名——官方改过一次图标名，改得整片插件崩，这一族因此单独钉住）；结果建 `upstream-watch` issue 记录。顶部最后两个徽章分别显示上游最新 release 与最近一次探针结论；完整测试清单、逐版本读数与已知的不通项见 [docs/dsh-compat-checklist.md](docs/dsh-compat-checklist.md)。
 
 **dsh 版本**。每个版本都跑过整轮 `npm run verify:lab`，三种状态分开写：
 

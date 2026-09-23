@@ -7,7 +7,8 @@
  * （见本文件最后那条用例，它是这处判据的取法自检）。
  *
  * 用例：现场（alpha.2 的 `ui-plan`）、多层依赖、同名服务还有别的提供方时不误伤、
- * 只补不删且到不动点、框架/主机层服务不传播、取法自检（找不到提供方的服务要点出来）。
+ * 只补不删且到不动点、框架/主机层服务不传播、取法自检（找不到提供方的服务要点出来）、
+ * profile 里用户自己装的第三方插件（#242：只报不挡、提供方算数）。
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -17,6 +18,7 @@ import {
   deriveBlockList,
   isFrameworkService,
   unaccountedBlocks,
+  unplaceableProfilePlugins,
   unresolvedServices,
   type PluginServiceFace,
 } from '../src/pure/blockListDerivation.ts'
@@ -198,4 +200,73 @@ test('取法自检：按模块 id 表做闭包会把对话区与官方侧栏壳�
   })
   assert.deepEqual(byServices.blocked, chatSeeds)
   assert.deepEqual(byServices.added, [])
+})
+
+/**
+ * #242：profile 里用户自己装的第三方插件（`profilePlugins`）。
+ *
+ * 判据分两半，两个方向都要钉住：
+ *
+ * - **只报不挡**：第三方插件等不到服务时**不补进清单**（替用户挡掉 = 静默移除他的插件），
+ *   但要由 `unplaceableProfilePlugins` 报得出来——否则这件事离线看不见（#242 的缺口）。
+ * - **提供方算数**：第三方插件提供的服务也是真服务，别把它当成「没了」。
+ */
+const THIRD_PARTY = face('@dsh-external/dsh-lab-third-party', ['slots', 'uiConversation'])
+
+test('第三方插件等不到服务：不补进清单（默认保留），但要报得出 id / 服务 / 被挡的提供方', () => {
+  const input = {
+    blocked: [CONVERSATION.id],
+    plugins: [CONVERSATION, PLAN],
+    profilePlugins: [THIRD_PARTY],
+  }
+  const { blocked, added } = deriveBlockList(input)
+  // 官方那件（等 uiConversation 的 ui-plan）照旧补进清单；第三方那件只报不挡。
+  assert.deepEqual(blocked, [CONVERSATION.id, PLAN.id])
+  assert.deepEqual(
+    added.map((a) => a.id),
+    [PLAN.id],
+  )
+  assert.deepEqual(unplaceableProfilePlugins(input), [
+    {
+      id: THIRD_PARTY.id,
+      waitingFor: ['uiConversation'],
+      providers: [CONVERSATION.id],
+    },
+  ])
+  // 负向对照（这是 #242 要的那一条）：**不把第三方插件当输入**（= 改前的口径）时，
+  // 这件事谁都看不见——它既不进清单，也没有任何地方报它在这棵树里起不来。
+  assert.deepEqual(unplaceableProfilePlugins({ blocked: input.blocked, plugins: [CONVERSATION, PLAN] }), [])
+})
+
+test('第三方插件在别的树里等得到服务时不报（按树判，不是一票否决）', () => {
+  const everyTree = { plugins: [CONVERSATION, PLAN], profilePlugins: [THIRD_PARTY] }
+  assert.deepEqual(unplaceableProfilePlugins({ ...everyTree, blocked: [] }), [])
+  assert.equal(unplaceableProfilePlugins({ ...everyTree, blocked: [CONVERSATION.id] }).length, 1)
+})
+
+test('第三方插件提供的服务算数：官方件不因「官方提供方被挡」连坐，也不再报成「找不到提供方」', () => {
+  const officialProvider = face('@deepseek-ai/dsh-client-ui-svc', [], ['svc'])
+  const consumer = face('@deepseek-ai/dsh-client-ui-newthing', ['svc'])
+  const thirdProvider = face('@dsh-external/dsh-svc-provider', [], ['svc'])
+  const withThird = deriveBlockList({
+    blocked: [officialProvider.id],
+    plugins: [officialProvider, consumer],
+    profilePlugins: [thirdProvider],
+  })
+  assert.deepEqual(withThird.blocked, [officialProvider.id])
+  assert.deepEqual(withThird.added, [])
+  // 反向对照：不传第三方插件时，规则把消费者一起挡掉（多挡，代价是少加载一件本来该用的官方件）。
+  const withoutThird = deriveBlockList({ blocked: [officialProvider.id], plugins: [officialProvider, consumer] })
+  assert.deepEqual(withoutThird.blocked, [officialProvider.id, consumer.id])
+  // 取法自检那一面同理：只由第三方插件提供的服务不算「找不到提供方」（报出来是假红）。
+  assert.deepEqual(unresolvedServices({ plugins: [consumer] }), ['svc'])
+  assert.deepEqual(unresolvedServices({ plugins: [consumer], profilePlugins: [thirdProvider] }), [])
+})
+
+test('第三方插件等一个谁都不提供的服务：不报「放不下」（静态表看不见宿主半与运行时挂出来的那一族）', () => {
+  const needsUnknown = face('@dsh-external/dsh-unknown', ['someHostSideService'])
+  assert.deepEqual(
+    unplaceableProfilePlugins({ blocked: [], plugins: [CONVERSATION], profilePlugins: [needsUnknown] }),
+    [],
+  )
 })

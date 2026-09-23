@@ -11,7 +11,9 @@
  * minus/subtract**（`IconPlusOutline16` 是唯一一枚「加」，还是光秃秃一个 ＋，
  * 放进方框语义会与同一行的「添加工作区」撞脸）。官方全部前端插件拼成的那份 combo
  * 里另外出现的图标名只有 `IconWrapFill16` / `IconNowrapFill16` / `IconActions`，
- * 同样没有。所以这两枚只能由我们自绘。
+ * 同样没有。0.1.7-alpha.2 那代把名字换成档位后缀、图标加到 184 枚，但**仍然没有**
+ * 方框加减号（`IconPlusOutline` 照旧是唯一一枚「加」，也没有 box/square 类的新件）。
+ * 所以这两枚只能由我们自绘。
  *
  * ## 路径数据的出处
  *

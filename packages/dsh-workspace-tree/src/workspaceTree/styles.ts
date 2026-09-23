@@ -1009,7 +1009,7 @@ export const CSS =
   //   与它下面的抽屉会话行同一左缘）。
   // - **箭头那一格**与工作区行的折叠箭头同一格：宽 16px（标准档 `standard.slotWidth`，官方
   //   `.YDXeBa_slot{width:16px;height:20px}`——侧栏那一行的箭头就住在这一格里）、高 20px
-  //   （`standard.slotHeight`），图标 `IconTriangleRightFill14` 与展开标记 `dshOneTree_arrowOpen`
+  //   （`standard.slotHeight`），图标 `IconTriangleRightFill` 与展开标记 `dshOneTree_arrowOpen`
   //   逐字相同，颜色同取 `.dshOneTree_chevron` 的 `label-caption`。于是**名字那一列**
   //   （8 + 16 + 6 = 30）与工作区行的名字列落在同一条竖线上。
   // - **块头不补文件夹图标**：工作区行那一格里本来就只有一个图形（平时文件夹、悬停换成折叠

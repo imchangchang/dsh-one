@@ -955,7 +955,7 @@ export const RECYCLE_DRAWER_COMPLETE_SUITE: LabSuite = {
         dictLang('recycle.back', head.back?.title) !== '',
         `实际=${JSON.stringify(head.back?.title)} ${dictBoth('recycle.back')}`,
       )
-      check.eq('① 返回用的就是官方左向箭头（组件标记）', head.back?.name, 'IconChevronLeftOutline14')
+      check.eq('① 返回用的就是官方左向箭头（组件标记）', head.back?.name, 'IconChevronLeftOutline')
       check.ok(
         '① 返回的图标是官方 14 档图标的渲染（`viewBox="0 0 14 14"` / 画成 14×14 / 至少一条形状；`path@d` 记在事实里，截图看方向）',
         head.back?.icon != null &&

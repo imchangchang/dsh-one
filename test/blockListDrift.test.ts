@@ -3,7 +3,7 @@
  *
  * 这里不读本机 profile（CI 上没有官方包），用的是**按官方 0.1.6-alpha.2 实测形状合成的
  * 官方产物**：每个包一个 `package.json` + 一个 `lib/client.js`，只留被查的那几行
- * （服务依赖表的 `inject` 导出、提供服务的调用点）。测四件事：
+ * （服务依赖表的 `inject` 导出、提供服务的调用点）。测五件事：
  *
  * 1. 取数：`needs` / `provides` 的取法（含「找不到 inject 导出」要能报出来）；
  * 2. 目录读取：官方包目录里每条常常是指向安装树的**符号链接**，按 `isDirectory` 过滤会一条
@@ -12,6 +12,11 @@
  * 4. 负向（#227 验收要的那条）：**把 `ui-plan` 从侧栏清单里删掉 → 必须红**，且 detail
  *    点得出它、它等的服务名与「提供方全被挡」的那个提供方；另加「多挡不红」（形态类
  *    条目本来就算不出来）与两处「取不到就红」。
+ * 5. profile 里用户自己装的第三方插件（#242）：合成产物里再铺一份
+ *    `<scratch>/profiles/web`（`dsh.profile.bundles` + `node_modules/<第三方包>`，
+ *    浏览器半照现场那个包的形状写：一行、id 用模板字面量、服务表 `n.inject=[\`…\`]`），
+ *    钉住「默认保留、不算少挡」「等不到服务时报得出 id / 服务 / 被挡的提供方」，
+ *    以及**负向对照**——把 profile 这份输入去掉，判据必须消失（= 改前的漏法）。
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -35,10 +40,18 @@ interface CheckRow {
   detail: string
 }
 
+interface ProfileFaces {
+  faces: ServiceFace[]
+  problems: string[]
+  profiles: string[]
+}
+
 interface DriftModule {
   FRAME_PLUGIN_PROVIDES: string[]
   parseServiceFace(source: string, id: string): ServiceFace | null
   collectOfficialServiceFaces(root: string): { faces: ServiceFace[]; problems: string[] }
+  collectProfilePluginFaces(profilesRoot: string): ProfileFaces
+  profilesRootOf(root: string): string | null
   checkBlockListDrift(opts: {
     root: string
     version?: string
@@ -127,7 +140,7 @@ function syntheticFiles(): Record<string, string> {
 }
 
 /** 把合成产物铺进一个 scratch 目录（含一条符号链接，模拟本机 profile 的形状）。 */
-function writeFixture(): { root: string; packagesDir: string } {
+function writeFixture(): { root: string; packagesDir: string; dir: string } {
   const dir = scratchDirSync('dsh-blocklist-')
   const packagesDir = path.join(dir, 'profiles', 'node_modules', '@deepseek-ai')
   for (const [rel, content] of Object.entries(syntheticFiles())) {
@@ -143,7 +156,62 @@ function writeFixture(): { root: string; packagesDir: string } {
     fs.copyFileSync(path.join(packagesDir, short(SIDEBAR), rel), path.join(installDir, rel))
   }
   fs.symlinkSync(installDir, path.join(packagesDir, `${short(SIDEBAR)}-linked`))
-  return { root: packagesDir, packagesDir }
+  return { root: packagesDir, packagesDir, dir }
+}
+
+/** 合成第三方插件的 id（与实验室夹具 `test/assembly-lab/thirdPartyPlugin.ts` 同一件，口径一致）。 */
+const THIRD_PARTY = '@dsh-external/dsh-lab-third-party'
+
+/**
+ * 往同一个 scratch 目录里铺一份「profile 里装了第三方插件」的现场（#242）：
+ * `<dir>/profiles/<profile>/package.json`（`dsh.profile.bundles` 里点它的名）+
+ * `<dir>/profiles/<profile>/node_modules/<id>/`（清单 + 浏览器半）。
+ *
+ * 浏览器半**照现场那个包的形状写**（`@changfenhuang/dsh-genui` 0.11.0 的 `lib/client.js`：
+ * 一行、id 写成模板字面量、服务表写成 `n.inject=[\`…\`]`）——取法自检要的就是这种
+ * 导出写法与引号，写成 `const inject = [...]` 反而测不到这一条。
+ *
+ * @param opts.needs - 它 inject 的服务（= 官方 bundle 那份 `inject` 服务表）。
+ * @param opts.provides - 它提供的服务（写成 `ctx.reflect.provide("X", …)`，与官方同一处调用点）。
+ */
+function writeProfileThirdParty(
+  dir: string,
+  opts: { needs: string[]; provides?: string[]; profile?: string },
+): void {
+  const profile = opts.profile ?? 'web'
+  const profileDir = path.join(dir, 'profiles', profile)
+  const write = (rel: string, text: string): void => {
+    const target = path.join(profileDir, rel)
+    fs.mkdirSync(path.dirname(target), { recursive: true })
+    fs.writeFileSync(target, text)
+  }
+  write(
+    'package.json',
+    JSON.stringify({
+      name: `dsh-profile-${profile}`,
+      private: true,
+      dependencies: { [THIRD_PARTY]: '0.0.1' },
+      dsh: { profile: { bundles: ['@deepseek-ai/dsh-web-app', THIRD_PARTY] } },
+    }),
+  )
+  write(
+    `node_modules/${THIRD_PARTY}/package.json`,
+    JSON.stringify({
+      name: THIRD_PARTY,
+      version: '0.0.1',
+      type: 'module',
+      exports: { './client': { default: './lib/client.js' } },
+      dsh: { client: { platform: 'web', inject: [] } },
+    }),
+  )
+  const table = opts.needs.map((service) => `\`${service}\``).join(',')
+  const provides = (opts.provides ?? []).map((service) => `ctx.reflect.provide("${service}", 0);`).join('')
+  write(
+    `node_modules/${THIRD_PARTY}/lib/client.js`,
+    `window.__ModuleLoader__.load({id:\`${THIRD_PARTY}\`,factory:e=>{var t={exports:{}},n=t.exports;` +
+      `function apply(ctx){${provides}}` +
+      `n.inject=[${table}];n.apply=apply;return n}});`,
+  )
 }
 
 const TREES = (blocked: string[]): { key: string; label: string; blocked: string[]; framePluginId: string }[] => [
@@ -287,4 +355,151 @@ test('自有 frame 插件在每棵树里都提供 layout（FRAME_PLUGIN_PROVIDES
     const source = fs.readFileSync(path.join(ROOT, 'src', 'ui', 'assembly', 'shell', file), 'utf8')
     assert.match(source, /reflect\.provide\(\s*'layout'/, `${file} 里要还有 reflect.provide('layout', …)`)
   }
+})
+
+// ---------------------------------------------------------------------------
+// #242：profile 里用户自己装的第三方插件
+// ---------------------------------------------------------------------------
+
+test('取数：第三方产物的服务表写法（模板字面量 id、`n.inject=[`…`]`）也解析得出来', () => {
+  const { dir } = writeFixture()
+  writeProfileThirdParty(dir, { needs: ['slots', 'uiConversation'] })
+  const source = fs.readFileSync(path.join(dir, 'profiles', 'web', 'node_modules', THIRD_PARTY, 'lib', 'client.js'), 'utf8')
+  // 改前那份正则会回 null（只认 `const|var|let inject = [...]` 与 `exports.inject = [...]`、
+  // 只认直引号）——那样这一件会被算成「解析不出」，第三方插件里最常见的一种形状根本读不到。
+  assert.deepEqual(mod.parseServiceFace(source, THIRD_PARTY), {
+    id: THIRD_PARTY,
+    needs: ['slots', 'uiConversation'],
+    provides: [],
+  })
+})
+
+test('取数：从 profile 的层列表读第三方包；不是 profile 的层静默跳过，层列表点名却装不上就报红', () => {
+  const { dir } = writeFixture()
+  writeProfileThirdParty(dir, { needs: ['slots'] })
+  // 同一棵 profile 树里的另外两条：没有清单的目录、有清单但没写 dsh.profile.bundles 的目录
+  // ——都跳过，不算问题、也不算「读过这份 profile」。
+  fs.mkdirSync(path.join(dir, 'profiles', 'not-a-profile'), { recursive: true })
+  fs.mkdirSync(path.join(dir, 'profiles', 'no-bundles'), { recursive: true })
+  fs.writeFileSync(path.join(dir, 'profiles', 'no-bundles', 'package.json'), JSON.stringify({ name: 'dsh-profile-no-bundles' }))
+  // 层列表里再有件没有 `dsh.client` 的包（宿主半插件，没有浏览器半）：跳过，不进服务面。
+  const installed = JSON.parse(fs.readFileSync(path.join(dir, 'profiles', 'web', 'package.json'), 'utf8'))
+  installed.dsh.profile.bundles.push('@dsh-external/dsh-lab-host-only')
+  fs.writeFileSync(path.join(dir, 'profiles', 'web', 'package.json'), JSON.stringify(installed))
+  fs.mkdirSync(path.join(dir, 'profiles', 'web', 'node_modules', '@dsh-external', 'dsh-lab-host-only'), { recursive: true })
+  fs.writeFileSync(
+    path.join(dir, 'profiles', 'web', 'node_modules', '@dsh-external', 'dsh-lab-host-only', 'package.json'),
+    JSON.stringify({ name: '@dsh-external/dsh-lab-host-only', version: '0.0.1', main: 'lib/index.js' }),
+  )
+  const read = mod.collectProfilePluginFaces(path.join(dir, 'profiles'))
+  assert.deepEqual(read.problems, [])
+  assert.deepEqual(read.profiles, ['web'])
+  assert.deepEqual(
+    read.faces.map((f) => f.id),
+    [THIRD_PARTY],
+  )
+  // 形状对得上时能推出 profile 根；读的是安装树（`<anc>/node_modules/@deepseek-ai`）时推不出来。
+  assert.equal(mod.profilesRootOf(path.join(dir, 'profiles', 'node_modules', '@deepseek-ai')), path.join(dir, 'profiles'))
+  assert.equal(mod.profilesRootOf(path.join(dir, 'install', 'node_modules', '@deepseek-ai')), null)
+  // 连 profile 目录都读不到（目录不存在）→ 报红，不静默当成「没有第三方插件」。
+  const unreadable = mod.collectProfilePluginFaces(path.join(dir, 'profiles-nope'))
+  assert.equal(unreadable.faces.length, 0)
+  assert.equal(unreadable.problems.length, 1)
+  assert.match(unreadable.problems[0], /读不到 profile 目录/)
+
+  // 取不到就报红：层列表里点了名、两个 node_modules 下都没有这个包（这一轮有两件）。
+  fs.rmSync(path.join(dir, 'profiles', 'web', 'node_modules'), { recursive: true })
+  const missing = mod.collectProfilePluginFaces(path.join(dir, 'profiles'))
+  assert.equal(missing.faces.length, 0)
+  assert.equal(missing.problems.length, 2)
+  assert.match(missing.problems.join('；'), new RegExp(`${THIRD_PARTY}.*层列表里有它`))
+  assert.match(missing.problems.join('；'), /dsh-lab-host-only.*层列表里有它/)
+  const row = CHECK(path.join(dir, 'profiles', 'node_modules', '@deepseek-ai'), [CONVERSATION, PLAN, CHAT])
+  assert.equal(row.status, 'fail')
+  assert.match(row.detail, /层列表里有它，但两个 node_modules 下都没有/)
+})
+
+test('取数：同一个包装在两层 profile 里只算一次；清单坏 / 客户端半读不到 / inject 表解析不出都报红', () => {
+  const { dir } = writeFixture()
+  const profilesRoot = path.join(dir, 'profiles')
+  const client = path.join(profilesRoot, 'web', 'node_modules', THIRD_PARTY, 'lib', 'client.js')
+  const manifest = path.join(profilesRoot, 'web', 'node_modules', THIRD_PARTY, 'package.json')
+  writeProfileThirdParty(dir, { needs: ['slots'], profile: 'plan-test' })
+  writeProfileThirdParty(dir, { needs: ['sessions'] })
+
+  // 同一个 id 装在两层里：只算一次，脸取先读到的那一层（`plan-test` 排在 `web` 前）。
+  const deduped = mod.collectProfilePluginFaces(profilesRoot)
+  assert.deepEqual(deduped.problems, [])
+  assert.deepEqual(deduped.profiles, ['plan-test', 'web'])
+  assert.deepEqual(deduped.faces.map((f) => f.needs), [['slots']])
+
+  // 下面三档只看 `web` 那一份（`plan-test` 那份先撤掉，否则它会把同一个 id 顶上来）。
+  fs.rmSync(path.join(profilesRoot, 'plan-test'), { recursive: true })
+
+  // 客户端半读不到（清单在、文件不在）→ 报红并点名文件。
+  fs.rmSync(client)
+  const noClient = mod.collectProfilePluginFaces(profilesRoot)
+  assert.equal(noClient.faces.length, 0)
+  assert.match(noClient.problems.join('；'), /读不到 lib\/client\.js/)
+
+  // inject 表解析不出（文件在、没有服务表）→ 报红，不许静默算成「它什么都不需要」。
+  fs.writeFileSync(client, 'export const apply = () => {}')
+  const noTable = mod.collectProfilePluginFaces(profilesRoot)
+  assert.equal(noTable.faces.length, 0)
+  assert.match(noTable.problems.join('；'), /lib\/client\.js 里找不到导出的 inject 服务表/)
+
+  // 清单坏（目录在、JSON 读不出）→ 报红并点名它。
+  fs.writeFileSync(client, 'n.inject=[`slots`];')
+  fs.writeFileSync(manifest, '{ 这不是 JSON')
+  const badManifest = mod.collectProfilePluginFaces(profilesRoot)
+  assert.match(badManifest.problems.join('；'), /读不到它的 package\.json/)
+})
+
+test('正向：第三方插件等得到服务时默认保留——不算少挡、不算放不下，读数里写出读了几件', () => {
+  const { root, dir } = writeFixture()
+  writeProfileThirdParty(dir, { needs: ['slots', 'sessions'] })
+  const row = CHECK(root, [CONVERSATION, PLAN, CHAT])
+  assert.equal(row.status, 'pass', row.detail)
+  assert.match(row.name, /本机官方包 \d+ 件 \+ profile 第三方插件 1 件/)
+  assert.match(row.detail, /profile 里的第三方插件 1 件（读的 profile：web）/)
+})
+
+/**
+ * #242 验收要的那条：第三方插件等不到服务（它等的服务的提供方被这棵树挡掉了）——
+ * 探针必须红，并点出「哪件插件 / 等哪个服务 / 提供方被谁挡的」；而**把 profile 这份
+ * 输入去掉**（= 改前的口径）时这件事谁都看不见：判据必须消失。
+ */
+test('负向对照：第三方插件等不到服务必须红；去掉 profile 这份输入，判据消失（= 改前的漏法）', () => {
+  const { root, dir } = writeFixture()
+  writeProfileThirdParty(dir, { needs: ['slots', 'uiConversation'] })
+
+  const row = CHECK(root, [CONVERSATION, PLAN, CHAT])
+  assert.equal(row.status, 'fail')
+  assert.match(row.detail, new RegExp(`侧栏位 放不下 profile 里的第三方插件 1 件：${THIRD_PARTY}（等 uiConversation`))
+  assert.match(row.detail, new RegExp(`提供方全被挡：${CONVERSATION}`))
+  // 这一条不是「少挡」：第三方插件**不补进清单**（默认保留），报的是「这棵树放不下它」。
+  assert.doesNotMatch(row.detail, /少挡了/)
+
+  // 负向对照：同一份官方产物、同一棵树，把 profile 里那件第三方插件拿掉（= 改前只有官方
+  // 那一份输入）→ 判据消失、读数回到 pass。这正是 #242 的缺口：看不见它。
+  fs.rmSync(path.join(dir, 'profiles', 'web'), { recursive: true })
+  const blind = CHECK(root, [CONVERSATION, PLAN, CHAT])
+  assert.equal(blind.status, 'pass', blind.detail)
+  assert.match(blind.detail, /profile 里的第三方插件 0 件/)
+  assert.doesNotMatch(blind.detail, new RegExp(THIRD_PARTY))
+
+  // 装回去 → 立刻又红（证明红的就是这一条）。
+  writeProfileThirdParty(dir, { needs: ['slots', 'uiConversation'] })
+  assert.equal(CHECK(root, [CONVERSATION, PLAN, CHAT]).status, 'fail')
+})
+
+test('第三方插件的提供方算数：只由它提供的服务不算「找不到提供方」', () => {
+  const { root, dir } = writeFixture()
+  // 官方唯一提供 `slots` 的那件（renderer）从产物里删掉，改由第三方插件提供：
+  // 有第三方提供方在场就不该报「找不到提供方」（改前会报，那是假红）。
+  writeProfileThirdParty(dir, { needs: [], provides: ['slots'] })
+  fs.rmSync(path.join(root, 'dsh-client-ui-renderer'), { recursive: true })
+  const row = CHECK(root, [CONVERSATION, PLAN, CHAT])
+  assert.equal(row.status, 'pass', row.detail)
+  assert.doesNotMatch(row.detail, /找不到提供方/)
 })
