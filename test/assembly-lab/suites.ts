@@ -79,6 +79,8 @@ import { RETRY_THROTTLE_SUITE } from './retryThrottleSuites.ts'
 import { THIRD_PARTY_PLUGIN_SUITE } from './thirdPartySuites.ts'
 import { OFFICIAL_PIN_SUITE } from './officialPinSuites.ts'
 import { PROFILE_PLUGIN_SERVICE_SUITE } from './profilePluginServiceSuites.ts'
+import { ROSTER_REVS_SUITE } from './rosterRevsSuites.ts'
+import { ARCHIVED_RESTORE_SUITE } from './archivedRestoreSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
@@ -3035,7 +3037,7 @@ export const RECYCLE_TWO_LAYER_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '回收站两层语义（#103）：移入/还原是本地可逆、归档=删除带确认（RECYCLE-TWO-LAYER 套件）',
   expect:
-    '#103 定的两层语义在真实装配页上成立（真网关**只读** + 假宿主 + 同一上下文里并排开官方浏览区对照档）：① **移入回收站只写本地状态**——行菜单「移入回收站」后会话从我们树里消失、入口角标 +1、假宿主状态存储里出现 `recycle-bin`（形状 `{version:1, sessionIds:[按移入顺序]}`），而**官方浏览区里的会话一条都没少**（同时刻对照，证明 dsh 侧一个字节没动）；② **抽屉形态**：点入口行从底部半高滑出（高度档 50）、提手上拉吸附到 90、按原工作区分块、块内按移入顺序倒序、块头可折叠且折叠态落 `dsh.workspaceTree.view`（重载后仍收起；#144 起块头与侧栏工作区行同一套折叠语言，每行行尾直接列出「还原」与「永久归档」两枚图标按钮、⋯ 二级菜单退场——两枚的几何与行为由 F-45 钉）；③ 状态按旧侧栏那份文件的键名与形状读回（**旧 recycle-bin.json 原样迁入**），并在基线就绪时**清账**——集合里 dsh 侧已不存在的 id 被剔掉、真的那几条原样保留；④ **还原**（行尾那两枚动作里的「还原」，与入口「全部还原」）同样只动本地状态，会话回到树里；⑤ **归档 = 删除**：入口「清空」与多选操作条的「归档」都先开同一个确认弹窗（写明不可恢复、按工作区列出将归档的会话、写明跳过数），取消则什么都不发生；⑥ 多选操作条的「移入回收站」复用同一套本地动作（立即执行 + 飘提示 + 退出选择态）；⑦ 回收站空时入口两枚动作图标禁用。全程零 pageerror，且本套件**从不点归档确认**（那会写真实网关）。',
+    '#103 定的两层语义在真实装配页上成立（真网关**只读** + 假宿主 + 同一上下文里并排开官方浏览区对照档）：① **移入回收站只写本地状态**——行菜单「移入回收站」后会话从我们树里消失、入口角标 +1、假宿主状态存储里出现 `recycle-bin`（形状 `{version:1, sessionIds:[按移入顺序]}`），而**官方浏览区里的会话一条都没少**（同时刻对照，证明 dsh 侧一个字节没动）；② **抽屉形态**：点入口行从底部半高滑出（高度档 50）、提手上拉吸附到 90、按原工作区分块、块内按移入顺序倒序、块头可折叠且折叠态落 `dsh.workspaceTree.view`（重载后仍收起；#144 起块头与侧栏工作区行同一套折叠语言，每行行尾直接列出「还原」与「永久归档」两枚图标按钮、⋯ 二级菜单退场——两枚的几何与行为由 F-45 钉）；③ 状态按旧侧栏那份文件的键名与形状读回（**旧 recycle-bin.json 原样迁入**），并在基线就绪时**清账**——集合里 dsh 侧已不存在的 id 被剔掉、真的那几条原样保留；④ **还原**（行尾那两枚动作里的「还原」，与入口「全部还原」）同样只动本地状态，会话回到树里；⑤ **归档 = 删除**：入口「清空」与多选操作条的「归档」都先开同一个确认弹窗（写明会话去哪儿了——这一代取消归档的入口是树底那一节还是设置页那一节，按页面上的观测值二选一、且按工作区列出将归档的会话、写明跳过数），取消则什么都不发生；⑥ 多选操作条的「移入回收站」复用同一套本地动作（立即执行 + 飘提示 + 退出选择态）；⑦ 回收站空时入口两枚动作图标禁用。全程零 pageerror，且本套件**从不点归档确认**（那会写真实网关）。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const opened = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 380, height: 900 })
@@ -3315,11 +3317,24 @@ export const RECYCLE_TWO_LAYER_SUITE: LabSuite = {
       check.fact(`清空确认弹窗：按钮=${String(confirm.button)} 工作区块=${String(confirm.blocks)} 明细行=${String(confirm.rows)} 文案=${JSON.stringify(confirm.text.slice(0, 120))}`)
       check.ok('清空先开确认弹窗（不是直接执行）', confirm.button)
       check.ok('弹窗按工作区树形列明细（块 + 行都在）', confirm.blocks >= 1 && confirm.rows === 1)
-      // 文案从词典读（#206 普查）：整句比（`archive.desc` 没有占位）。原来那两个碎片
-      // （`不能在这里恢复` / `删除`）都落在模板中段，`texts()` 配不上，等于只认中文。
+      // 文案从词典读（#206 普查）：整句比（那两条说明都没有占位）。#239 起说明那一行
+      // **分两代**（取消归档的入口在哪一代不同：树底那一节 / 设置页那一节），所以期望
+      // 文案按页面上那一格观测值（`data-dshone-tree-unarchive-entry`）二选一——不按版本
+      // 号猜，页面上写着它这一代是哪一种形状。
+      const unarchiveEntry = await page.getAttribute('[data-dshone-tree="root"]', 'data-dshone-tree-unarchive-entry')
       check.ok(
-        '弹窗写明不可恢复（归档 = 删除）',
-        hasText(confirm.text, '归档 = 删除：这些会话会从列表里消失，不能在这里恢复（会话记录仍留在 dsh 上）。'),
+        '取消归档入口这一代在哪（观测点取值合法）',
+        unarchiveEntry === 'inline' || unarchiveEntry === 'settings' || unarchiveEntry === 'none',
+        String(unarchiveEntry),
+      )
+      check.ok(
+        '弹窗写明会话去哪儿了（归档 = 删除）',
+        hasText(
+          confirm.text,
+          unarchiveEntry === 'inline'
+            ? '归档 = 删除：这些会话会从列表里消失，会话记录仍留在 dsh 上。它们在树底的「已归档」一节里，可以取消归档。'
+            : '归档 = 删除：这些会话会从列表里消失，会话记录仍留在 dsh 上。误归档的话，去设置页的「已归档会话」一节取消归档。',
+        ),
         confirm.text.slice(0, 120),
       )
       screenshots.push(await shot(ctx, page, 'recycle-empty-confirm'))
@@ -6656,4 +6671,15 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // 套件本体在 officialPinSuites.ts，同为独立文件，少一处合入热点。它同一台实例上同时
   // 开着自有树页与官方浏览区页，见那个文件头）。
   OFFICIAL_PIN_SUITE,
+  // #239 归档之后的还原入口：树底「已归档」一节（F-72：F-01…F-71 与 R-06 已占，按
+  // 「从未占用的继续」顺延；套件本体在 archivedRestoreSuites.ts，同为独立文件，
+  // 少一处合入热点。它判的是「这一代官方那套入口被我们遮蔽时，自有树补的那一节在不在、
+  // 点得动」——按页面上的观测值分两侧，0.1.6 与 0.1.7 各跑一侧）。
+  ARCHIVED_RESTORE_SUITE,
+  // #243 名册基线参数的编码：页面带上去的 id→rev 基线里出现分隔符（0.1.7 起官方把
+  // application 切成两个批，自有条目的整包缓存键里就带着一个「,」）时被截断，镜像据此
+  // 对齐等于告诉客户端「这几条变了」——客户端先拆后建，拆掉自有 frame 插件那一条时
+  // `root` 槽的注册随之撤销、整页白（F-73：#240 占了 F-71、#239 占了 F-72，按
+  // 「从未占用的继续」顺延；套件本体在 rosterRevsSuites.ts，同为独立文件，少一处合入热点）。
+  ROSTER_REVS_SUITE,
 ]
