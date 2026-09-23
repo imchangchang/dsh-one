@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
   "label": "dsh-one 兼容",
-  "message": "0.1.7-alpha.2 1 项失败",
-  "color": "red"
+  "message": "0.1.7-rc.1 通过（24 项）",
+  "color": "brightgreen"
 }
