@@ -76,7 +76,7 @@ export function ArchivedSection({
       'div',
       { className: 'dshOneTree_archivedHead' },
       h('span', { 'data-dshone-tree-section-label': 'archived' }, tr('archived.section')),
-      h('span', { 'data-dshone-tree-count': entries.length }, String(entries.length)),
+      h('span', {}, String(entries.length)),
     ),
     h(
       'div',
