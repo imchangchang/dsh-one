@@ -20,11 +20,14 @@ import { scratchDirSync } from './scratchDirs.ts'
 import {
   ROOT_PACKAGE,
   checkVendorVersions,
+  exactPinnedVersions,
+  exactPinnedVersionsFromPackages,
   mismatchDetailLines,
   pickAsOfVersion,
   pinnedOverrides,
   readInstalledPackages,
   resolvedVersionFromLock,
+  vendorDeclaredSpecsFromLock,
   vendorNamesFromLock,
   versionReportLines,
 } from '../scripts/labCandidateTree.ts'
@@ -95,6 +98,64 @@ test('钉版本：期望表逐条变成 overrides，`@deepseek-ai/dsh` 自己不
     '@deepseek-ai/cordis-plugin-hmr': '1.0.17',
   })
   assert.equal(Object.hasOwn(overrides, ROOT_PACKAGE), false, '根包由 dependencies 钉，overrides 里再钉一次 npm 会报冲突')
+})
+
+/**
+ * 上游自己钉死确切版本的那些包（2026-09-23 实测踩到）：窗口启发式会把它顶成窗口内更新的
+ * 那一版，而上游钉死的正是它不要被顶掉的那一版。
+ */
+test('上游自己钉死的确切版本：照它钉的那一版，窗口启发式不许顶掉', () => {
+  const specs = vendorDeclaredSpecsFromLock({
+    packages: {
+      'node_modules/@deepseek-ai/dsh': {
+        version: '0.1.5-rc.3',
+        dependencies: {
+          '@deepseek-ai/cordis-plugin-hmr': '1.0.17',
+          '@deepseek-ai/dsh-client-ui-cordis': '^0.1.5-rc.3',
+          commander: '^15.0.0',
+        },
+      },
+      'node_modules/@deepseek-ai/dsh-base': {
+        version: '0.1.5-rc.3',
+        dependencies: { '@deepseek-ai/cordis-plugin-hmr': '1.0.17', '@deepseek-ai/cordis-plugin-timer': '1.1.4' },
+      },
+    },
+  })
+  // 只收上游 scope 的、只留规格串。
+  assert.deepEqual(specs, {
+    '@deepseek-ai/cordis-plugin-hmr': '1.0.17',
+    '@deepseek-ai/cordis-plugin-timer': '1.1.4',
+    '@deepseek-ai/dsh-client-ui-cordis': '^0.1.5-rc.3',
+  })
+  assert.deepEqual(exactPinnedVersions(specs), {
+    '@deepseek-ai/cordis-plugin-hmr': '1.0.17',
+    '@deepseek-ai/cordis-plugin-timer': '1.1.4',
+  }, '范围（`^…`）不算钉死——那一类仍由发布窗口那条启发式管（#231 的现场就是它）')
+
+  // 同一个包名被多处声明、且确切的取值只有一个时才算钉死；打架的那种交给装完的版本校验拦。
+  assert.deepEqual(
+    exactPinnedVersions({ '@deepseek-ai/a': '1.0.0', '@deepseek-ai/b': '^1.0.0', '@deepseek-ai/c': 'latest' }),
+    { '@deepseek-ai/a': '1.0.0' },
+  )
+  assert.deepEqual(
+    exactPinnedVersions({}) ,
+    {},
+  )
+})
+
+test('上游钉死的版本：从装出来的树里也读得出来（`--from` 那一路），口径与锁文件那一路同源', async () => {
+  const tree = scratchDirSync('dsh-lab-version-')
+  fs.writeFileSync(
+    path.join(tree, 'package.json'),
+    JSON.stringify({ name: 'lab-candidate-exact-pins', private: true }),
+    'utf8',
+  )
+  writePackage(tree, '@deepseek-ai/dsh', '0.1.5-rc.3', {
+    dependencies: { '@deepseek-ai/cordis-plugin-hmr': '1.0.17', '@deepseek-ai/dsh-app-boot': '^0.1.5-rc.3' },
+  })
+  writePackage(tree, '@deepseek-ai/cordis-plugin-hmr', '1.0.17')
+  const packages = await readInstalledPackages(tree)
+  assert.deepEqual(exactPinnedVersionsFromPackages(packages), { '@deepseek-ai/cordis-plugin-hmr': '1.0.17' })
 })
 
 test('内部一致性：一致 / 同族混装 / 同期上游包被顺到新版 / 有没钉到的包，四种结论', () => {

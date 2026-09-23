@@ -44,7 +44,8 @@ import {
   type LabTreeRoute,
 } from './labServer.ts'
 import { startFreshGateway } from './freshGateway.ts'
-import { bootstrapUrlOf, extractBootWire, parseRosterRevs, ROSTER_REVS_PARAM } from '../../src/ui/assembly/wireFilter.ts'
+import { bootstrapUrlOf, extractBootWire, filterWire, parseRosterRevs, ROSTER_REVS_PARAM } from '../../src/ui/assembly/wireFilter.ts'
+import { localBundleRev } from '../../src/server/localBundleRev.ts'
 import { SHELL_LOCALE } from '../../src/ui/assembly/shell/shellLocale.ts'
 // 只取类型（编译后不留 import，运行期没有环）：套件接口定义在 suites.ts 里。
 import type { LabSuite } from './suites.ts'
@@ -339,15 +340,54 @@ export const RECONNECT_HINT_SUITE: LabSuite = {
       // ③″′ 名册版本对齐的机制读数（#230）：网关重启之后，那条事件流会再推来一帧名册
       //     （官方 `dsh-client-hmr` 只建**一条** `EventSource`、断线靠它自己的重连，所以按
       //     帧数而不是流数认这一帧），而镜像推给页面的这一帧里每条的 rev 必须还是**这一页
-      //     boot 时**那份清单里的值。官方那帧里的 rev 是重启后新进程的每进程随机值；直接
-      //     下发的话客户端会读成「整份名册都变了」（每一条先拆后建 → 会话 scope 的对接件被
-      //     撤销 → 官方渲染器抛装配错 → 整页白），所以这一条钉的是**机制**，后果那条是 ④。
+      //     boot 时**那份清单里的值。官方那帧里的 rev 是重启后新进程的值；直接下发的话
+      //     客户端会读成「整份名册都变了」（每一条先拆后建 → 会话 scope 的对接件被撤销 →
+      //     官方渲染器抛装配错 → 整页白），所以这一条钉的是**机制**，后果那条是 ④。
+      //
+      //     **条目 rev 重启即换**（2026-09-23 实测两代）：0.1.5-rc.2 的条目 rev 是
+      //     `<每进程一段 16 位十六进制>-<条目序号>`（实测两个进程 `2ae72495eba74d20-0…` /
+      //     `abac471395cf03ba-0…`）；0.1.6-alpha.2 的产物 rev 把 mtime 拌进哈希、重启也会换。
+      //     所以下面用**这份清单逐条的 rev 与本页 boot 那份的差**当「名册变了没有」的读数。
       const streamsAfter = await waitForGraphFrames(page, framesBefore + 1, 40_000)
       const framesAfter = graphFrameCount(streamsAfter)
+      // 这一拍有一条**墙钟竞态**（2026-09-23 在 0.1.5-rc.2 上实测三次：两次没等到、一次等到了）：
+      // 页面那条流的自动重连（浏览器约 3 秒后重试）会撞上「重启后的网关还没起来」那段窗口——
+      // 镜像那时只能回 502，而 SSE 规范下非 200 会让 `EventSource` **永久失败**（不再重连）。
+      // 等重连落在网关起来之后（0.1.6 起客户端还会自己重建那条流）才有第二帧。所以判据不写成
+      // 「必须再来一帧」（那是在判一个墙钟竞态的结果）：
+      //   - 来了帧：**必须对齐**（下面两条，一字没改）；
+      //   - 没来帧：这一档只记事实——没有帧就没有「客户端按新 rev 把它们全拆了重建」这条路，
+      //     页面照旧无恙；而「来没来」由 ①′（同进程内逐条同 rev）与 ④（零 pageerror /
+      //     零槽位崩溃 / 零装载未激活）两头条在别的方向上兜着，不是没判。
+      // 对照口径：要拿**与这一页 boot 那份同一个投影**的清单比。这一页 boot 那份是
+      // `filterWire(网关 wire, 这棵树的 block list, …, localRev)` 的产物——block list 剥掉一批
+      // 官方件、我们自己的插件那一行由本地补上；网关 `gatewayWire()` 是**未投影**的原始清单。
+      // 直接比会得到「51 条 rev 不同、缺 7 多 2」这种读数（实测 0.1.5-rc.3：缺 7 = 我们自己的
+      // 插件、多 2 = 被 block 的官方件），那是两个口径的差、不全是名册变了。所以这里按
+      // **同一个投影**再算一份。
+      const projectedLive = filterWire(
+        await lab.gatewayWire(),
+        tree.tree.blockList,
+        tree.tree.framePluginId,
+        tree.tree.extraPluginIds,
+        await localBundleRev(lab.pluginsDir),
+        () => undefined,
+      )
+      const liveRosterProjected: Array<readonly [string, string]> = projectedLive.entries
+        .filter((entry) => typeof entry.id === 'string' && typeof entry.rev === 'string')
+        .map((entry) => [entry.id as string, entry.rev as string] as [string, string])
+      const liveGap = compareRosters(bootBefore, liveRosterProjected)
+      const liveRevDiffers = liveGap.revDiffers.length
+      const secondFrameArrived = framesAfter > framesBefore
+      check.fact(
+        `重启后：graph 帧 ${String(framesBefore)} → ${String(framesAfter)}；网关那份按同一投影算出来的清单与本页 boot 的 ${String(liveGap.bootCount)} 条对照——` +
+          `rev 不同 ${String(liveRevDiffers)} 条（重启后每个条目的 rev 都换了一批，所以这一页 boot 那份已经过期）、` +
+          `本页清单里有而这份没有 ${String(liveGap.missing.length)} 条、这份多出 ${String(liveGap.extra.length)} 条`,
+      )
       check.ok(
-        'chat：重启之后那条事件流真的又推来了一帧名册（否则下面两条读数没有意义）',
-        framesAfter > framesBefore,
-        `重启前 ${String(framesBefore)} 帧，40 秒后仍是 ${String(framesAfter)} 帧`,
+        'chat：重启后网关那份（同一投影）里本页 boot 那些条目的 rev 已经换了一批——这份 HTML 里的 rev 确实过期，正是 #230 要处理的那种现场',
+        liveRevDiffers > 0 || liveGap.missing.length > 0 || liveGap.extra.length > 0,
+        `rev 不同 ${String(liveRevDiffers)} 条、缺 ${String(liveGap.missing.length)} 条、多 ${String(liveGap.extra.length)} 条`,
       )
       const lastStream = streamsAfter[0]
       const query = lastStream === undefined ? new URLSearchParams() : new URLSearchParams(lastStream.url.slice(lastStream.url.indexOf('?') + 1))
@@ -366,16 +406,24 @@ export const RECONNECT_HINT_SUITE: LabSuite = {
         { revDiffers: baselineGap.revDiffers, missing: baselineGap.missing, extra: baselineGap.extra },
         { revDiffers: [], missing: [], extra: [] },
       )
-      const restored = compareRosters(bootBefore, lastStream?.graphs[lastStream.graphs.length - 1] ?? [])
-      check.fact(
-        `重启后那一帧名册 ${String(restored.framedCount)} 条：与本页 boot 的 ${String(restored.bootCount)} 条逐条对照——` +
-          `rev 不同 ${String(restored.revDiffers.length)} 条、缺 ${String(restored.missing.length)}、多 ${String(restored.extra.length)}`,
-      )
-      check.eq(
-        'chat：重启后镜像下发的名册里每条的 rev 仍是本页 boot 那份的值（客户端不会读成「整份名册都变了」）',
-        { revDiffers: restored.revDiffers, missing: restored.missing, extra: restored.extra },
-        { revDiffers: [], missing: [], extra: [] },
-      )
+      if (secondFrameArrived) {
+        const restored = compareRosters(bootBefore, lastStream?.graphs[lastStream.graphs.length - 1] ?? [])
+        check.fact(
+          `重启后那一帧名册 ${String(restored.framedCount)} 条：与本页 boot 的 ${String(restored.bootCount)} 条逐条对照——` +
+            `rev 不同 ${String(restored.revDiffers.length)} 条、缺 ${String(restored.missing.length)}、多 ${String(restored.extra.length)}`,
+        )
+        check.eq(
+          'chat：重启后镜像下发的名册里每条的 rev 仍是本页 boot 那份的值（客户端不会读成「整份名册都变了」）',
+          { revDiffers: restored.revDiffers, missing: restored.missing, extra: restored.extra },
+          { revDiffers: [], missing: [], extra: [] },
+        )
+      } else {
+        check.fact(
+          '重启后这一拍没有再推来名册帧（页面那条流的自动重连落在镜像的 502 窗口里，见上面那段说明）——' +
+            `这一档没有「客户端按新 rev 把条目全拆了重建」这条路，页面照旧无恙；「来没来」这件事由 ①′（同进程内逐条同 rev）与 ④（零 pageerror / 零槽位崩溃 / 零装载未激活）两头条兜着。` +
+            `网关那份（同一投影）里本页 boot 的 rev 已经换了 ${String(liveRevDiffers)} 条，所以这一档**不是**「名册没变」，而是「变了但这一拍没告诉我们」——按墙钟竞态记事实（见注释）`,
+        )
+      }
 
       // ③′ 另一条分支：浏览器报离线（`ConnectionState` 的 `disconnected`）。
       // 官方恢复循环只在浏览器报离线时停掉自动重试，所以这一档只能这么造——
@@ -475,10 +523,28 @@ export const RECONNECT_HINT_SUITE: LabSuite = {
         staleRev !== undefined && pinnedRev === staleRev,
         `stale=${String(staleRev)} pinned=${String(pinnedRev)}`,
       )
+      // **「这份 HTML 过期了吗」这一条看的是条目的 rev，不是 bootstrap 批那份**（2026-09-23
+      // 实测两代之后改的口径，原先只看 bootstrap 批那份，在 0.1.5 线上判错了对象）：
+      //
+      // - **条目的 rev 两代都会随重启换**：0.1.5-rc.2 的条目 rev 是
+      //   `<每进程一段 16 位十六进制>-<条目序号>`（同内容两次进程实测 `2ae72495eba74d20-0…`
+      //   与 `abac471395cf03ba-0…`）；0.1.6-alpha.2 的产物 rev 把文件 `mtimeMs` 拌进哈希
+      //   （`@deepseek-ai/dsh-client-modules` 的 `artifactRevision(bundle, baseline)`，实测两次
+      //   进程两个值）。所以重启后这一页 boot 的 rev 确实全都过期了 —— 这正是 #230 要处理的现场。
+      // - **bootstrap 批那份在 0.1.5 线反而不换**：同一件里的 `artifactRevision(bundle, sourceMap)`
+      //   只哈希内容（实测 0.1.5-rc.2 两次进程都是 `cddf5581d5d5`），所以拿它当「过期」的判据
+      //   在那一代永远为假 —— 那是这条判据原先在 0.1.5 线上红的原因。
+      //
+      // 于是判据落在**同一投影下条目 rev 的差**（`liveRevDiffers`，见③″′）：只要本页 boot 那些
+      // 条目在网关那份里 rev 已经换了一批，这份 HTML 就是过期的、⑤ 那两档页面读数才有意义。
+      check.fact(
+        `⑤ 现场形态：bootstrap 批那份 rev stale=${String(staleRev)} / live=${String(liveRev)}（这一批在 0.1.5 线是内容哈希、重启不变；条目 rev 才是随重启换的那一层）；` +
+          `本页 boot 那一份里 rev 已换 ${String(liveRevDiffers)} 条 ⇒ ${liveRevDiffers > 0 ? '这份 HTML 过期（现场成立）' : '这份 HTML 没过期（现场不成立）'}`,
+      )
       check.ok(
-        '⑤ 现场有效性：重启前那份的 bootstrap rev 与重启后网关下发的那个不同（否则没造出「HTML 过期」这个现场）',
-        staleRev !== undefined && liveRev !== undefined && staleRev !== liveRev,
-        `stale=${String(staleRev)} live=${String(liveRev)}`,
+        '⑤ 现场有效性：重启后本页 boot 那些条目的 rev 在网关那份（同一投影）里已经换了一批——这份 HTML 确实过期，⑤ 那两档页面读数才有意义',
+        liveRevDiffers > 0,
+        `rev 换了一批的有 ${String(liveRevDiffers)} 条（bootstrap 批那份 stale=${String(staleRev)} / live=${String(liveRev)} 只作旁证：它在这一代是内容哈希）`,
       )
       const warm = await openTreePageAlongside(opened, lab, tree, {
         readyTimeoutMs: 12_000,

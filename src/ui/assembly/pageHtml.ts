@@ -68,7 +68,7 @@ export interface AssemblyPageOptions {
   bootstrapUrl: string
   /** 第一帧主题（官方应用起来后会按网关 settings 覆盖；实时跟随是 M2）。 */
   theme: 'dark' | 'light'
-  /** 版本门信息条文本；undefined = 网关在 [0.1.6-alpha.1, 0.2.0) 区间内，不显示（区间出处 src/pure/versionGate.ts）。 */
+  /** 版本门信息条文本；undefined = 网关在 [0.1.5-rc.2, 0.2.0) 区间内，不显示（区间出处 src/pure/versionGate.ts）。 */
   banner?: string
   /** 实验开关：false 时去掉 __DSH_TRANSPORT__ 桥（A/C 变体对照）。生产恒缺省。 */
   transport?: boolean

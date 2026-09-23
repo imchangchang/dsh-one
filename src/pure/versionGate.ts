@@ -13,16 +13,18 @@
 import { compare, parse } from './semver.ts'
 
 /**
- * 下界 = **实测通过的最老版本**（#234）。低于下界的那几代实测有红，读数与红项见
- * `docs/dsh-compat-checklist.md`：0.1.2-rc.1 上「把某条会话变成当前会话」这条主路径
- * 整个不成立（那一代官方产物里没有 `openSession`）；0.1.5-rc.2 上启动自愈不生效、
- * composer 的 ＋ 不在场。
+ * 下界 = **实测通过的最老版本**（#234 立，2026-09-23 按 #238 的实测下移到 0.1.5 线）。
+ *
+ * 读数与红项见 `docs/dsh-compat-checklist.md`：0.1.5-rc.2 与 0.1.5-rc.3 都过整轮（这两版正是
+ * npm `latest` / `next` 指的**那条线**，也就是按 README 快速开始与一键脚本装到的版本——下界放在
+ * 它们身上，默认路径才接得上）；0.1.2-rc.1 上「把某条会话变成当前会话」这条主路径整个不成立
+ * （那一代官方产物里没有 `openSession`），所以仍在下界之外。
  *
  * 区间是**整段判断**，表达不了「区间内但实测坏」的版本——0.1.7-alpha.2 就是这种
  * （区间内，但官方改图标名让自有插件整片崩）。这一层缺口见 `docs/dsh-compat-checklist.md`
  * 的「版本门」一节，等#234 的后续条目定夺要不要加已知不可用的名单。
  */
-export const PREREQ_MIN = '0.1.6-alpha.1'
+export const PREREQ_MIN = '0.1.5-rc.2'
 
 /** 上界：更高的版本没验过。 */
 export const PREREQ_MAX = '0.2.0'
@@ -30,17 +32,17 @@ export const PREREQ_MAX = '0.2.0'
 /**
  * 信息条让用户装的那一版：**实测整轮零红**的那个确切版本，不改标签、不用 dist-tag。
  *
- * 为什么不指一个标签（2026-09-23 实测的 npm dist-tags 与整轮读数）：
- * - `latest` = 0.1.5-rc.2 —— 低于下界，实测 2 项红；
- * - `next` = 0.1.5-rc.3 —— 低于下界，没验过；
+ * 为什么这一版（2026-09-23 实测的 npm dist-tags 与整轮读数）：
+ * - `latest` = 0.1.5-rc.3、`next` = 0.1.5-rc.3 —— 两个标签都指它，整轮零红；
  * - `alpha` = 0.1.7-alpha.2 —— 落在区间**内**，但实测整片红（官方把图标名从
  *   `Xxx16` / `Xxx20` 改成 `XxxMedium` / `XxxRegular`，自有插件 import 的那 26 个
  *   图标全变成 undefined，React 报 #130、slot 条目当场崩）。
- * 也就是说：**今天没有任何一个 dist-tag 指向实测可用的版本**，只有确切版本能指。
- * 上游把某个标签挪到实测通过的版本上、或我们补完 0.1.7 的适配之后，这个常量按同一
- * 口径改（仍旧写确切版本，不写标签）。
+ * 所以指 0.1.5-rc.3：既是实测通过的那一版，也正是用户 `npm i -g @deepseek-ai/dsh`
+ * （不带标签 = `latest`）会拿到的那一版——照 README 快速开始（`@next`）装的也是它。
+ * 上游把标签挪到别的版本上、或我们补完 0.1.7 的适配之后，这个常量按同一口径改
+ * （仍旧写确切版本，不写标签）。
  */
-export const VERIFIED_INSTALL_VERSION = '0.1.6-alpha.1'
+export const VERIFIED_INSTALL_VERSION = '0.1.5-rc.3'
 
 /** 区间的一句话写法（信息条里给用户看的那一段）。 */
 export function prereqRangeLabel(): string {

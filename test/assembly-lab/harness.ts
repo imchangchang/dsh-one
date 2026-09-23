@@ -56,6 +56,11 @@ const OFFICIAL_EXTRA: Readonly<Record<string, readonly [string, string]>> = {
   // 官方对话区 composer 的几枚（键 `input.commands` / `input.send`）。出处：
   // `@deepseek-ai/dsh-client-ui-conversation` 的 `lib/client.js`。
   '添加文件或调用指令': ['添加文件或调用指令', 'Add files or run commands'],
+  // 同一枚按钮在 **0.1.5 线**上的标签：同一个键（`input.commands`）在那几版里的取值是
+  // 「指令」/「Commands」（实测 0.1.5-rc.2 的 `lib/client.js`，两代的按钮同为 `InputBar`
+  // 里那枚 `className: …add` + `aria-haspopup="listbox"`）。判据按两代都认，理由见
+  // `livenessSuites.ts` 的 `COMPOSER_COMMANDS`。
+  指令: ['指令', 'Commands'],
   发送消息: ['发送消息', 'Send message'],
   // 上下文用量那一枚的 `aria-label`（键 `context.aria`）——**带百分比**的模板，两份语言里占位
   // 的位置还不一样（zh 在句末、en 在句首），所以这里给的是**模板**、不是成品句；选择器怎么按它
@@ -606,8 +611,19 @@ export interface PageCapture {
 
 /** 官方渲染层的崩溃信号：槽位条目抛错 / 链式选择器抛错。 */
 export const CRASH_RE = /slot entry crashed|chain selector crashed/
-/** 官方装载层的「契约没满足」信号：条目没激活（缺服务）——页面上会整块报错。 */
-export const BOOT_FAIL_RE = /did not activate|waiting for service/
+/**
+ * 官方装载层的「契约没满足」信号：条目没激活（缺服务）——页面上会整块报错。
+ *
+ * 两种官方文本形状都算（见 `src/ui/assembly/selfHeal.ts` 的「两代两种失败文本」）：
+ * 0.1.6-alpha.1 起是启动审计那一句（`web boot: … did not activate` / `waiting for service`），
+ * 0.1.5 线里审计跑不到（WebBoot 的逐条 `loader.create` 包在一个 `Promise.all` 里，第一条
+ * 失败就打断整次启动），报出来的是 `@deepseek-ai/cordis-plugin-loader` 那句
+ * `failed to <import|apply> loader entry <entryId> (<id>): …`（实测 0.1.5-rc.2：
+ * `failed to import loader entry 94216a56 (@deepseek-ai/dsh-client-lab-drift): client-modules:
+ * bundle … loaded without registering "…" via __ModuleLoader__.load`）。
+ * 不认这一种的话，那一代上「某个条目起不来」在各套件的「零装载未激活」判据里是**静默**的。
+ */
+export const BOOT_FAIL_RE = /did not activate|waiting for service|failed to (?:import|apply) loader entry/
 
 /**
  * 已知噪音白名单：**只**放行与底座契约无关、且另有 issue 跟踪的官方插件噪音。

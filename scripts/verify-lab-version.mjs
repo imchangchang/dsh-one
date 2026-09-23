@@ -72,12 +72,16 @@ import { fileURLToPath } from 'node:url'
 import {
   ROOT_PACKAGE,
   checkVendorVersions,
+  exactPinnedVersions,
+  exactPinnedVersionsFromPackages,
   isFamilyName,
+  isVendorName,
   mismatchDetailLines,
   pickAsOfVersion,
   pinnedOverrides,
   readInstalledPackages,
   resolvedVersionFromLock,
+  vendorDeclaredSpecsFromLock,
   vendorNamesFromLock,
   versionReportLines,
 } from './labCandidateTree.ts'
@@ -208,18 +212,22 @@ function candidateReleaseCutoff(resolved, timesCache) {
 
 /**
  * 期望版本表这一层的构造：同族包钉候选那一版（彼此同版本），同期上游包钉候选发布窗口内
- * 最新的一版。发布时刻表按包名缓存，同一次运行里不重复查。
+ * 最新的一版——**除非上游自己把那个包钉成了确切版本**（`exactPins[包名]`，见
+ * `labCandidateTree.ts` 的 `exactPinnedVersions`：0.1.5-rc.3 的 `dsh` / `dsh-base` 就把
+ * `@deepseek-ai/cordis-plugin-hmr` 写成 `1.0.17`，窗口启发式会把它顶成 1.0.18、那一版
+ * `dsh web` 起不来）。发布时刻表按包名缓存，同一次运行里不重复查。
  *
  * 返回 `undefined` 表示**这个包在候选的发布窗口里还没有任何版本**——那是比候选更新的批次
  * 才引入的包（实测：`@deepseek-ai/libreoffice-kit` 的首个版本比 0.1.6-alpha.1 晚 2.7 小时
  * 发布，只出现在「按最新解析」的那棵树上），候选那一版根本依赖不到它，所以**不钉**：
  * 它要是真被装进了树（说明有谁依赖它），校验那一关会把它当「没钉到的上游包」拦下来。
  */
-function makeTargetsBuilder(resolved) {
+function makeTargetsBuilder(resolved, exactPins = {}) {
   const timesCache = new Map()
   let cutoff
   return (name) => {
     if (isFamilyName(name)) return resolved
+    if (exactPins[name] !== undefined) return exactPins[name]
     if (cutoff === undefined) cutoff = candidateReleaseCutoff(resolved, timesCache)
     const times = timesCache.get(name) ?? packageTimes(name)
     timesCache.set(name, times)
@@ -230,12 +238,13 @@ function makeTargetsBuilder(resolved) {
 /**
  * `--from` 那一路：拿一份已有的树算期望版本表（树里没有候选本体时给不出期望，返回空表）。
  * 窗口里没有版本的包名照 {@link makeTargetsBuilder} 的口径跳过——树里真有它的话，
- * 校验会把它当「没钉到的上游包」拦下来。
+ * 校验会把它当「没钉到的上游包」拦下来。上游自己钉死确切版本的那些包从树里的清单读
+ * （`exactPinnedVersionsFromPackages`），口径与装那一路同源。
  */
 async function targetsForExistingTree(packages, resolved) {
   const targets = {}
   if (resolved === undefined) return targets
-  const expectedFor = makeTargetsBuilder(resolved)
+  const expectedFor = makeTargetsBuilder(resolved, exactPinnedVersionsFromPackages(packages))
   for (const name of [...new Set(packages.map((each) => each.name))].sort()) {
     const expected = expectedFor(name)
     if (expected !== undefined) targets[name] = expected
@@ -261,7 +270,8 @@ async function installPinnedCandidate(dir, spec) {
   if (resolved === undefined) {
     throw new Error(`解析出来的依赖树里没有 ${ROOT_PACKAGE}，装不下去（锁文件：${path.join(dir, 'package-lock.json')}）。`)
   }
-  const expectedFor = makeTargetsBuilder(resolved)
+  const exactPins = exactPinnedVersions(vendorDeclaredSpecsFromLock(lock))
+  const expectedFor = makeTargetsBuilder(resolved, exactPins)
   const targets = {}
   const outOfWindow = new Set()
   const addTargets = (names) => {
@@ -273,9 +283,16 @@ async function installPinnedCandidate(dir, spec) {
   }
   addTargets(vendorNamesFromLock(lock))
   const siblingCount = Object.keys(targets).filter((name) => !isFamilyName(name)).length
+  const pinnedNames = Object.keys(exactPins).filter((name) => isVendorName(name) && !isFamilyName(name))
   process.stderr.write(
     `[lab-version] 候选版本 = ${resolved}；钉住 ${String(Object.keys(targets).length)} 个上游包（其中同期上游包 ${String(siblingCount)} 个按候选发布窗口取版本）后真装…\n`,
   )
+  if (pinnedNames.length > 0) {
+    process.stderr.write(
+      `[lab-version] 其中 ${String(pinnedNames.length)} 个上游**自己钉死了确切版本**（照它钉的那一版，窗口启发式不许顶掉）：` +
+        `${pinnedNames.map((name) => `${name}@${exactPins[name]}`).join('、')}\n`,
+    )
+  }
   for (let pass = 1; pass <= 4; pass += 1) {
     writeManifest(dir, { dependencies: { [NPM_PKG]: resolved }, overrides: pinnedOverrides(targets) })
     // 锁文件是**没钉住**的那一份解析结果，留着 npm 就照它装——删掉，让它按钉住后的清单重解。

@@ -71,7 +71,7 @@ export const FRESH_PROFILE_BOOT_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '全新 DSH_HOME 上的 boot：三棵生产树都挂得上、零装载未激活、零 fiber FAILED（#164）',
   expect:
-    '实验室自己起一台**全新 `DSH_HOME`** 的 dsh 网关（`--port 0` 随机端口、`--no-open`、临时目录当 HOME，跑完按 PID 收掉并删目录——不碰用户的 3080，也不写 `~/.dsh/dsh-owned.json`），再用实验室的四棵树定义对着它开 `sidebar` / `chat` / `settings` 三棵生产树：① **每棵树的就绪点都出现**（侧栏是自有 `.dshOneTree_root`，也就是说整棵树真的挂上了）；② **零装载未激活**（官方 `web boot: … did not activate` / `waiting for service`）——boot 的规矩是一个条目没激活就整页抛错，所以这一条就是「干净 profile 上能不能打开」的可执行判据；③ 零 `slot entry crashed` / `data-slot-error`、零 pageerror；④ 页面里的 cordis fiber 探针报**零 scope 进 FAILED**（探针自身接上了总线上、真观察到状态变化，否则「零失败」是空的）。另外钉住侧栏树的装配清单里**含** `ui-commands` 与 `ui-permission-presets` 两件（#164 放行的那两件，boot 卡住时它们不在 combo 里），以及这台网关**开局是零会话**（证明这一轮验的真是干净 profile）。',
+    '实验室自己起一台**全新 `DSH_HOME`** 的 dsh 网关（`--port 0` 随机端口、`--no-open`、临时目录当 HOME，跑完按 PID 收掉并删目录——不碰用户的 3080，也不写 `~/.dsh/dsh-owned.json`），再用实验室的四棵树定义对着它开 `sidebar` / `chat` / `settings` 三棵生产树：① **每棵树的就绪点都出现**（侧栏是自有 `.dshOneTree_root`，也就是说整棵树真的挂上了）；② **零装载未激活**（官方 `web boot: … did not activate` / `waiting for service`；0.1.5 线那种「审计跑不到」的版本上是 `failed to <import|apply> loader entry …`，两种形状都算，见 `harness.ts` 的 `BOOT_FAIL_RE`）——boot 的规矩是一个条目没激活就整页抛错，所以这一条就是「干净 profile 上能不能打开」的可执行判据；③ 零 `slot entry crashed` / `data-slot-error`、零 pageerror；④ 页面里的 cordis fiber 探针报**零 scope 进 FAILED**（探针自身接上了总线上、真观察到状态变化，否则「零失败」是空的）。另外钉住侧栏树的装配清单里**含** `ui-commands` 与 `ui-permission-presets` 两件（#164 放行的那两件，boot 卡住时它们不在 combo 里），以及这台网关**开局是零会话**（证明这一轮验的真是干净 profile）。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const fresh = await startFreshGateway()
