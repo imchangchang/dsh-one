@@ -24,6 +24,7 @@ import {
   OFFICIAL_ICON_NAMES,
   iconExportCandidates,
   resolveOfficialIcon,
+  type OfficialIconFork,
   type OfficialIconNamespace,
 } from '../src/pure/officialIcons.ts'
 import { scratchDirSync } from './scratchDirs.ts'
@@ -49,10 +50,10 @@ const mod = (await import(
 const ASSETS = path.join('dsh-web-frontend', 'dist', 'assets')
 
 /** 合成一份前端产物：内容随便，只要带齐我们表的候选名。 */
-function writeAssets(root: string, { omit = [], only = null }: { omit?: string[]; only?: string[] } = {}): void {
+function writeAssets(root: string, { omit = [], only = null }: { omit?: string[]; only?: string[] | null } = {}): void {
   const dir = path.join(root, ASSETS)
   fs.mkdirSync(dir, { recursive: true })
-  const names = only ?? OFFICIAL_ICON_NAMES.flatMap((icon) => iconExportCandidates(icon)[0])
+  const names = only ?? OFFICIAL_ICON_NAMES.map((icon) => iconExportCandidates(icon)[0])
   const kept = names.filter((name) => !omit.includes(name))
   fs.writeFileSync(path.join(dir, 'index-abc123.js'), `const table = {${kept.map((n) => `${n}: local`).join(',')}};\n`)
 }
@@ -69,7 +70,7 @@ test('#236 名字表：26 枚图标的两代名字一一对应（基名相同、
   assert.equal(OFFICIAL_ICON_NAMES.length, 26, `表里有 ${OFFICIAL_ICON_NAMES.length} 枚，#236 核过的是 26 枚`)
   assert.equal(DEFAULT_ICON_WEIGHT, 'Regular', '缺省档位是 Regular（依据见 src/pure/officialIcons.ts 的文件头）')
   for (const icon of OFFICIAL_ICON_NAMES) {
-    const fork = OFFICIAL_ICON_FORKS[icon]
+    const fork: OfficialIconFork = OFFICIAL_ICON_FORKS[icon]
     assert.match(icon, /^Icon[A-Za-z]+$/, `${icon} 要是新一代基名（不带档位 / 尺寸后缀）`)
     assert.ok(fork.sized.startsWith(icon), `${icon} 的上一代名 ${fork.sized} 要以基名开头`)
     assert.match(fork.sized, /(12|14|16|20)$/, `${icon} 的上一代名 ${fork.sized} 要是尺寸后缀写法`)
