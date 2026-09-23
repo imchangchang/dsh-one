@@ -1,7 +1,7 @@
 {
   "title": "DSH One 验收报告：#243 名册基线参数的编码（0.1.7 上启动期 boot-order 报错清零）",
   "branch": "agent/dsh-017-boot-order-render-slot",
-  "commit": "d98efb62",
+  "commit": "66c1019e（本条修复 + 套件 + 单测的提交）",
   "environment": {
     "mode": "浏览器验证（装配实验室：仓库真实模块 + 实验室自起的隔离实例）",
     "dsh": "0.1.7-alpha.2（候选版本装到临时目录，`--from` 复用同一份安装）与 0.1.6-alpha.2（按 scripts/verify-lab-version.mjs 的钉版流程现装一份）",
