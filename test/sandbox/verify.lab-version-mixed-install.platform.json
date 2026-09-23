@@ -1,0 +1,25 @@
+{
+  "branch": "agent/lab-version-mixed-install",
+  "slug": "lab-version-mixed-install",
+  "platformCoverage": [],
+  "branchMatrix": {
+    "trigger": "probe-result-branch ×2（读包目录清单 / 读候选的 dsh --version）：两处都是「读一份东西，按读没读到分叉」。没有平台分叉（不碰 process.platform、平台命令、信号、路径分隔符、子进程 stdio），所以 platformCoverage 为空。",
+    "rows": [
+      {
+        "condition": "扫一棵装出来的树时，某个包目录读不到清单（没有 package.json、读不动）或清单不是合法 JSON（`readManifest` 返回 undefined ⇒ 按「不是一个能读的包」跳过这一份）",
+        "expected": "只跳过这一份目录，其余包照读；跳掉的若是 `@deepseek-ai/dsh` 自己，期望版本就成了 undefined，`checkFamilyVersions` 的 ok 判 false、当场拦下并停下（fail-closed：少读一份清单只会更严，不会放过一棵混装的树）",
+        "verification": "单测 test/labCandidateTree.test.ts「读不到的包目录（没清单 / 清单不是 JSON）跳过，其余照读；跳掉的恰好是 dsh 自己则判不一致」（空目录 + 半截 JSON 各一份，断言读出来的清单只剩两个能读的包；另单独断言只有子包没有根包时 ok === false、expected === undefined）"
+      },
+      {
+        "condition": "核一棵树时报读数：候选那份 `dsh --version` 读**得到**（清单里声明了 bin、文件在、`node <bin> --version` 退出码 0）",
+        "expected": "把它的原话打成一行读数当旁证（`[lab-version] dsh --version = …`），报告里与包清单一起作为「装出来的树版本正确」的证据",
+        "verification": "单测 test/labCandidateTree.test.ts「候选的 `dsh --version` 读得到时打进读数」（临时树里放一份打印 `9.9.9` 的 bin ⇒ 退出码 0、stderr 里有 `dsh --version = 9.9.9`）；真机读数：本任务在 0.1.6-alpha.1 / 0.1.6-alpha.2 / 0.1.2-rc.1 三次真装上都打出了这一行（见 #231 的 comment）"
+      },
+      {
+        "condition": "同一处读**不到**（清单没声明 bin、bin 文件不在、跑起来非零退出 ⇒ `candidateVersionOutput` 返回 undefined）",
+        "expected": "不判失败、只是少打这一行旁证：版本校验的判据是包清单（`node_modules` 里各包 package.json 的版本），`dsh --version` 只是给人看的旁证，不让它把校验挡在前面",
+        "verification": "单测同一条用例的后半段「读不到只跳过那一行旁证」（只有 name/version、没有 bin 的树 ⇒ 退出码仍是 0、stderr 里没有 `dsh --version`）；负向对照那几条用例喂的都是这种没有 bin 的假树，也走的是这一支"
+      }
+    ]
+  }
+}
