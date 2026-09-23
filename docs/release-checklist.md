@@ -1,6 +1,6 @@
 # 发布验收清单（release checklist）
 
-本文对应 dsh-one 2.0.0（2026-09-20），流程与 `scripts/release-gate.sh`、
+本文对应 dsh-one 2.0.5（2026-09-24），流程与 `scripts/release-gate.sh`、
 `.github/workflows/release.yml` 一致。
 
 发布 = `scripts/release-gate.sh --apply` 收口（version + CHANGELOG + 打 tag）并 push tag、GitHub Actions（`.github/workflows/release.yml`）构建出 **GitHub Release 产物**之后、`vsce publish` 之前的人工验收。
