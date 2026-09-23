@@ -1,6 +1,6 @@
 # Change Log
 
-## [Unreleased]
+## [2.0.6]
 
 ### 上游兼容性
 
