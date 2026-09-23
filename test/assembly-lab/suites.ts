@@ -77,6 +77,7 @@ import { TAG_COLOR_UNUSED_SUITE, TAG_GROUP_RECYCLE_SUITE } from './tagRecycleCol
 import { SELF_HEAL_SUITE } from './selfHealSuites.ts'
 import { RETRY_THROTTLE_SUITE } from './retryThrottleSuites.ts'
 import { THIRD_PARTY_PLUGIN_SUITE } from './thirdPartySuites.ts'
+import { OFFICIAL_PIN_SUITE } from './officialPinSuites.ts'
 import { PROFILE_PLUGIN_SERVICE_SUITE } from './profilePluginServiceSuites.ts'
 import { ARCHIVED_RESTORE_SUITE } from './archivedRestoreSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
@@ -6664,6 +6665,11 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // 文件，少一处合入热点）。它用同一份合成插件、只是让插件 inject 一个**侧栏树没有、
   // 对话区树有**的服务，把「离线算出来的『这棵树放不下它』」与运行期读数钉在一起。
   PROFILE_PLUGIN_SERVICE_SUITE,
+  // #240 置顶这份状态在 dsh-one 与官方 web 之间是同一份（F-71：F-01…F-70 与 R-06 已占
+  // ——F-70 归 #242 的「第三方插件 inject 了本树没有的服务」，按「从未占用的继续」顺延；
+  // 套件本体在 officialPinSuites.ts，同为独立文件，少一处合入热点。它同一台实例上同时
+  // 开着自有树页与官方浏览区页，见那个文件头）。
+  OFFICIAL_PIN_SUITE,
   // #239 归档之后的还原入口：树底「已归档」一节（F-72：F-01…F-71 与 R-06 已占，按
   // 「从未占用的继续」顺延；套件本体在 archivedRestoreSuites.ts，同为独立文件，
   // 少一处合入热点。它判的是「这一代官方那套入口被我们遮蔽时，自有树补的那一节在不在、

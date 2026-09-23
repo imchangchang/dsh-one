@@ -282,6 +282,23 @@ export const IDENTIFIER_DEPENDENCIES = [
       'packages/dsh-workspace-tree/src/workspaceTree/types.ts（TreeProps.unarchiveSession）',
   },
   {
+    names: ['pinnedSessionIds'],
+    scope: ['@deepseek-ai/dsh-client-ui-workspace'],
+    why:
+      '工作区快照的置顶会话 id 列（0.1.7-alpha.1 起官方侧栏自带置顶，状态在官方工作区注册表里；' +
+      '自有树的置顶标记改读它，与归档同一份快照）。名字消失 = 我们那个分叉判据失效——' +
+      '界面会静默退回自有 pinned 键，于是同一份置顶在 dsh-one 与官方 web 之间又变成两份（#240）',
+    where: 'src/pure/sessionPinSource.ts（PINNED_IDS_FIELD）',
+  },
+  {
+    names: ['pinSession', 'unpinSession'],
+    scope: ['@deepseek-ai/dsh-client-ui-workspace'],
+    why:
+      '官方置顶/取消置顶的动作（UiWorkspace 面上那两条，官方行菜单点「置顶会话」走的就是它们）。' +
+      '自有树的置顶写口按名字取用，名字消失 = 写了没有效果的静默失败',
+    where: 'src/pure/sessionPinSource.ts（PIN_METHOD / UNPIN_METHOD）',
+  },
+  {
     names: ['startSession'],
     scope: ['@deepseek-ai/dsh-client-ui-workspace'],
     why:

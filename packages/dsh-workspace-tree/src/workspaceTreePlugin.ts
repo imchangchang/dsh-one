@@ -136,14 +136,25 @@
  * - 工作区/会话重命名与工作区删除走官方 Modal 原语自渲染（官方同款组件、同款
  *   文案）——官方那条 entry 的对话框随它一起被遮蔽，必须自己重做。
  *
- * ## 用户标记（#102：置顶 / 手动未读）
- * 两份 id 集合是**用户可感知的持久状态**，按铁律由宿主半拥有、经能力口读写：
+ * ## 用户标记（#102：置顶 / 手动未读；#240：置顶在 0.1.7 起归官方）
+ * 两份 id 集合都是**用户可感知的持久状态**，按铁律由宿主半拥有、经能力口读写：
  * `stateRead/stateWrite('pinned' | 'unread')`，落 `~/.dsh/dsh-one/<键>.json`——键名
  * 与旧侧栏的文件名逐字相同，所以**旧文件就是新状态**（和分组同一处置，没有搬家这
  * 一步）；唯一要「迁」的是形状（更早的裸 id 数组），由 `migrateSessionMarks` 认下并按
- * 规范形状写回一次，此后只有能力口读写。判定与排序是纯的、单独有单测：
- * `pure/sessionMarks.ts`（置顶/未读状态 + `pinnedFirst` 排序）、
- * `pure/sessionEligibility.ts`（`canRecycle` / `canArchive` / 组头三态）。
+ * 规范形状写回一次，此后只有能力口读写。
+ *
+ * **#240 起置顶那份归官方**：官方 0.1.7-alpha.1 给侧栏加了会话置顶，状态在官方工作区
+ * 注册表里（快照的 `pinnedSessionIds` + 服务上的 `pinSession` / `unpinSession`）。我们
+ * 在 `sidebar.workspaces` 上遮蔽了官方侧栏，官方那套置顶 UI 在这一页不渲染——状态不
+ * 合流就是**同一件事两份互不相干的集合**（用户在官方 web 里置顶的，在 dsh-one 的树里
+ * 不算置顶，反过来也一样），而同一件事的归档我们早就走官方状态，口径本来就不一致。
+ * 现在的取用与写入：**官方这一代读官方快照、写官方服务**（`savePinned` 按在场与否
+ * 路由），自有 `pinned` 键退成两件事——旧代（0.1.6 及以下）的权威值，以及**一次性补写**
+ * 进官方的旧数据（`adoptLegacyPins`，补完把键划掉）。判定、字段名与写入差量全在
+ * `pure/sessionPinSource.ts`（单一事实源，上游探针也读它那份名字表）。
+ * 判定与排序是纯的、单独有单测：`pure/sessionMarks.ts`（置顶/未读状态 +
+ * `pinnedFirst` 排序）、`pure/sessionEligibility.ts`（`canRecycle` / `canArchive` /
+ * 组头三态）。
  * 视觉：置顶图钉与未读绿点是**旧侧栏那两条描边路径**（官方 primitives 的导出表里
  * 没有图钉与未读图标，逐个看过 0.1.6-alpha.1 的 80 个 `Icon*` 名字）。
  *
@@ -169,9 +180,11 @@ import {
   SESSION_PINNED_STATE_KEY,
   SESSION_UNREAD_STATE_KEY,
   markStateFile,
+  migrateMarkIds,
   migrateSessionMarks,
   type SessionMarksState,
 } from '../../../src/pure/sessionMarks.ts'
+import { isPinWrite, pinWrites, registryPinnedIds, type PinWrite } from '../../../src/pure/sessionPinSource.ts'
 import {
   TAG_GROUPS_STATE_KEY,
   emptyTagGroups,
@@ -287,6 +300,18 @@ interface WorkspacesService {
    * 所以两个入口分开、互不代理。
    */
   unarchiveSession?(sessionId: string): Promise<void>
+  /**
+   * #240：官方会话置顶（0.1.7-alpha.1 起，`dsh-api-workspace-controller` 的
+   * `IWorkspaces`：`pinSession(sessionId)` / `unpinSession(sessionId)`）。官方类型
+   * 注释原话「Pin a Session ahead of unpinned Sessions on Workspace grouping
+   * surfaces」/「Remove a Session's pin without changing its saved Session order」。
+   *
+   * 两条都是**可选**：0.1.6 及以下没有它们，本插件也因此不硬依赖（`inject` 里只声明
+   * 了 `workspaces` 这个服务本身）。我们优先走 `uiWorkspace` 上同名的那两条（官方行
+   * 菜单点「置顶会话」走的就是它，会顺带把官方那份手动顺序也摆好），这条是它的退路。
+   */
+  pinSession?(sessionId: string): Promise<void>
+  unpinSession?(sessionId: string): Promise<void>
 }
 
 interface UiWorkspaceService {
@@ -314,6 +339,15 @@ interface UiWorkspaceService {
    * 用它补回 0.1.7 上断掉的退路。取用前按在不在场分叉。
    */
   unarchiveSession?(sessionId: string): Promise<void>
+  /**
+   * #240：官方会话置顶界面面（0.1.7-alpha.1 起，`dsh-client-ui-workspace` 的
+   * `UiWorkspace.pinSession` / `unpinSession`）。官方行菜单那两项点下去就是它们——
+   * 语义见 `pure/sessionPinSource.ts` 的文件头（置顶 = 写宿主注册表 + 在该会话所在
+   * 那一层排最前）。**两条都是可选**：旧代没有，缺席时本插件走 `workspaces` 上的同名
+   * 两条（再缺席才如实报错，见 `savePinned`）。
+   */
+  pinSession?(sessionId: string): Promise<void>
+  unpinSession?(sessionId: string): Promise<void>
 }
 
 interface TreeContext {
@@ -351,6 +385,80 @@ export function apply(ctx: TreeContext): void {
    */
   const uiWorkspace = (): UiWorkspaceService | undefined =>
     ctx.get('uiWorkspace') as UiWorkspaceService | undefined
+
+  /**
+   * #240 会话置顶的写口：优先 `uiWorkspace` 上那两条（官方行菜单点「置顶会话」走的就是
+   * 它们——写宿主注册表之外还会把官方那份手动顺序摆好），缺席时退回 `workspaces` 上同名
+   * 的两条（裸控制器，同样写注册表；只有浏览器本地顺序那一半不做）。两处都没有就是
+   * `null`——旧代（0.1.6 及以下）正是这种，那时置顶住自有键，调用方根本不问这条路。
+   *
+   * 与归档（`configureRecycleBin` 里 `uiWorkspace.archiveSession` 退回
+   * `workspaces.archiveSession`）同一处置、同一理由：不硬依赖 uiWorkspace 这个服务。
+   */
+  const pinWriter = (): PinWrite | null => {
+    const ui = uiWorkspace()
+    if (isPinWrite(ui)) return ui
+    return isPinWrite(workspaces) ? workspaces : null
+  }
+
+  /**
+   * #240：把自有 `pinned` 键里已有的置顶**一次性补写**进官方注册表，补完把自有键划掉
+   * ——补写成功的那些从键里消失，失败的原样留着（下次开页再试），于是这一步既一次性
+   * 又幂等：键空了之后再来什么都不做。
+   *
+   * 为什么等 `phase === 'ready'`：官方那份 pin 集合随工作区基线一次到齐（官方快照的
+   * 初值是 `pinnedSessionIds = []` + `phase = 'pending'`），读早了会把「还没到」当成
+   * 「官方没有」，于是每次开页都把用户后来在官方那边取消掉的置顶重新置上。触发点因此
+   * 是**工作区快照的订阅**（官方 `WorkspaceSource`：`getSnapshot()` + `subscribe(listener)`，
+   * 类型就在 `dsh-api-workspace-controller` 的 client 面上），而不是某次渲染。
+   *
+   * 旧代（快照里没有那一格）直接返回：自有键就是权威，没有要迁的。
+   *
+   * @returns 退订函数（跟插件 fiber 一起收）。
+   */
+  const watchLegacyPinAdoption = (): (() => void) => {
+    let adopted = false
+    const attempt = (): void => {
+      if (adopted) return
+      const snapshot = workspaces.list.getSnapshot()
+      if (registryPinnedIds(snapshot) === null || snapshot.phase !== 'ready') return
+      adopted = true
+      void adoptLegacyPins().catch((reason: unknown) => {
+        console.warn('[dsh-one] legacy pinned sessions not adopted:', reason)
+      })
+    }
+    const list = workspaces.list as { subscribe?: (listener: () => void) => () => void }
+    const dispose = typeof list.subscribe === 'function' ? list.subscribe(attempt) : () => {}
+    // 订阅是后装的：基线可能已经到齐（那时不会再通知），所以装完自己先看一次。
+    attempt()
+    return dispose
+  }
+
+  /**
+   * 补写本体：把自有键里官方没有的那些 id 交给官方，然后按「补写成功」重写自有键。
+   */
+  const adoptLegacyPins = async (): Promise<void> => {
+    const port = hostCapabilities(ctx as unknown as CapabilityContext)
+    const official = registryPinnedIds(workspaces.list.getSnapshot())
+    if (official === null) return
+    const own = migrateMarkIds(await port.stateRead(SESSION_PINNED_STATE_KEY)).ids
+    if (own.length === 0) return
+    const service = pinWriter()
+    if (service === null) return
+    const { pin } = pinWrites(official, own)
+    const failed: string[] = []
+    for (const sessionId of pin) {
+      try {
+        await service.pinSession(sessionId)
+      } catch (reason: unknown) {
+        failed.push(sessionId)
+        console.warn(`[dsh-one] legacy pinned session not adopted: ${sessionId}`, reason)
+      }
+    }
+    // 有变化才写回：全都补写成功（或本来就在官方那份集合里）时自有键清空，全失败时
+    // 键里一个不少、这一轮不动它。
+    if (failed.length !== own.length) await port.stateWrite(SESSION_PINNED_STATE_KEY, markStateFile(failed))
+  }
 
   /**
    * 打开（选中）一条会话——官方那条入口。
@@ -729,6 +837,10 @@ export function apply(ctx: TreeContext): void {
       // 若是规范形状直接采用；若是更早的裸 id 数组或坏值，采用清洗后的 id 并按规范
       // 形状写回一次（`migrateSessionMarks` 的 `rewrite`）——那次写回就是「迁入落定」，
       // 此后只有能力口读写，插件自己不碰任何文件（它本来也没有文件 IO 的能力）。
+      //
+      // #240：置顶那一份在 0.1.7 及以上**归官方注册表**（读官方快照、写官方服务），
+      // 这里读回的 `pinned` 只剩两个用处——旧代的权威值，以及要一次性补写进官方的那份
+      // 旧数据（见 `adoptLegacyPins`）。`unread` 两代都住这里。
       loadMarks: async (): Promise<SessionMarksState> => {
         const port = hostCapabilities(ctx as unknown as CapabilityContext)
         const loaded = migrateSessionMarks({
@@ -746,12 +858,32 @@ export function apply(ctx: TreeContext): void {
         }
         return loaded.marks
       },
-      savePinned: (ids: readonly string[]): void => {
-        void hostCapabilities(ctx as unknown as CapabilityContext)
-          .stateWrite(SESSION_PINNED_STATE_KEY, markStateFile(ids))
-          .catch((reason: unknown) => {
-            console.warn('[dsh-one] pinned sessions not persisted:', reason)
-          })
+      /**
+       * #240：置顶写进哪里由这一页的官方产物定（判据与差量在 `pure/sessionPinSource.ts`）——
+       * 官方这一代（快照里有 `pinnedSessionIds`、`uiWorkspace` 上有那对方法）写官方注册表，
+       * 缺任何一样就写自有 `pinned` 键（0.1.6 及以下的行为逐字不变）。
+       *
+       * 界面交回的是**整份目标集合**，官方那一代只对差集发动作（理由见 `pinWrites`）。
+       * 两条路都把 Promise 交回调用方：官方那条会失败（宿主拒绝），失败要有一行看得见的
+       * 反馈（#110），树那边据此飘提示。
+       */
+      savePinned: (ids: readonly string[]): Promise<void> => {
+        const port = hostCapabilities(ctx as unknown as CapabilityContext)
+        const official = registryPinnedIds(workspaces.list.getSnapshot())
+        if (official === null) {
+          return port.stateWrite(SESSION_PINNED_STATE_KEY, markStateFile(ids)).then(() => undefined)
+        }
+        const service = pinWriter()
+        if (service === null) {
+          // 快照有那一格、写口却不在场：这一页的官方产物不是我们认的那一版。**如实报错，
+          // 不静默落回自有键**——那会让界面（读官方集合）与写入（进自有键）两下分叉。
+          return Promise.reject(new Error('the official session pin service is unavailable in this page'))
+        }
+        const { pin, unpin } = pinWrites(official, ids)
+        return (async () => {
+          for (const sessionId of pin) await service.pinSession(sessionId)
+          for (const sessionId of unpin) await service.unpinSession(sessionId)
+        })()
       },
       saveUnread: (ids: readonly string[]): void => {
         void hostCapabilities(ctx as unknown as CapabilityContext)
@@ -788,6 +920,11 @@ export function apply(ctx: TreeContext): void {
     // 永不推送**（能力口的如实形态），集合恒为空 = 不抑制任何提醒，与这条通道不存在时
     // 逐字相同。
     const disposePanelSessions = caps.onPanelSessions((sessionIds) => setPanelOpenSessions(sessionIds))
+    // #240：自有 `pinned` 键里已有的置顶**补写进官方**（0.1.7 及以上）。挂在这里而不是
+    // 树组件里：这是**用户状态**的搬家，与界面渲不渲染无关——挂在组件上会让它变成
+    // 「用户打开过一次侧栏才迁」，而官方那份 pin 集合随工作区基线到齐的时机与渲染无关。
+    // 订阅由插件 fiber 一起收（`ctx.effect` 的返回值）。
+    const disposePinAdoption = watchLegacyPinAdoption()
     // 对既有槽位名（官方 ui-sidebar 的 children 表声明）必须走 slots.inject：
     // 直接 register 会在「未声明」时抛错。single 槽遮蔽：priority −1 < 官方
     // WorkspaceBrowser 的默认 0 → 本件渲染。
@@ -818,6 +955,7 @@ export function apply(ctx: TreeContext): void {
       ),
     )
     return () => {
+      disposePinAdoption()
       disposePanelSessions()
       disposeFooterEntry()
       disposeInject()

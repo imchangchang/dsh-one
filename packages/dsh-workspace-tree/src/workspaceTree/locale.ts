@@ -133,6 +133,9 @@ export const ZH: Record<string, string> = {
   'conflict.named': '\u5df2\u5b58\u5728\u540d\u4e3a\u201c{name}\u201d\u7684\u5de5\u4f5c\u533a\u3002',
   'menu.fork': '\u5206\u53c9\u4f1a\u8bdd',
   'fork.failed': '\u5206\u53c9\u4f1a\u8bdd\u5931\u8d25\uff1a{message}',
+  // #240：置顶在 0.1.7 起写官方注册表（不再是自有文件），写失败要有一行可见的反馈
+  // （与 fork.failed / openInNewTab.failed 同一口径）。
+  'pin.failed': '\u7f6e\u9876\u72b6\u6001\u6ca1\u80fd\u5199\u5165 dsh\uff1a{message}',
   'menu.openInNewTab': '\u5728\u65b0\u6807\u7b7e\u9875\u6253\u5f00',
   'openInNewTab.failed': '\u5728\u65b0\u6807\u7b7e\u9875\u6253\u5f00\u5931\u8d25\uff1a{message}',
   'menu.archiveSession': '\u5f52\u6863\u4f1a\u8bdd',
@@ -367,6 +370,7 @@ export const EN: Record<string, string> = {
   'conflict.named': 'A workspace named \u201c{name}\u201d already exists.',
   'menu.fork': 'Fork session',
   'fork.failed': 'Could not fork the session: {message}',
+  'pin.failed': 'Could not save the pinned state to dsh: {message}',
   'menu.openInNewTab': 'Open in New Tab',
   'openInNewTab.failed': 'Could not open the session in a new tab: {message}',
   'menu.archiveSession': 'Archive session',

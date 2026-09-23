@@ -39,6 +39,7 @@ import {
   type TreeViewPrefs,
 } from '../../../../src/pure/workspaceTreePrefs.ts'
 import { emptySessionMarks, pinnedFirst, toggleMarkId, type SessionMarksState } from '../../../../src/pure/sessionMarks.ts'
+import { registryPinnedIds } from '../../../../src/pure/sessionPinSource.ts'
 import {
   createTagGroup,
   deleteTagGroup,
@@ -158,6 +159,24 @@ export function WorkspaceTree(props: TreeProps): unknown {
   const workspaces = useWorkspaces((state) => state.items)
   const workspacePhase = useWorkspaces((state) => state.phase)
   const archivedSessionIds = useWorkspaces((state) => state.archivedSessionIds)
+  /**
+   * #240：官方注册表里的置顶集合（0.1.7-alpha.1 起官方侧栏自带的会话置顶）。
+   *
+   * 与 `archivedSessionIds` 同一份快照、同一个钩子；**0.1.6 及以下这一格不在场**
+   * （`registryPinnedIds` 给 `null` → 这里 `undefined`），那时置顶仍读自有 `pinned`
+   * 键。这样分叉的理由与代价写在 `pure/sessionPinSource.ts` 的文件头：状态住哪儿是
+   * 官方产物的形状问题，按在场与否判，不猜版本号。
+   *
+   * 钩子里取的是**快照上那一格本身**、清洗放进 `useMemo`：钩子的选择器每次渲染都会被
+   * 调，这里返回新建的数组会让「这次和上次是不是同一个值」永远判为变了
+   * （`useSyncExternalStore` 口径下就是「getSnapshot 的返回值没缓存」），清洗必须挂在
+   * 那一格的引用上（官方那份快照只在置顶集合真变时才换新数组）。
+   */
+  const registryPinnedField = useWorkspaces((state) => state.pinnedSessionIds)
+  const registryPinned = useMemo(
+    () => registryPinnedIds({ pinnedSessionIds: registryPinnedField }) ?? undefined,
+    [registryPinnedField],
+  )
   /**
    * 官方会话等待态（#184）：两代各一条 root 钩子——0.1.6-alpha.2 起是 `sessionStatus`
    * （会话状态表，等待态在 `status.pendingInteraction` 那一格），此前是
@@ -422,12 +441,26 @@ export function WorkspaceTree(props: TreeProps): unknown {
   const groupKeyOfSession = (sessionId: string): string =>
     workspaces.find((workspace) => workspace.sessionIds.includes(sessionId))?.workspaceId ?? UNGROUPED_KEY
 
-  const pinnedIds = new Set(marks.pinned)
+  /**
+   * 置顶集合：官方这一代（快照里有 `pinnedSessionIds`）以**官方注册表**为准，没有它
+   * 才退回自有 `pinned` 键（`marks.pinned`）。#240 之前只有后半句。
+   *
+   * 为什么以官方那份为渲染依据而不是把官方值同步进 `marks`：官方那份是这一页随时可读
+   * 的事实（置顶在别的前端改了、或宿主那边被别处改了，快照会把新值推过来），跟着它渲染
+   * 就不会出现「界面显示的和注册表里存的不一样」；写失败时行上原样不动，配合下面那条
+   * 失败提示，用户看到的是「没生效」而不是「生效了又被回滚」。
+   */
+  const pinnedList = registryPinned ?? marks.pinned
+  const pinnedIds = new Set(pinnedList)
   const unreadIds = new Set(marks.unread)
-  /** 写回一份标记（先落界面、再落宿主能力口；失败静默，与分组同一处置）。 */
+  /**
+   * 写回一份标记（先落界面、再落状态口）。置顶那一份的落点由插件路由（官方注册表 /
+   * 自有键），失败**要有一行看得见的反馈**（#110）：官方这一代界面读的是官方集合，
+   * 写失败时行上不会有任何变化，静默就等于「点了没反应」。
+   */
   const persistPinned = (ids: readonly string[]): void => {
     setMarks((prev) => ({ ...prev, pinned: ids }))
-    savePinned(ids)
+    savePinned(ids).catch((reason: unknown) => reportFailure('pin.failed', reason))
   }
   const persistUnread = (ids: readonly string[]): void => {
     setMarks((prev) => ({ ...prev, unread: ids }))
@@ -435,7 +468,7 @@ export function WorkspaceTree(props: TreeProps): unknown {
   }
   /** 翻一下某一行的置顶/未读（无变化时 `toggleMarkId` 回同一份引用 = 不写盘）。 */
   const togglePin = (sessionId: string): void => {
-    persistPinned(toggleMarkId(marks.pinned, sessionId, !pinnedIds.has(sessionId)))
+    persistPinned(toggleMarkId(pinnedList, sessionId, !pinnedIds.has(sessionId)))
   }
   const toggleUnread = (sessionId: string): void => {
     persistUnread(toggleMarkId(marks.unread, sessionId, !unreadIds.has(sessionId)))

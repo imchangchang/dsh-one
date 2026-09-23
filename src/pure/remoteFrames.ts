@@ -10,8 +10,9 @@
  *   the unary `$events/result` (clientId + eventId + outcome)
  * - `session/control`: baseline {queues, jobs, projections} then queue /
  *   jobs / projection increments
- * - `workspace/follow`: baseline {items, archivedSessionIds} then
- *   upsert / remove / order / archived increments
+ * - `workspace/follow`: baseline {items, archivedSessionIds, pinnedSessionIds}
+ *   then upsert / remove / order / archived / pinned increments（`pinnedSessionIds`
+ *   与那一路增量是 0.1.7-alpha.1 起官方新增的置顶集合，#240 起我们读它）
  * - `session/follow`: snapshot {header, cursor, records, hasMore,
  *   projections} then raw event entries
  *
@@ -140,11 +141,16 @@ export function parseControlStreamFrame(value: unknown): ControlStreamFrame | nu
 
 /** `workspace/follow` frames. */
 export type WorkspaceStreamFrame =
-  | { type: 'baseline'; items: unknown[]; archivedSessionIds: string[] }
+  | { type: 'baseline'; items: unknown[]; archivedSessionIds: string[]; pinnedSessionIds?: string[] }
   | { type: 'upsert'; workspace: Record<string, unknown> }
   | { type: 'remove'; workspaceId: string }
   | { type: 'order'; workspaceIds: string[] }
   | { type: 'archived'; archivedSessionIds: string[] }
+  | { type: 'pinned'; pinnedSessionIds: string[] }
+
+/** 一串 id 里只留非空字符串（官方那份集合偶尔带空值/非字符串时不当成 id）。 */
+const idList = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string' && id !== '') : []
 
 export function parseWorkspaceStreamFrame(value: unknown): WorkspaceStreamFrame | null {
   if (typeof value !== 'object' || value === null) return null
@@ -158,6 +164,11 @@ export function parseWorkspaceStreamFrame(value: unknown): WorkspaceStreamFrame 
   if (frame.type === 'archived' && Array.isArray(frame.archivedSessionIds)) {
     return { type: 'archived', archivedSessionIds: frame.archivedSessionIds as string[] }
   }
+  // 0.1.7-alpha.1 起官方多了一路「置顶集合变了」的增量帧（`WorkspaceFollowIncrement`
+  // 的 `pinned` 那一支），与 `archived` 同形。
+  if (frame.type === 'pinned' && Array.isArray(frame.pinnedSessionIds)) {
+    return { type: 'pinned', pinnedSessionIds: frame.pinnedSessionIds as string[] }
+  }
   if (frame.type === 'upsert' && typeof frame.workspace === 'object' && frame.workspace !== null) {
     return { type: 'upsert', workspace: frame.workspace as Record<string, unknown> }
   }
@@ -169,6 +180,11 @@ export function parseWorkspaceStreamFrame(value: unknown): WorkspaceStreamFrame 
       archivedSessionIds: Array.isArray(baseline.archivedSessionIds)
         ? (baseline.archivedSessionIds as string[]).filter((id): id is string => typeof id === 'string')
         : [],
+      // **这一格在不在，就是「这一代网关有没有官方置顶集合」这个事实**（0.1.6 及以下的
+      // 基线里没有它），所以缺席时**不给空表**——空表与「没有这一格」在消费方是不同的
+      // 意思（前者 = 有这份状态但一条都没有）。消费方按 `undefined` 判这一代在不在，
+      // 与页面侧 `pure/sessionPinSource.ts` 的判据同一口径。
+      ...(Array.isArray(baseline.pinnedSessionIds) ? { pinnedSessionIds: idList(baseline.pinnedSessionIds) } : {}),
     }
   }
   return null
