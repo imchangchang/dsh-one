@@ -58,6 +58,11 @@ export interface InstalledPackage {
   version: string
   /** 相对树根的位置（`node_modules/@deepseek-ai/dsh-app-boot` 这种）。 */
   where: string
+  /**
+   * 这个包的清单里**自己声明的**上游依赖（包名 → 规格串，只留 `@deepseek-ai/*`）。
+   * 用途只有一个：认出「上游自己钉死确切版本」的那些包（见 {@link exactPinnedVersions}）。
+   */
+  declares?: Record<string, string>
 }
 
 /** 期望版本表：树里出现的每个 `@deepseek-ai/*` 包名 → 它该是的那一版。 */
@@ -110,6 +115,59 @@ export function resolvedVersionFromLock(lock: unknown): string | undefined {
   const packages = (lock as { packages?: Record<string, { version?: unknown }> } | undefined)?.packages ?? {}
   const entry = packages[`node_modules/${ROOT_PACKAGE}`]
   return typeof entry?.version === 'string' ? entry.version : undefined
+}
+
+/**
+ * 锁文件里各上游包的**声明规格**（父包自己写的那一串），包名 → 规格（多个父包声明同一个
+ * 包名时按字典序取第一个，只为确定性）。
+ *
+ * 读的是锁文件 `packages[*].dependencies`——它就是各包清单里的那一段，只是不用把上百个包
+ * 下载解包一遍就能拿到。{@link exactPinnedVersions} 拿它认出「上游自己钉死确切版本」的包。
+ */
+export function vendorDeclaredSpecsFromLock(lock: unknown): Record<string, string> {
+  const packages =
+    (lock as { packages?: Record<string, { dependencies?: Record<string, unknown> }> } | undefined)?.packages ?? {}
+  const specs: Record<string, string> = {}
+  for (const key of Object.keys(packages).sort()) {
+    const dependencies = packages[key]?.dependencies ?? {}
+    for (const [name, spec] of Object.entries(dependencies).sort((a, b) => a[0].localeCompare(b[0]))) {
+      if (!isVendorName(name) || typeof spec !== 'string') continue
+      if (specs[name] === undefined) specs[name] = spec
+    }
+  }
+  return specs
+}
+
+/** 一条规格串是不是**确切版本**（`1.0.17`，不带 `^` / `~` / 范围 / 标签）。 */
+function isExactVersionSpec(spec: string): boolean {
+  return /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(spec.trim())
+}
+
+/**
+ * 上游自己**钉死确切版本**的包：包名 → 那一版（规格串里所有确切取值只出现一个时才算，
+ * 出现两个相互打架的确切值时交给发布窗口那条启发式、由装完的版本校验去拦）。
+ *
+ * 为什么要有这条（2026-09-23 实测）：发布窗口那条启发式（{@link pickAsOfVersion}）假设
+ * 「同期上游包都按同一批发版」，于是把候选窗口内**最新**的那一版钉住——#231 的现场正是
+ * 靠它挡住了 0.1.2-rc.1 上 `^1.0.17` 顺到 1.0.19 的混装。但上游有一批包是**自己钉死
+ * 确切版本**的：0.1.5-rc.3 的 `dsh` / `dsh-base` 都把 `@deepseek-ai/cordis-plugin-hmr`
+ * 写成 `1.0.17`，而窗口启发式会把它顶成窗口里更新的 1.0.18（比候选早两小时发布）——
+ * 那样装出来的树 `dsh web` 起不来，实测报
+ * `Error: dsh: user patch-layer watching requires the Cordis HMR service` 并退出。
+ * 上游自己钉了就是不希望被顶掉，所以**先看它钉没钉**，钉了就用它钉的那一版。
+ */
+export function exactPinnedVersions(specs: Record<string, string>): VersionTargets {
+  const byName = new Map<string, Set<string>>()
+  for (const [name, spec] of Object.entries(specs)) {
+    if (!isExactVersionSpec(spec)) continue
+    byName.set(name, new Set([...(byName.get(name) ?? []), spec.trim()]))
+  }
+  const pins: VersionTargets = {}
+  for (const [name, versions] of [...byName.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    if (versions.size !== 1) continue
+    pins[name] = [...versions][0] as string
+  }
+  return pins
 }
 
 /**
@@ -181,11 +239,48 @@ async function walk(dir: string, scope: string, depth: number, root: string, fou
           name: manifest.name,
           version: typeof manifest.version === 'string' ? manifest.version : '',
           where: path.relative(root, packageDir),
+          declares: vendorDeclares(manifest.dependencies),
         })
       }
       await walk(path.join(packageDir, 'node_modules'), scope, depth - 1, root, found)
     }
   }
+}
+
+/** 一份清单里的 `dependencies` 中属于上游 scope 的那些（包名 → 规格串）。 */
+function vendorDeclares(dependencies: unknown): Record<string, string> {
+  const specs: Record<string, string> = {}
+  if (dependencies === null || typeof dependencies !== 'object') return specs
+  for (const [name, spec] of Object.entries(dependencies as Record<string, unknown>)) {
+    if (isVendorName(name) && typeof spec === 'string') specs[name] = spec
+  }
+  return specs
+}
+
+/**
+ * 从**装出来的树**（{@link readInstalledPackages} 的读数）算「上游自己钉死确切版本」的包，
+ * 口径与 {@link exactPinnedVersions} 同一份——`--from` 那一路手上只有一棵装好的树、没有
+ * 锁文件，用它。
+ */
+export function exactPinnedVersionsFromPackages(packages: readonly InstalledPackage[]): VersionTargets {
+  const specs: Record<string, string> = {}
+  const seen = new Map<string, Set<string>>()
+  for (const entry of packages) {
+    for (const [name, spec] of Object.entries(entry.declares ?? {})) {
+      const values = seen.get(name) ?? new Set<string>()
+      values.add(spec)
+      seen.set(name, values)
+    }
+  }
+  // 同一个包名被多处声明时，只有**只出现一个**确切取值才算「上游钉死了它」——与
+  // exactPinnedVersions 同一口径（打架的那种交给装完的版本校验去拦）。
+  for (const [name, values] of [...seen.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    if (values.size !== 1) continue
+    const only = [...values][0] as string
+    if (!isExactVersionSpec(only)) continue
+    specs[name] = only
+  }
+  return exactPinnedVersions(specs)
 }
 
 /**
@@ -194,11 +289,11 @@ async function walk(dir: string, scope: string, depth: number, root: string, fou
  * `@deepseek-ai/dsh` 自己，候选版本就成了 undefined，校验当场判不一致并停下，
  * 不会因为少读一份清单而放过一棵混装的树。
  */
-async function readManifest(packageDir: string): Promise<{ name?: unknown; version?: unknown } | undefined> {
+async function readManifest(packageDir: string): Promise<{ name?: unknown; version?: unknown; dependencies?: unknown } | undefined> {
   const raw = await fsp.readFile(path.join(packageDir, 'package.json'), 'utf8').catch(() => '')
   if (raw === '') return undefined
   try {
-    return JSON.parse(raw) as { name?: unknown; version?: unknown }
+    return JSON.parse(raw) as { name?: unknown; version?: unknown; dependencies?: unknown }
   } catch {
     return undefined
   }
