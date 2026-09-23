@@ -4,46 +4,46 @@
   "commit": "b45c8a58ff999f70874b5a37e1378cdcdcdf0787",
   "environment": {
     "mode": "浏览器验证（装配实验室：仓库真实模块 + 实验室自起的隔离实例［临时 DSH_HOME / 随机端口 / 播种真数据 / 跑完按 PID 收］+ 假宿主）+ 单测（node --test）+ 两道静态自检 + 上游探针（离线扫 combo）",
-    "dsh": "0.1.6-alpha.2（本机安装，整轮与回归读数）；0.1.7-alpha.2（候选版本装到临时目录，只跑 F-71 / F-01）。分支已 rebase 到含 #236（图标名两代分叉）的 main（385964bd）之上",
+    "dsh": "0.1.6-alpha.2（本机安装，整轮与回归读数）；0.1.7-alpha.2（候选版本装到临时目录，只跑 F-72 / F-01）。分支已 rebase 到含 #236（图标名两代分叉）的 main（385964bd）之上",
     "locale": "zh（隔离实例的设置文档钉死）",
     "theme": "dark",
-    "driver": "playwright chromium + test/assembly-lab/verify.ts（整轮 71 项，含新增的 F-71）",
+    "driver": "playwright chromium + test/assembly-lab/verify.ts（整轮 71 项，含新增的 F-72）",
     "date": "2026-09-23"
   },
-  "coverageNote": "覆盖：装配页里这一节的行为（哪一代渲染、列出了哪些会话、那一枚按钮点下去会话回到列表）与上游探针里那条新依赖。不覆盖：真 VS Code 窗口 / webview 宿主层（CSP、剪贴板、原生菜单、多 webview 生命周期）——本条只动页面内的插件代码，宿主层一个字节没碰，也不碰图标（与 #236 无冲突）；沙盒（code-server 里装真 vsix 看观感）对本条不适用：本条的可见结果就是树底那一节与那一枚按钮，判据就是 F-71。**0.1.7-alpha.2 上的真机读数拿不到**：那一版上整个侧栏树被 #236（官方把图标导出名从尺寸后缀改成字重后缀）挡住，本套件只记一条带签名的事实（N-04），端到端由 N-02 的「就地声明那条槽位」夹具在 0.1.6 上承载；#236 落地后这一档自动变成真 0.1.7 上的验证。",
+  "coverageNote": "覆盖：装配页里这一节的行为（哪一代渲染、列出了哪些会话、那一枚按钮点下去会话回到列表）与上游探针里那条新依赖。不覆盖：真 VS Code 窗口 / webview 宿主层（CSP、剪贴板、原生菜单、多 webview 生命周期）——本条只动页面内的插件代码，宿主层一个字节没碰，也不碰图标（与 #236 无冲突）；沙盒（code-server 里装真 vsix 看观感）对本条不适用：本条的可见结果就是树底那一节与那一枚按钮，判据就是 F-72。**0.1.7-alpha.2 上的真机读数拿不到**：那一版上整个侧栏树被 #236（官方把图标导出名从尺寸后缀改成字重后缀）挡住，本套件只记一条带签名的事实（N-04），端到端由 N-02 的「就地声明那条槽位」夹具在 0.1.6 上承载；#236 落地后这一档自动变成真 0.1.7 上的验证。",
   "items": [
     {
       "id": "N-01",
       "phase": "new-feature",
-      "name": "这一代真实的形状：0.1.6 上官方入口还在设置页那一节，自有树不多出第二个入口（F-71 ①）",
+      "name": "这一代真实的形状：0.1.6 上官方入口还在设置页那一节，自有树不多出第二个入口（F-72 ①）",
       "expect": "在 0.1.6-alpha.2 的隔离实例上归档一条真会话，然后看不装夹具的侧栏页与设置页：侧栏页树根上那一格观测值（`data-dshone-tree-unarchive-entry`）应该是 `settings`（官方这一代把取消归档做在设置页里）、树底「已归档」一节一个节点都不渲染、而且这条会话在树里没有任何会话行（它从列表里消失、整页一个节点都没有）；设置页的导航行里应该真有官方那一节（节名取自官方词典 `nav`：「已归档会话」/「Archived sessions」）。这一条与下一条合起来就是「判据跟着机制走」：观测值说 `settings` ⟺ 官方那一节在场。",
       "result": "pass",
       "screenshots": [
-        "/tmp/dsh-sandbox-shots/f-70-after-sidebar-settings-generation.png",
-        "/tmp/dsh-sandbox-shots/f-70-after-official-settings-section.png"
+        "/tmp/dsh-sandbox-shots/f-72-after-sidebar-settings-generation.png",
+        "/tmp/dsh-sandbox-shots/f-72-after-official-settings-section.png"
       ],
-      "notes": "读数（F-71 20/20，7.3 秒）：\n- 夹具会话 `session-e431b…`（标题 `Lab-Alpha task 2`），归档这一步走官方 RPC `workspace.archiveSession`，回执的归档集合里含它（夹具前提成立）。\n- 侧栏页：入口观测值 = `settings`；树底那一节 = **0** 个节点；这一条在树里的会话行 = **0**、整页出现 = **0** 次。\n- 设置页导航行 **5** 条，其中官方那一节在场 = **true**（`\"通用设置\", \"模型\", \"内置插件\", \"Agent 预设\", \"已归档会话\"`）。\n- 截图 `f-70-after-sidebar-settings-generation.png`：侧栏页——树里没有这一条会话，也没有树底那一节（这一代本来就不该有）。\n- 截图 `f-70-after-official-settings-section.png`：设置页导航里那一节「已归档会话」（0.1.6 的官方入口）。"
+      "notes": "读数（F-72 20/20，7.3 秒）：\n- 夹具会话 `session-e431b…`（标题 `Lab-Alpha task 2`），归档这一步走官方 RPC `workspace.archiveSession`，回执的归档集合里含它（夹具前提成立）。\n- 侧栏页：入口观测值 = `settings`；树底那一节 = **0** 个节点；这一条在树里的会话行 = **0**、整页出现 = **0** 次。\n- 设置页导航行 **5** 条，其中官方那一节在场 = **true**（`\"通用设置\", \"模型\", \"内置插件\", \"Agent 预设\", \"已归档会话\"`）。\n- 截图 `f-72-after-sidebar-settings-generation.png`：侧栏页——树里没有这一条会话，也没有树底那一节（这一代本来就不该有）。\n- 截图 `f-72-after-official-settings-section.png`：设置页导航里那一节「已归档会话」（0.1.6 的官方入口）。"
     },
     {
       "id": "N-02",
       "phase": "new-feature",
-      "name": "端到端的还原：树底「已归档」一节 → 点「取消归档」→ 会话回到列表（F-71 ②，0.1.7 那一代的形状由夹具就地摆出来）",
+      "name": "端到端的还原：树底「已归档」一节 → 点「取消归档」→ 会话回到列表（F-72 ②，0.1.7 那一代的形状由夹具就地摆出来）",
       "expect": "这一代官方把「取消归档」搬进了官方侧栏的会话行菜单（新槽位 `sidebar.workspaces.session.menu.item`），而那个槽位被自有树遮蔽（shadow）——自有树因此在树底补一节「已归档」。本机 0.1.7-alpha.2 上侧栏树被 #236 挡着、拿不到读数，所以这一代的形状由套件**就地声明那条槽位**造出来（官方注册表的公开方法 `register`，注入点由 fiber 探针的 `ctx` 提供，同 F-63 的做法；造的是形状、不是结果）。判据：声明之后那一节当场出现、入口观测值翻成 `inline`；那一节恰好一节、列着刚归档的那一条、这条 id 整页只出现一次且就落在这一节里（= 官方那套菜单一条都没渲染，「翻不出它」的可执行版本）；那一行上的「取消归档」常显、可点、几何非零、读屏标签带着标题；点它之后这一条从那一节消失、**回到它所属工作区的会话行上**，并飘一条「已取消归档 {标题}」的回执。",
       "result": "pass",
       "screenshots": [
-        "/tmp/dsh-sandbox-shots/f-70-after-archived-section-fixture.png",
-        "/tmp/dsh-sandbox-shots/f-70-after-unarchive-returned.png"
+        "/tmp/dsh-sandbox-shots/f-72-after-archived-section-fixture.png",
+        "/tmp/dsh-sandbox-shots/f-72-after-unarchive-returned.png"
       ],
-      "notes": "读数（与 N-01 同一次运行，F-71 20/20）：\n- 夹具声明那条会话菜单槽位 = `declared` → 声明之后树底那一节**当场出现**、入口观测值从 `settings` 翻成 `inline`（判据跟注册表走，不是写死的版本号）。\n- 那一节恰好 **1** 节、列着刚归档的那一条 `session-e431b…`；这一条 id 整页只出现 **1** 次、其中在那一节里 **1** 次。\n- 那一行的「取消归档」：在场、几何非零（宽高 > 0）、`disabled = false`、读屏标签 `取消归档 Lab-Alpha task 2`、文案取自插件词典（zh / en 两份都认）。\n- 点它之后：这一条从那一节消失（`ids` 里不再有它）、树里出现它的会话行（**1** 行）、飘提示 `\"已取消归档 Lab-Alpha task 2\"`。\n- 截图 `f-70-after-archived-section-fixture.png`：树底「已归档 2」一节两行（`Lab-Alpha task 2` 与播种自带的 `Lab-States archived`），每行一枚「取消归档」。\n- 截图 `f-70-after-unarchive-returned.png`：点过之后那一节只剩一行，`Lab-Alpha task 2` 回到 `Lab-Alpha` 那一组的会话行里。"
+      "notes": "读数（与 N-01 同一次运行，F-72 20/20）：\n- 夹具声明那条会话菜单槽位 = `declared` → 声明之后树底那一节**当场出现**、入口观测值从 `settings` 翻成 `inline`（判据跟注册表走，不是写死的版本号）。\n- 那一节恰好 **1** 节、列着刚归档的那一条 `session-e431b…`；这一条 id 整页只出现 **1** 次、其中在那一节里 **1** 次。\n- 那一行的「取消归档」：在场、几何非零（宽高 > 0）、`disabled = false`、读屏标签 `取消归档 Lab-Alpha task 2`、文案取自插件词典（zh / en 两份都认）。\n- 点它之后：这一条从那一节消失（`ids` 里不再有它）、树里出现它的会话行（**1** 行）、飘提示 `\"已取消归档 Lab-Alpha task 2\"`。\n- 截图 `f-72-after-archived-section-fixture.png`：树底「已归档 2」一节两行（`Lab-Alpha task 2` 与播种自带的 `Lab-States archived`），每行一枚「取消归档」。\n- 截图 `f-72-after-unarchive-returned.png`：点过之后那一节只剩一行，`Lab-Alpha task 2` 回到 `Lab-Alpha` 那一组的会话行里。"
     },
     {
       "id": "N-03",
       "phase": "new-feature",
       "name": "改前对照：撤掉本改动的源码、同一份套件在同一台实例上必须红",
-      "expect": "把这一条的产品改动撤掉（`main` 的 `packages/dsh-workspace-tree/src`、`src/pure/workspaceTreeView.ts`、`scripts/dsh-upstream-watch/clientContract.mjs`）重建产物，再跑同一份 F-71：它在同一台 0.1.6 隔离实例上必须红在「这一节该在的时候在不在」这条上——否则说明这套判据抓不住「没有还原入口」这件事。",
+      "expect": "把这一条的产品改动撤掉（`main` 的 `packages/dsh-workspace-tree/src`、`src/pure/workspaceTreeView.ts`、`scripts/dsh-upstream-watch/clientContract.mjs`）重建产物，再跑同一份 F-72：它在同一台 0.1.6 隔离实例上必须红在「这一节该在的时候在不在」这条上——否则说明这套判据抓不住「没有还原入口」这件事。",
       "result": "pass",
       "screenshots": [
-        "/tmp/dsh-sandbox-shots/f-70-before-sidebar-no-restore-entry.png"
+        "/tmp/dsh-sandbox-shots/f-72-before-sidebar-no-restore-entry.png"
       ],
       "notes": "读数（同一份套件、同一台 0.1.6-alpha.2 隔离实例、撤掉产品改动之后）：**2 / 12**，红的正是：\n- 「入口观测值合法（inline / settings / none）」（值 = `null`——改前页面上根本没有那一格观测值）；\n- 「观测值说 settings ⟺ 官方设置页那一节在场」（`false` vs 期望 `true`）；\n- 「树底「已归档」一节在场（恰好一节）」（**0** vs 期望 1）、「这一节列着刚归档的那一条」（`[]`）、「这一条整页出现次数/落在那一节里」（0 / 0）；\n- 「那一行上「取消归档」这一枚在场且可点」（`present=false`）与其文案 / 读屏标签两条。\n- 改后同一步是 20/20（N-01 + N-02）。改前那一页的截图与改后的**同一张**逐字节相同（0.1.6 上这一节本来就不该出现，所以两张同图）——两张的差别只在「装上夹具声明 0.1.7 那一代的形状之后」那一步（本项的截图 = 改前那一步，N-02 的第一张 = 改后那一步）。"
     },
@@ -54,18 +54,18 @@
       "expect": "本机 0.1.7-alpha.2 上侧栏树渲染不出来：`Minified React error #130`（官方图标导出名整批改名）已随 #236 修掉，剩下的那条是同一版上另一条**未修的启动期问题** `renderSlot('root') before any 'root' registration (boot order)`——四棵树（含不装我们插件的官方对照页 `sidebar-official`）都有它。这一版上本套件应该只记一条**带签名**的事实（`BLOCKED_017_SIGNATURES` 两条之一），签名一条都不中就必须判红，不许静默当成「这一版量不到」。",
       "result": "pass",
       "screenshots": [
-        "/tmp/dsh-sandbox-shots/f-71-017-blocked-root-boot.png"
+        "/tmp/dsh-sandbox-shots/f-72-017-blocked-root-boot.png"
       ],
-      "notes": "读数（`--from` 复用那棵候选版本树，F-71 **3/3**，2.8 秒）：侧栏页上自有树根节点节点数 = **0**（`data-dshone-tree=\"root\"` 一个都没有）；pageerror 命中签名 `renderSlot('root') before any 'root' registration (boot order)` → 这一版上那一节与那一枚按钮都量不到。\n- **这条口子与 #239 无关，判据是「改前改后逐字同值」**：不带本改动的主线基线（`main` 的源码）与带本改动的分支，在 0.1.7-alpha.2 上跑同一个 F-01，读数都是 **21 / 40**、侧栏页 pageerror 逐字相同；同一份 F-01 在 0.1.6-alpha.2 上是 **43/43、零 pageerror**。\n- 这条启动期问题**不是我们插件造成的**：#236 的验收台账（`test/sandbox/verify.icon-name-generation-fork.ledger.json` 的 F-03 那一项）已经逐条归因——官方对照页、chat 树、settings 树都有它，#236 改前也在，待另立 issue。\n- 端到端由 N-02 的夹具承载；那条启动期问题修掉之后这一档自动变成真 0.1.7 上的验证，这个口子要删掉（注释里写明了）。\n- 截图 `f-71-017-blocked-root-boot.png`：0.1.7 上那一页的样子（侧栏位置什么都没有）。"
+      "notes": "读数（`--from` 复用那棵候选版本树，F-72 **3/3**，2.8 秒）：侧栏页上自有树根节点节点数 = **0**（`data-dshone-tree=\"root\"` 一个都没有）；pageerror 命中签名 `renderSlot('root') before any 'root' registration (boot order)` → 这一版上那一节与那一枚按钮都量不到。\n- **这条口子与 #239 无关，判据是「改前改后逐字同值」**：不带本改动的主线基线（`main` 的源码）与带本改动的分支，在 0.1.7-alpha.2 上跑同一个 F-01，读数都是 **21 / 40**、侧栏页 pageerror 逐字相同；同一份 F-01 在 0.1.6-alpha.2 上是 **43/43、零 pageerror**。\n- 这条启动期问题**不是我们插件造成的**：#236 的验收台账（`test/sandbox/verify.icon-name-generation-fork.ledger.json` 的 F-03 那一项）已经逐条归因——官方对照页、chat 树、settings 树都有它，#236 改前也在，待另立 issue。\n- 端到端由 N-02 的夹具承载；那条启动期问题修掉之后这一档自动变成真 0.1.7 上的验证，这个口子要删掉（注释里写明了）。\n- 截图 `f-72-017-blocked-root-boot.png`：0.1.7 上那一页的样子（侧栏位置什么都没有）。"
     },
     {
       "id": "R-01",
       "phase": "regression",
-      "name": "整轮 `npm run verify:lab` 在 0.1.6-alpha.2 上零回归（含新增的 F-71）",
-      "expect": "整轮全部套件（含新增的 F-71）在实测通过的版本上零红。",
+      "name": "整轮 `npm run verify:lab` 在 0.1.6-alpha.2 上零回归（含新增的 F-72）",
+      "expect": "整轮全部套件（含新增的 F-72）在实测通过的版本上零红。",
       "result": "pass",
       "screenshots": [],
-      "notes": "读数：整轮 **72 项**（F-01…F-71 + R-06）**3682 / 3682 条断言全过、零红**，退出码 0（2026-09-23，`LAB_PORT=3219`，本机装的 0.1.6-alpha.2；分支已 rebase 到含 #236 的 main 之上，主线的 F-01 在本轮是 **43/43**）。其中本条新增的 **F-71 20/20**（另有一条 #242 的 F-70 10/10，与本条无关）。\n- 与「改前」的对照：同一份套件在撤掉产品改动之后于同一台实例上 2/12（见 N-03）。\n- rebase 之前那一轮（同一天、同一版 dsh、71 项 3672 / 3672）读数与它逐项一致；两轮都零红。"
+      "notes": "读数：整轮 **72 项**（F-01…F-72 + R-06）**3682 / 3682 条断言全过、零红**，退出码 0（2026-09-23，`LAB_PORT=3219`，本机装的 0.1.6-alpha.2；分支已 rebase 到含 #236 的 main 之上，主线的 F-01 在本轮是 **43/43**）。其中本条新增的 **F-72 20/20**（另有一条 #242 的 F-70 10/10，与本条无关）。\n- 与「改前」的对照：同一份套件在撤掉产品改动之后于同一台实例上 2/12（见 N-03）。\n- rebase 之前那一轮（同一天、同一版 dsh、71 项 3672 / 3672）读数与它逐项一致；两轮都零红。"
     },
     {
       "id": "R-02",

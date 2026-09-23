@@ -1,5 +1,5 @@
 /**
- * 归档之后的还原入口（#239，F-71）。
+ * 归档之后的还原入口（#239，F-72）。
  *
  * 独立成一个文件、不写进 `suites.ts` 的理由与 `tagRailSuites.ts` / `collapseAllIconSuites.ts`
  * 同一：那个文件是本批开发的合入热点，新套件放外面能少一半冲突面。注册方式是在
@@ -226,7 +226,7 @@ async function waitFor(page: Page, probe: () => Promise<boolean>, timeoutMs = 5_
 }
 
 export const ARCHIVED_RESTORE_SUITE: LabSuite = {
-  id: 'F-71',
+  id: 'F-72',
   phase: 'new-feature',
   name: '归档之后的还原入口：树底「已归档」一节与官方设置页那一节的关系（#239）',
   expect:
