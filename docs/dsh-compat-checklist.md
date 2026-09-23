@@ -8,6 +8,40 @@ dsh-one 是 dsh 的客户端（gateway HTTP/WS RPC + webview 嵌入），上游�
 - **自动化探针**（`.github/workflows/dsh-upstream-watch.yml` 每日 04:00 UTC+8 跑 `scripts/dsh-upstream-watch/probe.mjs`，覆盖 wire 面、网关前端产物、客户端契约面与本机官方产物面，结果见 `upstream-watch` label 的 issue 与 README 徽章）。安装途径：版本已上 npm 走 `npm install`（快）；**GitHub-only 版本走源码构建**（codeload 源码包 → `pnpm install --frozen-lockfile` → `pnpm run build` → `node --import tsx/esm apps/cli/src/bin.ts`，上游 README 的 Run from source 路径），保证发 npm 前就能提前测。
 - **人工/补充项**（探针覆盖不到的模型行为与端到端，由认领该版本测试 issue 的人执行）
 
+## 支持的 dsh 版本
+
+装配界面只对**实测过**的版本作承诺。三种状态分开写，不许混：
+
+| dsh 版本 | 状态 | 整轮 `npm run verify:lab` 读数 |
+|---|---|---|
+| `0.1.6-alpha.1` | **实测通过** | 69 项全过、3620 条断言全过、零红（2026-09-22 记录）。它也是**版本门的下界** |
+| `0.1.6-alpha.2` | 实测通过 | 67 项里 65 项绿、3580 / 3583 条断言；剩下两条是 chat 树的启动 / settle 读数，另立 #226（2026-09-22，本机装的那一版） |
+| `0.1.7-alpha.2` | **实测不通** | 读数与红项见下一节（2026-09-23 实测）。根因一条：官方把图标名从尺寸后缀改成字重后缀，自有插件 import 的 26 个图标名全变成 `undefined`，凡是用到自有插件的槽位当场崩（另立 #236） |
+| `0.1.5-rc.2` | **实测不通** | 69 项里 67 过 / 2 红（F-54 44/47、F-67 7/23，2026-09-23 实测） |
+| `0.1.2-rc.1` | **实测不通** | 69 项里 52 过 / 17 红（2026-09-22 实测，三类根因见 #234） |
+| 其余版本 | **未验过** | 含 npm `next` 指的 `0.1.5-rc.3`，以及 `0.2.0` 及以上 |
+
+**装哪一版**：今天**没有任何 npm dist-tag 指向实测可用的版本**（2026-09-23 实测：`latest` = 0.1.5-rc.2、`next` = 0.1.5-rc.3，两个都低于下界；`alpha` = 0.1.7-alpha.2，落在区间内但实测不通），所以只能按确切版本装：`npm install -g @deepseek-ai/dsh@0.1.6-alpha.1`——它整轮零红。这句话与界面上的信息条同源，都取 `src/pure/versionGate.ts` 的 `VERIFIED_INSTALL_VERSION`。
+
+**版本门**：装配页期望 dsh `[0.1.6-alpha.1, 0.2.0)`，下界就是上表里实测通过的最老版本。这道门**不阻断**：区间外的版本在面板顶部出一条信息条，条上连安装命令一起给（原来只说「期望区间」，用户不知道该装哪一版，是 #234 要解决的半个问题）。
+
+有一处已知不严：它是**整段判断**，表达不了「落在区间内但实测坏」的版本——`0.1.7-alpha.2` 就是这种（区间内，整片红）。要不要再加一份「已知不可用」的名单，留给 #234 后续条目定；在那之前只能靠上表与 README 的版本表说清，所以两条声明里都必须把 0.1.7-alpha.2 单列出来。
+
+### 0.1.7-alpha.2 实测不通：官方改图标名，自有插件整片崩
+
+`@deepseek-ai/dsh-client-ui-primitives` 的图标导出在 0.1.7-alpha.2 整批换了一代写法：0.1.6-alpha.2 是尺寸后缀（`IconCloseFill14`、`IconArchiveOutline20`），0.1.7-alpha.2 是字重后缀（`IconCloseFillMedium` / `IconCloseFillRegular`），两代**互不重叠**。模块加载器按名字取导出，取不到不报错、只是 `undefined`，于是渲染时才炸：`slot entry crashed in 'sidebar.workspaces': Error: Minified React error #130`。
+
+我们取用的 34 个名字里 26 个是这代消失的图标，剩下 8 个（`Button` / `HoverCard` / `Menu` / `Modal` / `StateDot` / `Tooltip` / `relativeTime` / `writeClipboard`）两代都在。适配工作另立 #236；在那之前 0.1.7-alpha.2 不算支持版本。
+
+同一版还有一处漂移，已在本次修掉（不必等 236）：`__DSH_BOOT__.batches[].url` 从 `/plugins/??…` 变成 `plugins/??…`（**相对地址，不带前导斜杠**）。`src/server/assemblyMirror.ts` 原来字符串拼 `gateway + url`，拼出 `http://127.0.0.1:61091plugins/??…` 这种解析不了的地址、整页的整包全废；改成 `new URL(url, gateway)` 解析，带前导斜杠的写法结果不变。
+
+### 0.1.5-rc.2 实测不通：启动自愈不生效、composer 的 ＋ 不在场
+
+67 项过、2 红，两条红各自成一类：
+
+- **F-54 交互活性（44/47）**：红的三条全在 composer 的 ＋ 上（`present=false`）。官方那一代没有 `pickFiles`，这个控件根本不在场，套件里「＋ 点不动时页面必须留一行能指名道姓的失败」「把不合契约的贡献摘掉之后 ＋ 必须恢复」这两条的前提就不成立。属 #234 的 (B) 类（判据钉的是 0.1.6 才有的形状），叠着一个真实能力缺口（那一代没有 ＋）。
+- **F-67 启动自愈（7/23）**：页面加载次数停在 1、没摘条目、也没落失败提示条——自愈整族在这版没生效，与 #234 在 0.1.2-rc.1 上看到的**同一签名**。这一条因此不再是 rc1 独有：它是这一代（0.1.5 及更早）的共同表现，具体成因仍属 #234 的 (C) 未定性项，本次没查。
+
 ## 自动化探针项（probe.mjs，23 项）
 
 探针分三类：**伺服面**（wire——网关对外的 HTTP/WS 接口。含装配形态直引的那两样网关前端产物：`/` 的 HTML 与 `/plugins/??` 的 combo——上游改了交互方式或改了产物写法，都在这一面现形）、**客户端契约面**（combo——装配线直引官方前端插件代码，官方的 slot 名、hook 名、字段名就是我们的 ABI）与**官方产物面**（本机已安装的官方包文件——静默失效型依赖：坏了不报错、只是不生效；含每棵树 block list 的补全检查）。三类都由 `.github/workflows/dsh-upstream-watch.yml` 每日 04:00 UTC+8 跑。

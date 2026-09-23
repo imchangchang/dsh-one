@@ -86,9 +86,12 @@ test/sandbox/run-sandbox.sh start --mock-llm
 | 凭证 | 真实 API key | `MOCK_LLM_KEY=mock-key-1`（仅容器内有效） |
 | 用途 | 宣发截图、人工核对观感（宿主层准绳是 `scripts/dev-ui-test.sh`） | 无凭证/离线跑真 dsh 全逻辑、喂边界态 |
 
-镜像里 pin 的是 `@deepseek-ai/dsh@0.1.5-rc.2`（见 `test/sandbox/Dockerfile`）：这是 npm 上 `latest`
-指向的版本，也落在扩展的支持区间 `[0.1.2-rc.1, 0.2.0)` 内（版本门出处 `src/ui/assemblyView.ts`）。
-旧 pin `0.1.1-rc.2` 在区间之外（缺 browser-session 认证与 loader 协议），升级的实测记录见 #220。
+镜像里 pin 的是 `@deepseek-ai/dsh@0.1.5-rc.2`（见 `test/sandbox/Dockerfile`）：它过去是 npm `latest`
+指向的版本，但**现在落在扩展的支持区间之外**——版本门下界已抬到 `0.1.6-alpha.1`
+（口径与出处：`src/pure/versionGate.ts`），而 0.1.5-rc.2 整轮实测有 2 项红（启动自愈整族不生效、
+composer 的 ＋ 不在场，见 `docs/dsh-compat-checklist.md`）。**升级这个 pin 是待办**：换到
+0.1.6-alpha.1 并照 #220 那次的流程重跑一轮，再回来改这段文字。旧 pin `0.1.1-rc.2` 更早、更外，
+它的升级实测记录见 #220。
 
 2026-09-20 的实测读数（`--instance dshpin`，跑完容器与镜像都已删除）：
 
