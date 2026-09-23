@@ -213,10 +213,13 @@ export function resolveOfficialIcon(namespace: OfficialIconNamespace, name: Offi
   const other: IconWeight = weight === 'Medium' ? 'Regular' : 'Medium'
   const otherHint =
     typeof namespace[`${name}${other}`] === 'function'
-      ? `另一档 \`${name}${other}\` 在场，把 officialIcons.ts 里这枚的 weight 改成 '${other}' 即可。`
+      ? ` Only \`${name}${other}\` is exported; set this icon's weight to '${other}' in officialIcons.ts.`
       : ''
+  // 报错文案用英文：src 里的运行期错误一律英文（i18n 门禁只放行注释与已登记的词条），
+  // 与既有的 `UI manifest: no bootstrap batch` 同一约定；给人看的说明在上面这段注释里。
   throw new Error(
-    `官方图标导出名不在场：${name} 这一代要 \`${name}${weight}\`、上一代要 \`${fork.sized}\`，两个都没有。` +
-      `出处 @deepseek-ai/dsh-client-ui-primitives 的导出表（0.1.7-alpha.2 起改成档位后缀）。${otherHint}`,
+    `dsh official icon export missing: ${name} expects \`${name}${weight}\` on this generation ` +
+      `and \`${fork.sized}\` on the previous one, neither is exported by ` +
+      `@deepseek-ai/dsh-client-ui-primitives.${otherHint}`,
   )
 }
