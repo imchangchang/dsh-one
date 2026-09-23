@@ -1059,8 +1059,28 @@ function textSelector(zhText: string, build: (variant: string) => string): strin
   return texts(zhText).map(build).join(', ')
 }
 
-/** composer 的 ＋：表里与「＋ 专件」那三条断言用同一个选择器，先算一次，免得两处各写各的。 */
-const COMPOSER_COMMANDS = textSelector('添加文件或调用指令', (label) => `${COMPOSER} button[aria-label="${label}"]`)
+/**
+ * composer 的 ＋：表里与「＋ 专件」那三条断言用同一个选择器，先算一次，免得两处各写各的。
+ *
+ * **两代两个标签**（2026-09-23 读两代官方产物坐实，实测 0.1.5-rc.2 / 0.1.6-alpha.2）：
+ * 按钮是同一枚——`InputBar` 里那枚 `className: …add`、`aria-haspopup="listbox"`、
+ * `IconPlusOutline16`、点它 `toggleCommandMenu` 开共享的候选菜单；变的是官方词典里那条键
+ * （`input.commands`）的取值：0.1.6-alpha.1 起是「添加文件或调用指令」/「Add files or run
+ * commands」，0.1.5 线是「指令」/「Commands」。所以按**两代文案都认**，而不是按版本号跳过
+ * 这一枚（跳过会把覆盖面悄悄缩小，正是 #208/#209 要堵的那一件事）。
+ *
+ * 那两代确实有一处**能力**不同：0.1.5 线没有官方 `pickFiles`（那一代的 ＋ 只是候选菜单
+ * 入口，不是「选文件」入口），而本套件判的从来是「点它有没有反应」，不是「它是不是文件
+ * 入口」——期望写在同一张表里（`expect: 弹出指令候选菜单`）。
+ *
+ * 0.1.5 那一条多加一个属性（`aria-haspopup="listbox"`，源码里就写在这一枚上）把匹配面收窄：
+ * 官方 `ui-input-trigger` 的候选菜单里也有写着「指令」的东西（那条 source 的名字），
+ * 不该被它顶替。
+ */
+const COMPOSER_COMMANDS = [
+  textSelector('添加文件或调用指令', (label) => `${COMPOSER} button[aria-label="${label}"]`),
+  textSelector('指令', (label) => `${COMPOSER} button[aria-label="${label}"][aria-haspopup="listbox"]`),
+].join(', ')
 
 /**
  * 会话头那枚官方 open-in-app 分裂按钮：它的 `aria-label` 是官方 `open.title` 渲染出来的
@@ -1096,8 +1116,11 @@ const CONTEXT_METER_BUTTON = textSelector('上下文已用 {percent}', (template
  */
 const CHAT_POINTS: ReadonlyArray<LivenessPoint> = [
   {
-    label: 'composer 的 ＋（添加文件或调用指令）',
-    textSources: [{ zh: '添加文件或调用指令', tier: 'official' }],
+    label: 'composer 的 ＋（添加文件或调用指令 / 0.1.5 线上的「指令」）',
+    textSources: [
+      { zh: '添加文件或调用指令', tier: 'official' },
+      { zh: '指令', tier: 'official' },
+    ],
     selector: COMPOSER_COMMANDS,
     expect: '弹出指令候选菜单（官方 `/` 源）',
     official: COMPOSER_COMMANDS,

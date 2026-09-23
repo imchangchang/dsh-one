@@ -164,7 +164,7 @@ export const CONTRACT_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '底座契约完备性：四棵树在真实网关上零崩溃、零缺失契约（CONTRACT 套件）',
   expect:
-    '实验室四棵树（自有 sidebar 树、官方浏览区对照档、chat 树、settings 树）各自在真实网关只读下打开：**零 `slot entry crashed`**（官方渲染层崩溃 + 页面无 `data-slot-error` 元素）、**零 pageerror**、**零装载未激活**（官方 `web boot: … did not activate` / `waiting for service`，即缺服务/缺钩子那类底座缺口）；该树自己的关键槽位**有内容**（不是空壳）、**预期槽位锚点都在**（官方改槽位名/改归属时这里先红）、该树的 frame 插件 bundle 真的装进了页面（combo 请求里有它的 id、页面上有它的 CSS 标记）；chat 树额外核官方右栏槽位（声明 + 官方 ui-sidebar-right 的槽位已注册 + 面板几何在官方钳位区间内）。缺 hook 与缺服务在页面上的表现就是 `slot entry crashed` / `did not activate`，所以这两条断言即 hook/服务的完备性断言。',
+    '实验室四棵树（自有 sidebar 树、官方浏览区对照档、chat 树、settings 树）各自在真实网关只读下打开：**零 `slot entry crashed`**（官方渲染层崩溃 + 页面无 `data-slot-error` 元素）、**零 pageerror**、**零装载未激活**（官方 `web boot: … did not activate` / `waiting for service`；0.1.5 线那种「审计跑不到」的版本上是 `failed to <import|apply> loader entry …`——两种形状都算，见 `harness.ts` 的 `BOOT_FAIL_RE`，即缺服务/缺钩子那类底座缺口）；该树自己的关键槽位**有内容**（不是空壳）、**预期槽位锚点都在**（官方改槽位名/改归属时这里先红）、该树的 frame 插件 bundle 真的装进了页面（combo 请求里有它的 id、页面上有它的 CSS 标记）；chat 树额外核官方右栏槽位（声明 + 官方 ui-sidebar-right 的槽位已注册 + 面板几何在官方钳位区间内）。缺 hook 与缺服务在页面上的表现就是 `slot entry crashed` / `did not activate`，所以这两条断言即 hook/服务的完备性断言。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     for (const entry of CONTRACT_TREES) {

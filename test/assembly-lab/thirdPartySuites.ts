@@ -36,7 +36,7 @@
  *    插件的段（不是「被拒所以浏览器拿到 404」）。
  * ③ **负向对照**（把分类改回改前那一套，同一个现场）：同一台网关、同一棵树、同一个 URL
  *    ——整包回 **404**、镜像日志里正是现场那句 `rejected local combo ids …`、页面**起不来**
- *    （就绪点不出现、插件的标记属性为空、控制台里是官方那句 `web boot: … did not activate`）。
+ *    （就绪点不出现、插件的标记属性为空、控制台里是官方报出来的那句失败——启动审计那句 `web boot: … did not activate`，或在 0.1.5 线那种「审计跑不到」的版本上的 `failed to import loader entry …`）。
  *    这一档存在的理由只有一个：证明上面那条正面判据真的抓得住这个 bug——分类一改回去就必须红。
  */
 import * as fsp from 'node:fs/promises'
@@ -64,6 +64,12 @@ const SIDEBAR_TREE = route('sidebar')
 
 /** 官方那句审计报错的头一行（与 F-01 / F-67 同一条口径）。 */
 const AUDIT_LINE = 'web boot:'
+
+/**
+ * 0.1.5 线那一代的失败文本头（那一代审计跑不到，见 `harness.ts` 的 `BOOT_FAIL_RE`）。
+ * 负向对照在那一代报的就是它。
+ */
+const LEGACY_ENTRY_FAIL = 'failed to import loader entry'
 
 /** 镜像那句「整份拒绝」的日志（现场日志里逐字如此）。 */
 const REJECT_LOG = 'rejected local combo ids'
@@ -114,9 +120,13 @@ async function readManifest(page: OpenedPage['page'], id: string): Promise<Manif
   }, id)
 }
 
-/** 官方那几类失败行（与 F-57 / F-67 同一口径）。 */
+/**
+ * 官方那几类失败行（与 F-57 / F-67 同一口径）：启动审计那一句、0.1.5 线的 loader entry 那一句、
+ * 缺服务、槽位崩溃。**两种失败文本都算**（理由见 `harness.ts` 的 `BOOT_FAIL_RE`）——不认
+ * 0.1.5 线那一种的话，负向对照在这一代就「控制台里读不到官方那句」而假红。
+ */
 const bootFailures = (capture: OpenedPage['capture']): string[] =>
-  capture.consoleErrors.filter((line) => /did not activate|waiting for service|slot entry crashed/.test(line))
+  capture.consoleErrors.filter((line) => /did not activate|waiting for service|failed to (?:import|apply) loader entry|slot entry crashed/.test(line))
 
 async function shot(ctx: { shots: string }, page: OpenedPage['page'], name: string): Promise<string> {
   const file = path.join(ctx.shots, `${name}.png`)
@@ -130,7 +140,7 @@ export const THIRD_PARTY_PLUGIN_SUITE: LabSuite = {
   phase: 'new-feature',
   name: 'profile 里的第三方插件不再让整页起不来（#237）：整包分类按来源、单点不认识只丢那一条',
   expect:
-    '实验室自起一台实例，它的**隔离 profile 里装着一个合成的第三方插件**（浏览器半的形状复刻现场那一个包：一行、id 写成模板字面量，装包走官方命令 `dsh plugin --profile web add file:<目录>`，见 `thirdPartyPlugin.ts` 的文件头），再用**缺省口径**（= 生产口径）的实验室服务器开侧栏树页面。① **前提**：这一页的本页清单里有那条第三方 id，而且它所在 application 批的 entries 与批的 combo URL 都带着它（这一页确实要取它）；② **正面**：装配页**照常起来**（就绪点 `.dshOneTree_root` 出现、自有的树有内容）、那个插件的条目**真的在页面上跑起来了**（它自己往 `<html>` 写的 `data-lab-third-party` 与那个全局都等于它的 id）、零装载未激活 / 零槽位崩溃 / 零 pageerror、镜像日志里**没有** `rejected local combo ids` 那一句，再把这页发过的那条整包 URL 从进程侧取一次：**HTTP 200** 且正文里含它的段（不是被拒之后的 404）；③ **负向对照**（同一台网关、同一棵树、同一个 URL，把分类换回改前那一套：只认双引号的 id + 不认识就整份 404）：整包回 **404**、镜像日志里正是现场那句 `rejected local combo ids …@dsh-external/dsh-lab-third-party`、页面**起不来**（就绪点不出现、插件的标记属性为空、控制台里是官方那句 `web boot: … did not activate` 与那条插件的 `import failed`）。三档读数都要有：缺了负向对照就说明不了「这条夹具真的抓得住这个 bug」。',
+    '实验室自起一台实例，它的**隔离 profile 里装着一个合成的第三方插件**（浏览器半的形状复刻现场那一个包：一行、id 写成模板字面量，装包走官方命令 `dsh plugin --profile web add file:<目录>`，见 `thirdPartyPlugin.ts` 的文件头），再用**缺省口径**（= 生产口径）的实验室服务器开侧栏树页面。① **前提**：这一页的本页清单里有那条第三方 id，而且它所在 application 批的 entries 与批的 combo URL 都带着它（这一页确实要取它）；② **正面**：装配页**照常起来**（就绪点 `.dshOneTree_root` 出现、自有的树有内容）、那个插件的条目**真的在页面上跑起来了**（它自己往 `<html>` 写的 `data-lab-third-party` 与那个全局都等于它的 id）、零装载未激活 / 零槽位崩溃 / 零 pageerror、镜像日志里**没有** `rejected local combo ids` 那一句，再把这页发过的那条整包 URL 从进程侧取一次：**HTTP 200** 且正文里含它的段（不是被拒之后的 404）；③ **负向对照**（同一台网关、同一棵树、同一个 URL，把分类换回改前那一套：只认双引号的 id + 不认识就整份 404）：整包回 **404**、镜像日志里正是现场那句 `rejected local combo ids …@dsh-external/dsh-lab-third-party`、页面**起不来**（就绪点不出现、插件的标记属性为空、控制台里是官方报出来的那句失败——启动审计那句 `web boot: … did not activate` 加点名那条 id，或在 0.1.5 线那种「审计跑不到」的版本上的 `failed to import loader entry <entryId> (<id>): …`）。三档读数都要有：缺了负向对照就说明不了「这条夹具真的抓得住这个 bug」。',
   run: async (ctx, check): Promise<string[]> => {
     const shots: string[] = []
     const gatewayLines: string[] = []
@@ -263,8 +273,9 @@ export const THIRD_PARTY_PLUGIN_SUITE: LabSuite = {
             `装载未激活 ${String(failures.length)} 行（首行：${JSON.stringify((failures[0] ?? '').slice(0, 120))}）`,
         )
         check.ok(
-          '③ 负向对照：控制台里是官方那句启动审计（点名的那批条目一条都没激活），与用户现场同形',
-          failures.some((line) => line.includes(AUDIT_LINE)) && failures.some((line) => line.includes(THIRD_PARTY_PLUGIN_ID)),
+          '③ 负向对照：控制台里是官方报出来的那句失败（启动审计那一句，或 0.1.5 线的 loader entry 那一句），与用户现场同形',
+          failures.some((line) => line.includes(AUDIT_LINE) || line.includes(LEGACY_ENTRY_FAIL)) &&
+            failures.some((line) => line.includes(THIRD_PARTY_PLUGIN_ID)),
           `命中 ${String(failures.length)} 行；例如 ${JSON.stringify((failures[0] ?? '').slice(0, 200))}`,
         )
         check.fact(`③ 负向对照的审计原文：${failures.slice(0, 3).join(' / ').slice(0, 400)}`)
