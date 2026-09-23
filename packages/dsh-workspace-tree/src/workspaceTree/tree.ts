@@ -3,7 +3,7 @@ import { createElement as h, useEffect, useMemo, useRef, useState } from 'react'
 import { writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 import { officialIcon } from '@dsh-one/dsh-plugin-kit/officialIcons'
 import { NO_PENDING, pendingSourceOf } from '../../../../src/pure/sessionPendingSource.ts'
-import { currentWorkspaceFirst, deriveFlat, deriveGroups, deriveRecycleGroups, groupSessionNodes, indexSubagentDescendants, owningGroupKey, sessionNode, UNGROUPED_KEY, visibleRecycleIds, withCompletedIds, withCurrentSession, withoutPanelOpenCompleted, workspaceActivityCounts, type ActivityCounts, type GroupNode, type SessionNode } from '../../../../src/pure/workspaceTreeView.ts'
+import { currentWorkspaceFirst, deriveArchived, deriveFlat, deriveGroups, deriveRecycleGroups, groupSessionNodes, indexSubagentDescendants, owningGroupKey, sessionNode, UNGROUPED_KEY, visibleRecycleIds, withCompletedIds, withCurrentSession, withoutPanelOpenCompleted, workspaceActivityCounts, type ActivityCounts, type GroupNode, type SessionNode } from '../../../../src/pure/workspaceTreeView.ts'
 import { formatFileMention } from '../../../../src/pure/fileReference.ts'
 import { formatSessionMention } from '../../../../src/pure/sessionMention.ts'
 import {
@@ -64,6 +64,8 @@ import {
 import { isPresetTagId, type TagColor } from '../../../../src/pure/sessionTags.ts'
 import type { GroupFile } from '../../../../src/pure/dshStateFile.ts'
 import { FlashHost, flashTip } from './flash.ts'
+import { ArchivedSection } from './archivedSection.ts'
+import { useOfficialSessionMenu } from './archivedSectionStore.ts'
 import { onSessionOwnedElsewhere } from './sessionOwnedNotice.ts'
 import { usePanelOpenSessions } from './panelSessionsStore.ts'
 import { displayTitle } from './format.ts'
@@ -136,6 +138,7 @@ export function WorkspaceTree(props: TreeProps): unknown {
     loadCurrentFolders,
     isSessionInPanel,
     openSessionPanel,
+    unarchiveSession,
   } = props
   const tr = t
   const now = Date.now()
@@ -277,6 +280,25 @@ export function WorkspaceTree(props: TreeProps): unknown {
   const archived = new Set(archivedSessionIds)
   const recycledIds = visibleRecycleIds(bin.ids, list, archivedSessionIds)
   const recycled = new Set(recycledIds)
+
+  /**
+   * #239：树底「已归档」一节。三个条件同时成立才渲染，缺一条都不渲染：
+   *
+   * 1. **官方服务上有取消归档这个方法**（`unarchiveSession` 注入面在场）——缺席时那一节
+   *    无从动作，给了也是死按钮；
+   * 2. **这一代官方的取消归档入口是被我们遮蔽的那一套**（官方侧栏会话菜单槽位在场，
+   *    见 `archivedSectionStore.ts`）——0.1.6 及以前官方入口是设置页那一节，那一代多出
+   *    第二个入口只是噪音，也正是「0.1.6 不许回归」这条口径要守的；
+   * 3. **归档集合里真有我们认得出来的会话**（`deriveArchived`）——没有就整节不出现，
+   *    不当空壳占位。
+   */
+  const officialSessionMenu = useOfficialSessionMenu()
+  const archivedEntries = useMemo(
+    () => (unarchiveSession === undefined || !officialSessionMenu ? [] : deriveArchived(list, archivedSessionIds)),
+    [unarchiveSession, officialSessionMenu, list, archivedSessionIds],
+  )
+  /** 正在取消归档的那一条（那次请求回来之前按钮禁用，防连点）。 */
+  const [unarchiveBusy, setUnarchiveBusy] = useState<string | null>(null)
 
   // 视图态写回（每次变更落一次；写失败静默——视图态不是数据）。
   useEffect(() => {
@@ -830,6 +852,31 @@ export function WorkspaceTree(props: TreeProps): unknown {
       : (sessionId: string): void => {
           void openInNewTab(sessionId).catch((reason: unknown) => reportFailure('openInNewTab.failed', reason))
         }
+
+  /**
+   * #239：取消归档一条会话（树底「已归档」一节那一枚按钮）。
+   *
+   * 动作本体是官方服务（`uiWorkspace.unarchiveSession` → `workspaces.unarchiveSession`，
+   * 见 `workspaceTreePlugin.ts` 的 `unarchivePort`），这里只管三件事：**取消期间禁用那一枚**
+   * （防连点，请求回来之前那一条还在归档集合里，连点只会再发一次同样的请求）、
+   * **成功了飘一句 + 列表自己会更新**（官方那条服务会推新的归档集合与列表快照，树跟着重渲染，
+   * 那条会话于是回到它所属的工作区里）、**失败留一行看得见的反馈**（#110 的规矩，
+   * 不 `.catch(() => {})` 吞掉——这一节是误归档之后唯一的退路，失败必须是看得见的事实）。
+   */
+  const restoreArchived = (sessionId: string): void => {
+    if (unarchiveSession === undefined || unarchiveBusy !== null) return
+    setUnarchiveBusy(sessionId)
+    unarchiveSession(sessionId).then(
+      () => {
+        setUnarchiveBusy(null)
+        flashTip(tr('archived.done', { name: archivedEntries.find((entry) => entry.id === sessionId)?.title ?? '' }))
+      },
+      (reason: unknown) => {
+        setUnarchiveBusy(null)
+        reportFailure('archived.failed', reason)
+      },
+    )
+  }
 
   /**
    * #109：把一段文本写进剪贴板 + 飘一条回执。
@@ -1617,6 +1664,20 @@ export function WorkspaceTree(props: TreeProps): unknown {
        * 而不是「什么都没发生」（#184 的常驻断言之一，见 test/assembly-lab/pendingDotSuites.ts）。
        */
       'data-dshone-tree-pending-source': pendingSource?.hook ?? 'none',
+      /**
+       * #239：取消归档这一代由谁提供（观测点，取值 = `inline` / `settings` / `none`）。
+       *
+       * - `inline`：官方这一代把自己的入口搬进了侧栏会话菜单（那个槽位被我们遮蔽），
+       *   树底「已归档」一节由我们出——它就是取消归档的入口；
+       * - `settings`：官方这一代还带着设置页那一节（0.1.6 及以前），我们不再补第二个入口；
+       * - `none`：两侧都没有（官方的取消归档服务方法也取不到）——那种页面上就没有退路了，
+       *   这一格把它变成看得见的事实，而不是「今天没有已归档会话」那种分不出来的安静。
+       *
+       * 写进 DOM 的理由与上面那条 pending-source 同一条：浏览器验证据它断言「这一代是哪
+       * 一种形状」，并据此挑对应的期望文案（见 test/assembly-lab/archivedRestoreSuites.ts）。
+       */
+      'data-dshone-tree-unarchive-entry':
+        unarchiveSession === undefined ? 'none' : officialSessionMenu ? 'inline' : 'settings',
     },
     // 顶部工具栏（#99 B 段；#135 起**一行五件**）：行首是分组过滤胶囊（原来自己在列表区
     // 占一行），右边依次是官方搜索栏（#132 起默认折叠，点开才展开）+ 折叠/展开全部 +
@@ -1734,6 +1795,19 @@ export function WorkspaceTree(props: TreeProps): unknown {
         'div',
         { className: 'dshOneTree_list' },
         ...listChildren,
+        // #239：树底「已归档」一节（取消归档的唯一入口）。**搜索态不渲染**：那一刻列表里
+        // 是搜索结果，混一节归档清单进去会让「搜索结果里有几条」这类读数变得含糊
+        //（官方 0.1.7 那条「从搜索结果恢复」走的是另一条路，我们这条有意不掺进去）。
+        trimmedQuery === '' && archivedEntries.length > 0
+          ? h(ArchivedSection, {
+              key: 'archived-section',
+              entries: archivedEntries,
+              now,
+              tr,
+              busyId: unarchiveBusy,
+              onUnarchive: restoreArchived,
+            })
+          : null,
       ),
     ),
     // 回收站抽屉（#103）：本地可逆那一层。块头折叠态是纯视图态，随视图偏好一起落
@@ -1862,6 +1936,10 @@ export function WorkspaceTree(props: TreeProps): unknown {
       tr,
       busy: archiveBusy,
       error: archiveError,
+      // #239：取消归档这一代的入口在不在树底那一节里（说明那一行按它二选一，理由写在
+      // `ArchiveSessionsModal` 上）。判据与「那一节渲染不渲染」同一份：官方服务上的
+      // 取消归档在场 **且** 官方这一代的入口是被我们遮蔽的那套（会话菜单槽位在场）。
+      inlineRestore: unarchiveSession !== undefined && officialSessionMenu,
       onConfirm: confirmArchive,
       onClose: () => {
         if (archiveBusy) return

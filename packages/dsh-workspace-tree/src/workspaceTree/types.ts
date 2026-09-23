@@ -160,6 +160,17 @@ export interface TreeProps extends PendingHookProps {
    */
   openSessionPanel: (sessionId: string) => Promise<void>
   /**
+   * #239：取消归档（官方 `workspaces` / `uiWorkspace` 服务上的 `unarchiveSession`）。
+   * **undefined = 官方服务上没有这个方法**（0.1.6 与 0.1.7 上都在场，实测过）——那一刻
+   * 树底那一节整块不渲染，免得给一枚点了没反应的按钮。
+   *
+   * 另一条判据（「这一代该不该由我们出这一节」）不在这里，而在
+   * `workspaceTree/archivedSectionStore.ts` 的 `useOfficialSessionMenu()`：它读的是
+   * 播放期还能变的注册表事实（官方侧栏会话菜单槽位在不在），所以不能塞进**缓存求值**的
+   * 注入面。
+   */
+  unarchiveSession?: ((sessionId: string) => Promise<void>) | undefined
+  /**
    * #109 工作区行：在编辑器窗口里打开这个工作区文件夹（`newWindow` = 另开一个窗口）。
    * **undefined = 这个宿主没有编辑器窗口**（官方 web 形态）：hover 的「在 VS Code 打开」
    * 与右键的「在新窗口打开文件夹」两项都不出现。

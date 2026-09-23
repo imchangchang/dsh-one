@@ -84,13 +84,25 @@ export const ZH: Record<string, string> = {
   'archive.title.one': '\u5f52\u6863\u8fd9\u4e2a\u4f1a\u8bdd\uff1f',
   'archive.title.many': '\u5f52\u6863 {n} \u4e2a\u4f1a\u8bdd\uff1f',
   'archive.title.empty': '\u6e05\u7a7a\u56de\u6536\u7ad9\uff08{n} \u4e2a\u4f1a\u8bdd\uff09\uff1f',
-  'archive.desc': '\u5f52\u6863 = \u5220\u9664\uff1a\u8fd9\u4e9b\u4f1a\u8bdd\u4f1a\u4ece\u5217\u8868\u91cc\u6d88\u5931\uff0c\u4e0d\u80fd\u5728\u8fd9\u91cc\u6062\u590d\uff08\u4f1a\u8bdd\u8bb0\u5f55\u4ecd\u7559\u5728 dsh \u4e0a\uff09\u3002',
   'archive.skipped': '\u53e6\u6709 {n} \u4e2a\u4f1a\u8bdd\u4e0d\u7b26\u5408\u5f52\u6863\u6761\u4ef6\uff0c\u5df2\u8df3\u8fc7\u3002',
   'archive.confirm': '\u5f52\u6863',
   'archive.pending': '\u6b63\u5728\u5f52\u6863\u2026',
   'archive.failed': '{n} \u4e2a\u4f1a\u8bdd\u5f52\u6863\u5931\u8d25',
   'archive.failed.reason': '\u5f52\u6863\u5931\u8d25\uff1a{message}',
   'archive.done': '\u5df2\u5f52\u6863 {n} \u4e2a\u4f1a\u8bdd',
+  // #239：树底「已归档」一节（取消归档的入口）。这一节的措辞照官方同一份词典：
+  // 节名 / 徽标用 `row.archived`（「已归档」），动作沿用 0.1.7 官方会话行菜单那一项
+  // 的键名与取值（`menu.unarchiveSession` = 「取消归档」），0.1.6 官方设置页那一节
+  // 用的也是同一个词（`unarchive` = 「取消归档」、`unarchiveNamed` = 「取消归档 {title}」）。
+  // 两代的归档确认弹窗说明各一条：这一代（会话菜单那一代）说「在树底的已归档一节里」，
+  // 老一代说「在设置页的已归档会话一节里」——两句话各自只说这一代真实成立的事。
+  'archive.desc.inline': '\u5f52\u6863 = \u5220\u9664\uff1a\u8fd9\u4e9b\u4f1a\u8bdd\u4f1a\u4ece\u5217\u8868\u91cc\u6d88\u5931\uff0c\u4f1a\u8bdd\u8bb0\u5f55\u4ecd\u7559\u5728 dsh \u4e0a\u3002\u5b83\u4eec\u5728\u6811\u5e95\u7684\u300c\u5df2\u5f52\u6863\u300d\u4e00\u8282\u91cc\uff0c\u53ef\u4ee5\u53d6\u6d88\u5f52\u6863\u3002',
+  'archive.desc.settings': '\u5f52\u6863 = \u5220\u9664\uff1a\u8fd9\u4e9b\u4f1a\u8bdd\u4f1a\u4ece\u5217\u8868\u91cc\u6d88\u5931\uff0c\u4f1a\u8bdd\u8bb0\u5f55\u4ecd\u7559\u5728 dsh \u4e0a\u3002\u8bef\u5f52\u6863\u7684\u8bdd\uff0c\u53bb\u8bbe\u7f6e\u9875\u7684\u300c\u5df2\u5f52\u6863\u4f1a\u8bdd\u300d\u4e00\u8282\u53d6\u6d88\u5f52\u6863\u3002',
+  'archived.section': '\u5df2\u5f52\u6863',
+  'archived.unarchive': '\u53d6\u6d88\u5f52\u6863',
+  'archived.unarchive.aria': '\u53d6\u6d88\u5f52\u6863 {name}',
+  'archived.done': '\u5df2\u53d6\u6d88\u5f52\u6863 {name}',
+  'archived.failed': '\u53d6\u6d88\u5f52\u6863\u5931\u8d25\uff1a{message}',
   'empty.none': '\u6682\u65e0\u4f1a\u8bdd',
   'empty.noMatches': '\u65e0\u5339\u914d\u7ed3\u679c',
   'empty.loading': '\u52a0\u8f7d\u4e2d\u2026',
@@ -310,13 +322,22 @@ export const EN: Record<string, string> = {
   'archive.title.one': 'Archive this session?',
   'archive.title.many': 'Archive {n} sessions?',
   'archive.title.empty': 'Empty the recycle bin ({n} sessions)?',
-  'archive.desc': 'Archiving deletes: these sessions disappear from the list and cannot be restored here (the session records stay on dsh).',
   'archive.skipped': '{n} selected sessions cannot be archived and were skipped.',
   'archive.confirm': 'Archive',
   'archive.pending': 'Archiving\u2026',
   'archive.failed': '{n} sessions could not be archived',
   'archive.failed.reason': 'Archive failed: {message}',
   'archive.done': 'Archived {n} sessions',
+  // #239：树底「已归档」一节（措辞与出处见 zh 那一段的同名注释）。
+  'archive.desc.inline':
+    'Archiving deletes: these sessions disappear from the list, the session records stay on dsh. They are listed under \u201cArchived\u201d at the bottom of the tree, where they can be unarchived.',
+  'archive.desc.settings':
+    'Archiving deletes: these sessions disappear from the list, the session records stay on dsh. Unarchive them from the \u201cArchived sessions\u201d section in Settings.',
+  'archived.section': 'Archived',
+  'archived.unarchive': 'Unarchive',
+  'archived.unarchive.aria': 'Unarchive {name}',
+  'archived.done': 'Unarchived {name}',
+  'archived.failed': 'Could not unarchive the session: {message}',
   'empty.none': 'No sessions yet',
   'empty.noMatches': 'No matches',
   'empty.loading': 'Loading…',

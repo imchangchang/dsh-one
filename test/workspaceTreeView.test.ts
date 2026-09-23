@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   currentWorkspaceFirst,
   UNGROUPED_KEY,
+  deriveArchived,
   deriveFlat,
   deriveGroups,
   indexSubagentDescendants,
@@ -205,6 +206,49 @@ test('deriveFlat：归档与子代理会话都不出现', () => {
     deriveFlat(sessions, ['arch'], noPending).map((s) => s.id),
     ['a'],
   )
+})
+
+// ---------------------------------------------------------------------------
+// #239：已归档清单（树底那一节的数据面）
+// ---------------------------------------------------------------------------
+
+test('deriveArchived：只列归档集合里的会话，按最近更新倒序（同一时刻按 id 稳定排序）', () => {
+  const sessions = list([
+    summary('live', { updatedAt: NOW }),
+    summary('arch-old', { updatedAt: NOW - 9000 }),
+    summary('arch-new', { updatedAt: NOW }),
+    summary('arch-newer', { updatedAt: NOW + 5000 }),
+    summary('recycled-live'),
+  ])
+  assert.deepEqual(
+    deriveArchived(sessions, ['arch-old', 'arch-new', 'arch-newer']).map((row) => row.id),
+    ['arch-newer', 'arch-new', 'arch-old'],
+  )
+})
+
+test('deriveArchived：归档集合里的子代理不列；集合里有快照里不存在的 id 时跳过不占位', () => {
+  const sessions = list([summary('a'), summary('sub', { origin: 'subagent', updatedAt: NOW + 1000 })])
+  assert.deepEqual(
+    deriveArchived(sessions, ['a', 'sub', 'gone']).map((row) => row.id),
+    ['a'],
+  )
+})
+
+test('deriveArchived：带上标题与时刻（空白会话标题为空串，渲染层替换成「新会话」）', () => {
+  const sessions = list([
+    summary('a', { displayTitle: '带标题的会话', updatedAt: NOW }),
+    summary('b', { displayTitle: undefined, title: undefined, blank: true, updatedAt: NOW - 1000 }),
+  ])
+  assert.deepEqual(deriveArchived(sessions, ['a', 'b']), [
+    { id: 'a', title: '带标题的会话', blank: false, updatedAt: NOW },
+    // 空白会话的标题在纯层里就是空串（官方 sessionTitle 的口径：blank 一律给空串），
+    // 渲染层才换成「新会话」。
+    { id: 'b', title: '', blank: true, updatedAt: NOW - 1000 },
+  ])
+})
+
+test('deriveArchived：归档集合为空 = 一条都不列（那一节整块不渲染）', () => {
+  assert.deepEqual(deriveArchived(list([summary('a')]), []), [])
 })
 
 // ---------------------------------------------------------------------------
