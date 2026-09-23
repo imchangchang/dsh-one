@@ -17,6 +17,7 @@ import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { scratchDir } from './scratchDirs.ts'
 
@@ -98,7 +99,8 @@ interface GateModule {
   }): { ok: boolean; output: string; hits: Hit[]; triggers: Trigger[] }
 }
 
-const gate = (await import(MODULE_PATH)) as GateModule
+// 说明符走 file:// URL（Windows 绝对路径不能直接喂给 ESM loader，见 test/esmImportSpecifiers.test.ts）。
+const gate = (await import(pathToFileURL(MODULE_PATH).href)) as GateModule
 const rules = gate.loadRules(RULES_PATH)
 
 // ========== 1. 规则自检 ==========

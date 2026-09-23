@@ -14,6 +14,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { scratchDirSync } from './scratchDirs.ts'
 
 const ROOT = path.join(import.meta.dirname, '..')
@@ -41,7 +42,8 @@ interface OfficialIdentifiersModule {
   checkOfficialIdentifiers(opts: { root: string; version?: string; profile?: string }): CheckRow
 }
 
-const mod = (await import(path.join(ROOT, 'scripts', 'dsh-upstream-watch', 'officialIdentifiers.mjs'))) as OfficialIdentifiersModule
+// 说明符走 file:// URL（Windows 绝对路径不能直接喂给 ESM loader，见 test/esmImportSpecifiers.test.ts）。
+const mod = (await import(pathToFileURL(path.join(ROOT, 'scripts', 'dsh-upstream-watch', 'officialIdentifiers.mjs')).href)) as OfficialIdentifiersModule
 
 /**
  * 合成官方产物：键是「包名 + 文件」，值是官方 0.1.6-alpha.1 实测形状的最小摘录

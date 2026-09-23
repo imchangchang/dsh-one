@@ -15,11 +15,13 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { NO_PENDING, PENDING_SOURCES, pendingSourceOf, type PendingHookProps } from '../src/pure/sessionPendingSource.ts'
 import { EN, ZH } from '../packages/dsh-workspace-tree/src/workspaceTree/locale.ts'
 
 const ROOT = path.join(import.meta.dirname, '..')
-const contract = (await import(path.join(ROOT, 'scripts', 'dsh-upstream-watch', 'clientContract.mjs'))) as {
+// 说明符走 file:// URL（Windows 绝对路径不能直接喂给 ESM loader，见 test/esmImportSpecifiers.test.ts）。
+const contract = (await import(pathToFileURL(path.join(ROOT, 'scripts', 'dsh-upstream-watch', 'clientContract.mjs')).href)) as {
   ROOT_HOOK_DEPENDENCIES: { names: string[]; props: string[]; where: string }[]
   IDENTIFIER_DEPENDENCIES: { names: string[]; where: string }[]
 }
