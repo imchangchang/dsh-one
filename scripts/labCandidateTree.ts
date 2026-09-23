@@ -137,8 +137,7 @@ async function walk(dir: string, scope: string, depth: number, root: string, fou
       packageDirs = [at]
     }
     for (const packageDir of packageDirs) {
-      const raw = await fsp.readFile(path.join(packageDir, 'package.json'), 'utf8').catch(() => '')
-      const manifest = raw === '' ? undefined : (JSON.parse(raw) as { name?: unknown; version?: unknown })
+      const manifest = await readManifest(packageDir)
       if (manifest !== undefined && typeof manifest.name === 'string' && manifest.name.startsWith(scope)) {
         found.push({
           name: manifest.name,
@@ -148,6 +147,22 @@ async function walk(dir: string, scope: string, depth: number, root: string, fou
       }
       await walk(path.join(packageDir, 'node_modules'), scope, depth - 1, root, found)
     }
+  }
+}
+
+/**
+ * 读一个包目录的清单；读不到（文件不在 / 读不动）或不是 JSON 时返回 undefined——
+ * 这种目录按「不是一个能读的包」跳过。方向是 **fail-closed**：万一跳掉的正是
+ * `@deepseek-ai/dsh` 自己，期望版本就成了 undefined，校验当场判不一致并停下，
+ * 不会因为少读一份清单而放过一棵混装的树。
+ */
+async function readManifest(packageDir: string): Promise<{ name?: unknown; version?: unknown } | undefined> {
+  const raw = await fsp.readFile(path.join(packageDir, 'package.json'), 'utf8').catch(() => '')
+  if (raw === '') return undefined
+  try {
+    return JSON.parse(raw) as { name?: unknown; version?: unknown }
+  } catch {
+    return undefined
   }
 }
 

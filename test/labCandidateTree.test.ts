@@ -31,10 +31,10 @@ const ROOT = path.join(import.meta.dirname, '..')
 const CLI = path.join(ROOT, 'scripts', 'verify-lab-version.mjs')
 
 /** 在一棵「装出来的树」里放一个包。 */
-function writePackage(tree: string, name: string, version: string): void {
+function writePackage(tree: string, name: string, version: string, extra: Record<string, unknown> = {}): void {
   const dir = path.join(tree, 'node_modules', ...name.split('/'))
   fs.mkdirSync(dir, { recursive: true })
-  fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name, version }), 'utf8')
+  fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name, version, ...extra }), 'utf8')
 }
 
 function runCli(args: string[]): { status: number | null; stdout: string; stderr: string } {
@@ -147,4 +147,44 @@ test('树里不是你要的那一版：也报错停下', () => {
   const run = runCli(['0.1.6-alpha.1', '--from', tree, '--check-only'])
   assert.equal(run.status, 2)
   assert.match(run.stderr, /不是你要的 0\.1\.6-alpha\.1/)
+})
+
+test('读不到的包目录（没清单 / 清单不是 JSON）跳过，其余照读；跳掉的恰好是 dsh 自己则判不一致', async () => {
+  const tree = scratchDirSync('dsh-lab-version-')
+  writePackage(tree, '@deepseek-ai/dsh', '0.1.6-alpha.1')
+  writePackage(tree, '@deepseek-ai/dsh-app-boot', '0.1.6-alpha.1')
+  fs.mkdirSync(path.join(tree, 'node_modules', '@deepseek-ai', 'dsh-no-manifest'), { recursive: true })
+  const broken = path.join(tree, 'node_modules', '@deepseek-ai', 'dsh-broken')
+  fs.mkdirSync(broken, { recursive: true })
+  fs.writeFileSync(path.join(broken, 'package.json'), '{"name": "@deepseek-ai/dsh-broken", ', 'utf8')
+
+  const packages = await readInstalledPackages(tree)
+  assert.deepEqual(
+    packages.map((each) => `${each.name}@${each.version}`),
+    ['@deepseek-ai/dsh@0.1.6-alpha.1', '@deepseek-ai/dsh-app-boot@0.1.6-alpha.1'],
+  )
+  // fail-closed：读不到的那一份恰好是 dsh 自己时，期望版本成了 undefined ⇒ 当场判不一致。
+  const withoutRoot = checkFamilyVersions([{ name: '@deepseek-ai/dsh-app-boot', version: '0.1.6-alpha.1', where: 'x' }])
+  assert.equal(withoutRoot.ok, false)
+  assert.equal(withoutRoot.expected, undefined)
+})
+
+test('候选的 `dsh --version` 读得到时打进读数（读不到只跳过那一行旁证）', () => {
+  const tree = scratchDirSync('dsh-lab-version-')
+  writePackage(tree, '@deepseek-ai/dsh', '9.9.9', { bin: { dsh: 'lib/bin.js' } })
+  writePackage(tree, '@deepseek-ai/dsh-app-boot', '9.9.9')
+  const binDir = path.join(tree, 'node_modules', '@deepseek-ai', 'dsh', 'lib')
+  fs.mkdirSync(binDir, { recursive: true })
+  fs.writeFileSync(path.join(binDir, 'bin.js'), 'console.log("9.9.9")\n', 'utf8')
+
+  const run = runCli(['9.9.9', '--from', tree, '--check-only'])
+  assert.equal(run.status, 0, run.stderr)
+  assert.match(run.stderr, /dsh --version = 9\.9\.9/)
+
+  // 另一支：没有 bin 那份清单时函数返回 undefined，读数里少这一行、其余照旧（上面几个用例就是这一支）。
+  const bare = scratchDirSync('dsh-lab-version-')
+  writePackage(bare, '@deepseek-ai/dsh', '9.9.9')
+  const bareRun = runCli(['9.9.9', '--from', bare, '--check-only'])
+  assert.equal(bareRun.status, 0, bareRun.stderr)
+  assert.doesNotMatch(bareRun.stderr, /dsh --version/)
 })
