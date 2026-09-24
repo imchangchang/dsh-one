@@ -163,6 +163,98 @@ export async function readSeatRender(
  * 拿不到快照时返回 `{ error }`（**不抛**）：调用方按「这一面没核实」判红并点名是哪一种
  * 拿不到，而不是抛一个异常把整轮截掉。
  */
+/** 一处 **body 级 portal 覆盖层**，以及它归属的那个座。 */
+export interface PortalReading {
+  /** 出这处覆盖层的座（沿 React fiber 的 `return` 链找到最近的那个 `[data-slot]` 宿主元素）；读不到 = 空串。 */
+  seat: string
+  /** 覆盖层根元素的 `role`（官方 `Modal` 的根是 `role="presentation"`）。 */
+  role: string
+  /** 里面那个 `[role="dialog"]` 的 `aria-label`（官方 `Modal` 拿 title 当 aria-label）。 */
+  label: string
+  /** 覆盖层里的正文（前 120 字，人读用）。 */
+  text: string
+}
+
+/**
+ * 读页面上的 **body 级 portal 覆盖层**，并归属到座。
+ *
+ * 为什么要这一份读数（#249）：官方有些座上的贡献**渲染到 `document.body`**，锚点里一个
+ * 节点都没有——官方设置弹层那两条 onboarding 就是（`OnboardingModal` 用官方 `Modal` 原语，
+ * `createPortal(..., document.body)`）。只看锚点会把它读成「零渲染」，而它其实真的画出来了。
+ * {@link readSeatRender} 那一份读数保持原样（它读的是锚点里有没有节点，判据要用它），
+ * 「portal 出来的那部分」由这一份单独读，两份合起来才是这个座完整的渲染面。
+ *
+ * **归属怎么来**：React 的 portal 会把 DOM 挂到容器（这里是 `document.body`）下，DOM 上却
+ * 断开了与宿主树的父子链——所以从覆盖层根元素沿 React fiber 的 `return` 链往上走，找最近的
+ * 那个「`stateNode` 是带 `data-slot` 属性的宿主元素」的 fiber，就是**渲染它的那个出口**。
+ * 这是读 React 内部字段（宿主元素上的 `__reactFiber$<随机>`，React 18 起就有、devtools 也
+ * 在用）；认不出时不抛，`seat` 记空串，由调用方把「有一处覆盖层没归属上」如实报出来
+ * ——**归属探针断了要看得到**，不能静默当成零。
+ *
+ * 只认**不在任何锚点里**的 `[role="dialog"]`：锚点里的对话不是 portal，别混进来。
+ */
+export async function readPortals(page: Page): Promise<PortalReading[]> {
+  return page.evaluate(() => {
+    const fiberKeyOf = (element: Element): string | undefined =>
+      Object.keys(element).find(
+        (key) => key.startsWith('__reactFiber$') || key.startsWith('__reactInternalInstance$'),
+      )
+    const ownerSeatOf = (element: Element): string => {
+      const key = fiberKeyOf(element)
+      if (key === undefined) return ''
+      let fiber = (element as unknown as Record<string, unknown>)[key] as
+        | { stateNode?: unknown; return?: unknown }
+        | undefined
+      for (let hop = 0; fiber !== undefined && fiber !== null && hop < 200; hop += 1) {
+        const node = fiber.stateNode
+        if (node instanceof Element) {
+          const name = node.getAttribute('data-slot')
+          if (name !== null) return name
+        }
+        fiber = fiber.return as { stateNode?: unknown; return?: unknown } | undefined
+      }
+      return ''
+    }
+    const out: { seat: string; role: string; label: string; text: string }[] = []
+    for (const child of Array.from(document.body.children)) {
+      if (!(child instanceof Element)) continue
+      const dialog = child.matches('[role="dialog"]') ? child : child.querySelector('[role="dialog"]')
+      if (dialog === null) continue
+      // 锚点里的对话不是 portal（那是座自己在渲染），只认 body 这一层挂出来的。
+      if (dialog.closest('[data-slot]') !== null) continue
+      out.push({
+        seat: ownerSeatOf(child),
+        role: child.getAttribute('role') ?? '',
+        label: dialog.getAttribute('aria-label') ?? '',
+        text: (child.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 120),
+      })
+    }
+    return out
+  }) as Promise<PortalReading[]>
+}
+
+/** 一处 portal 覆盖层的人读一行（报告的事实里点名用）。 */
+export function describePortal(portal: PortalReading): string {
+  const owner = portal.seat === '' ? '未归属上（fiber 归属探针没认出它）' : `归属 ${portal.seat}`
+  return `${owner}：role=${portal.role} aria-label=${JSON.stringify(portal.label)} 正文=${JSON.stringify(portal.text)}`
+}
+
+/**
+ * 设置页壳自己的 onboarding 游标读数（`settings.onboarding` 上这一轮要渲染哪一步）。
+ *
+ * 为什么读壳自己写下的这个属性、而不是去猜官方组件的内部状态：官方 `SettingsRoot` 的游标
+ * 是**壳**持有的（`completedOnboarding` 集合 + `entries` 按 order 取第一条未完成的，
+ * `dsh-client-ui-settings-general/lib/client.js:317`/`:344`），我们的设置页照抄了这条语义
+ * （`settingsLayoutPlugin.ts` 的 SettingsPage），所以「这一轮是哪一步」这件事**只有壳知道**。
+ * 读数取不到（属性不在 / 是空串）时返回空串——那是「座上没有当前步」，由调用方按语义解释。
+ */
+export async function readOnboardingCursor(page: Page): Promise<string> {
+  return page.evaluate(
+    () =>
+      document.querySelector('[data-shell="dsh-one-settings"]')?.getAttribute('data-dshone-onboarding-step') ?? '',
+  )
+}
+
 export async function readSeatSnapshot(
   page: Page,
 ): Promise<{ seats: SeatNode[]; error: string }> {
@@ -415,9 +507,10 @@ export const SEAT_WAIVERS: readonly SeatWaiver[] = [
   {
     tree: 'settings',
     seat: 'settings.onboarding',
-    verdict: 'unrendered',
+    verdict: 'lazy',
+    occupants: ['welcome-notice', 'deepseek-official'],
     reason:
-      '**已知的「声明了却零渲染」**：本页的设置条目声明了这个座，官方 `ui-settings-models` 的两条 onboarding（首访声明 `welcome-notice`、引导对话框 `deepseek-official`）也真的注册进来了，但设置页从不渲染这个座——要不要把它们带回来、以什么形态带回来是产品决定，另排了一条任务（#248 正文「另需单独拍的一条」），本轮只把它如实记为待恢复',
+      '座上那两条官方 onboarding 直到 #249 之前是**声明了却零渲染**（本页从不渲染这个座）；#249 起设置页按官方 `SettingsRoot` 的语义渲染它（单步游标 + `only`，见 settingsLayoutPlugin 的 SettingsPage）。它们仍是**按需渲染**：`welcome-notice` 要一次没确认过的首访提示（`ui-onboarding` 里那个确认标记）、`deepseek-official` 要「没有任何可用凭据」这个前提，两条都由官方组件按自己的状态决定显不显示，而且形态是 **body 级 portal 的模态框**（官方 `Modal` 原语 `createPortal(..., document.body)`）——所以座上的锚点里永远不会有节点，这一格按「锚点里有没有节点」读就是零渲染。两份读数分开：本表的渲染面读锚点（不判 portal），「这一轮到底渲染出哪一条、有没有真的画出来」由本套件的「设置页 onboarding」那一段按 portal 读数逐条判（读不出当前步、或当前步没画出模态框都判红）',
   },
   {
     tree: 'settings',

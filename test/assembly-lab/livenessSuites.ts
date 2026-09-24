@@ -126,6 +126,7 @@ import * as path from 'node:path'
 import type { BrowserContext, Page } from 'playwright'
 import {
   capturePage,
+  clearOfficialOnboardingOverlay,
   openTreePage,
   texts,
   withoutKnownNoise,
@@ -1875,6 +1876,16 @@ export const LIVENESS_SUITE: LabSuite = {
 
     // ── 页 C：settings 树（设置各节）───────────────────────────────────
     const settingsPage = await openTreePage(ctx.browser, ctx.lab, settings, { width: 1400, height: 950, fiberProbe: true })
+    // 先摘掉官方首访 onboarding 那层阻塞式模态框（#249）：设置页开出来时它可能正盖在
+    // 整页上（全屏遮罩 + `#root` inert），那样这一页所有「点设置页里的控件」的判据都会
+    // 点到遮罩上、退化成一堆「没反应」。摘的是这一页的 DOM，不点它、不写网关（理由见
+    // harness 的 clearOfficialOnboardingOverlay）。摘掉之后这一页就与 #249 之前一样可点。
+    const onboardingOverlay = await clearOfficialOnboardingOverlay(settingsPage.page)
+    if (onboardingOverlay.removed.length > 0) {
+      check.fact(
+        `[settings] 开页时页面上有官方首访 onboarding 的模态框（${onboardingOverlay.removed.map((label) => JSON.stringify(label)).join('、')}，\`#root\` inert 清掉=${String(onboardingOverlay.inertCleared)}）——按只观察纪律从这一页的 DOM 里摘掉（不点它：点它会把确认写进用户设置文档），好让下面这些设置页控件量得准。它真的出现在设置页上这件事由 F-75 的「设置页 onboarding」那一段正面判`,
+      )
+    }
     await settingsPage.page.evaluate(livenessRecorderScript())
     try {
       // 「打开配置文件」那条为什么只观察：`settings.action` 这个 slot 里官方那条

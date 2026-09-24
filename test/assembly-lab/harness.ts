@@ -1179,6 +1179,43 @@ export async function bodyText(page: Page): Promise<string> {
   return text.replace(/\s+/g, ' ').trim()
 }
 
+/**
+ * 摘掉官方首访 onboarding 那层 **body 级模态框**（#249），返回摘掉了什么。
+ *
+ * 为什么需要它：官方设置弹层的两条 onboarding（`welcome-notice` / `deepseek-official`，
+ * `ui-settings-models`）是**首访/无凭据时才出现**的**阻塞式**模态框——全屏遮罩 + 把
+ * `#root` 置 `inert`（官方 `OnboardingModal`：`appRoot.inert = true`）。它们落在
+ * `document.body` 下，盖住整页，于是一切「往设置页里点」的判据（F-54 的交互点与壳上
+ * 入口扫描）都点到遮罩上、退化成一堆「没反应」。
+ *
+ * **为什么是「从页面里摘掉」而不是「点掉它」**：点它（「继续」）会把确认写进用户的设置
+ * 文档（`ui-onboarding.welcomeNoticeVersion`），这正是 #163 只观察纪律要挡的一类动作
+ * ——实验室可以连用户日常那台实例（`--gateway`），那时点下去就是改用户的状态。从页面里
+ * 摘掉只动这一页的 DOM：网关一个字节不写、也不点任何控件，跑完页面就丢。
+ *
+ * 只摘**不在任何槽位锚点里**的 `[role="presentation"]` 覆盖层（锚点里的东西是页面自己
+ * 渲染的，不动），并把 `#root` 的 `inert` 清掉。
+ */
+export async function clearOfficialOnboardingOverlay(page: Page): Promise<{ removed: string[]; inertCleared: boolean }> {
+  return page.evaluate(() => {
+    const removed: string[] = []
+    for (const child of Array.from(document.body.children)) {
+      if (!(child instanceof Element)) continue
+      const dialog = child.matches('[role="dialog"]') ? child : child.querySelector('[role="dialog"]')
+      if (dialog === null) continue
+      if (dialog.closest('[data-slot]') !== null) continue
+      removed.push((dialog.getAttribute('aria-label') ?? '').trim() || '(无标题)')
+      child.remove()
+    }
+    let inertCleared = false
+    for (const element of Array.from(document.querySelectorAll('[inert]'))) {
+      element.removeAttribute('inert')
+      inertCleared = true
+    }
+    return { removed, inertCleared }
+  })
+}
+
 /** 本次运行里页面上出现过的「契约缺口」文案（崩溃/未激活），失败时写进报告。 */
 export function contractGaps(
   capture: PageCapture,

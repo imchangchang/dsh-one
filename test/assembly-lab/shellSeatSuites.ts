@@ -52,13 +52,17 @@ import { LAB_TREES, type LabTreeRoute } from './labServer.ts'
 import { cookieHeader } from '../../src/server/assemblyMirror.ts'
 import {
   SHELL_SEATS,
+  describePortal,
   describeSeat,
   hasRender,
   markSeatEntries,
   occupantId,
+  readOnboardingCursor,
+  readPortals,
   readTreeSeats,
   seatWaiver,
   unusedSeatWaivers,
+  type PortalReading,
   type SeatEntryReading,
   type SeatReading,
   type SeatWaiver,
@@ -96,6 +100,10 @@ interface TreeReading {
   error: string
   /** 页面上渲染出来的条目与它们的入口（事实，同时是 F-54 扫描的现场证据）。 */
   entries: SeatEntryReading[]
+  /** 页面上那一轮挂到 `document.body` 上的覆盖层（含归属的座）——座上的贡献 portal 出去时只有这一份读数看得见。 */
+  portals: PortalReading[]
+  /** 设置页壳自己的 onboarding 游标读数（`settings.onboarding` 这一轮渲染哪一步）。 */
+  onboardingCursor: string
 }
 
 /** 打开官方页面（网关 origin = 实验室那台实例的原始页面）并装上 fiber 探针。 */
@@ -201,12 +209,17 @@ export const SHELL_SEAT_SUITE: LabSuite = {
       try {
         const read = await readTreeSeats(opened.page)
         const entries = await markSeatEntries(opened.page, SHELL_SEATS.map((seat) => seat.name))
-        trees.push({ route: name, readings: read.readings, error: read.error, entries })
+        const portals = await readPortals(opened.page)
+        const onboardingCursor = await readOnboardingCursor(opened.page)
+        trees.push({ route: name, readings: read.readings, error: read.error, entries, portals, onboardingCursor })
         check.ok(
           `${name} 树：槽位快照读到了（这是这一棵树的声明面读数）`,
           read.error === '',
           read.error === '' ? `座 ${String(read.seats.size)} 个` : read.error,
         )
+        if (portals.length > 0) {
+          check.fact(`${name} 树：body 级 portal 覆盖层 —— ${portals.map(describePortal).join('；')}`)
+        }
         check.fact(
           `${name} 树：壳座表逐座读数 —— ${SHELL_SEATS.map((seat) => {
             const reading = read.readings.get(seat.name)
@@ -303,6 +316,83 @@ export const SHELL_SEAT_SUITE: LabSuite = {
       officialError === '',
       officialError === '' ? `官方页上壳座表命中 ${String(officialDeclares.size)} 个座名` : officialError,
     )
+
+    // -------------------------------------------------------------------
+    // 设置页的 `settings.onboarding`：座上那两条官方 onboarding 到底渲染出来没有
+    // -------------------------------------------------------------------
+    //
+    // 为什么单独一段（#249）：这个座上的贡献是**按需渲染 + body 级 portal**（官方
+    // `OnboardingModal` 用官方 `Modal` 原语 `createPortal(..., document.body)`），
+    // 上面那条通用判据按「锚点里有没有节点」读，对它永远是零——所以既要有白名单那档
+    // `lazy`（不许把「锚点里没节点」直接当红），也要有**这一档正面判据**：壳这一轮
+    // 渲染的是哪一步（我们自己的游标读数）与页面上真的画出来的那个模态框，必须对得上。
+    //
+    // 判的是机制而不是某一条的显示状态：`welcome-notice` 会不会显示由官方的首访确认
+    // 状态决定、`deepseek-official` 由有没有可用凭据决定（两条都由官方组件自己判），
+    // 所以这里不写死「必须出现 welcome-notice」，写死的是「**当前这一步必须真的画出来**」
+    // 与「两条各自为什么不出现要能读出原因」。
+    const settingsTree = trees.find((tree) => tree.route === 'settings')
+    if (settingsTree === undefined) {
+      check.ok('设置树读数在场（这一段的前提）', false, '四棵树里没有 settings')
+    } else {
+      const seat = settingsTree.readings.get('settings.onboarding')
+      const occupants = (seat?.node?.occupants ?? []).map(occupantId)
+      const ONBOARDING_STEPS = ['welcome-notice', 'deepseek-official'] as const
+      const cursor = settingsTree.onboardingCursor
+      const onboardingPortals = settingsTree.portals.filter((portal) => portal.seat === 'settings.onboarding')
+      const unattributed = settingsTree.portals.filter(
+        (portal: PortalReading) => portal.seat === '' || portal.seat === 'settings.onboarding',
+      )
+      check.eq(
+        '设置页：`settings.onboarding` 座上就是官方那两条（welcome-notice / deepseek-official）——座在、贡献也注册进来了',
+        [...occupants].sort(),
+        [...ONBOARDING_STEPS].sort(),
+      )
+      check.ok(
+        '设置页：这个座由设置页渲染（`[data-slot="settings.onboarding"]` 锚点在场；官方语义是「有当前这一步才渲染这个座」）',
+        cursor === '' ? (seat?.anchors ?? 0) === 0 : (seat?.anchors ?? 0) >= 1,
+        `锚点 ${String(seat?.anchors ?? 0)} 枚、游标=${JSON.stringify(cursor)}；座上的人：${occupants.join('、') || '（一个都没有）'}`,
+      )
+      check.ok(
+        '设置页：游标读数要么空、要么是座上的一条（`data-dshone-onboarding-step`；空 = 两条都由官方状态判定完成）',
+        cursor === '' || ONBOARDING_STEPS.some((id) => id === cursor),
+        `游标=${JSON.stringify(cursor)} 座上的 id=${occupants.join('、')}`,
+      )
+      if (cursor === '') {
+        check.fact(
+          '设置页 onboarding：游标空 —— 座上那两条这一轮都由官方状态判定为「不需要显示」（`welcome-notice` 的确认标记已写过 / `deepseek-official` 那一路没有需要介入的凭据状态），所以这一轮没有模态框；这不是「我们没渲染」',
+        )
+      } else {
+        check.ok(
+          `设置页 onboarding：游标指着的这一步（${cursor}）真的画出来了（body 级 portal 的模态框、归属这个座）`,
+          onboardingPortals.length >= 1,
+          `body 上读到 ${String(settingsTree.portals.length)} 处 portal 覆盖层：${
+            settingsTree.portals.map(describePortal).join('；') || '（一处都没有）'
+          }——归属探针没认出／这一页没画出来都会落到这里`,
+        )
+        check.ok(
+          '设置页 onboarding：这一轮的 portal 覆盖层都归属得上（归属探针断了也算红，免得「零渲染」是假绿）',
+          unattributed.every((portal) => portal.seat !== ''),
+          settingsTree.portals.map(describePortal).join('；') || '（一处都没有）',
+        )
+      }
+      // 两条各自的读数（「两项都要给读数」）：谁在座上、谁是当前这一步、官方那边为什么不出现。
+      check.fact(
+        `设置页 onboarding 逐条读数 —— ${ONBOARDING_STEPS.map((id) => {
+          const onSeat = occupants.includes(id)
+          const isCursor = cursor === id
+          const drawn = onboardingPortals.some((portal) => portal.label !== '' || portal.text !== '')
+          const why = !onSeat
+            ? '不在座上（官方没注册它，或本 dsh 版本里没有这一条）'
+            : isCursor
+              ? `它是壳这一轮选中的那一步，页面上画出来了=${String(drawn)}（${onboardingPortals.map(describePortal).join('；') || '没有 portal 覆盖层'}）`
+              : cursor === ''
+                ? '座上有人、但壳这一轮没有当前步（两条都已被官方状态判定完成）'
+                : `壳这一轮选中的是 ${cursor}——官方设置弹层一次只放当前那一步（\`SettingsRoot\` 的 \`renderSlot("settings.onboarding", …, { only: onboardingStep.id })\`，dsh-client-ui-settings-general/lib/client.js:438），所以它这一轮不渲染，不是我们没给它座位`
+          return `${id}: ${why}`
+        }).join('；')}`,
+      )
+    }
 
     return screenshots
   },
