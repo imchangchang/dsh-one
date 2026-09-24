@@ -1,0 +1,59 @@
+{
+  "title": "DSH One 验收报告：#247 官方「插件」页在 VS Code 侧有落点",
+  "branch": "agent/plugins-page-standalone",
+  "commit": "e2d19791",
+  "environment": {
+    "mode": "浏览器验证（装配实验室：仓库真实模块 + 实验室自起的隔离实例，0.1.6-alpha.2）",
+    "dsh": "0.1.6-alpha.2",
+    "locale": "zh",
+    "theme": "dark",
+    "image": "n/a（没有走沙盒 code-server）",
+    "date": "2026-09-24T23:00:00Z"
+  },
+  "coverageNote": "本报告的证据来自浏览器验证（`npm run verify:lab`，75 项 3740 条全绿）与上游探针（`node scripts/dsh-upstream-watch/probe.mjs --command dsh`），不是沙盒截图：这一条改的是「官方那一页在 VS Code 形态里有没有落点、点得开不开」，判据是页面上的真实读数与真点击，沙盒里的人眼截图看不出更多。**未验的部分**：① 真 VS Code webview 宿主层——在真编辑器里点侧栏那一行、独立页签被打开/关掉、命令面板里那一条，本轮没有开窗（约定：agent 不自己起真窗），需要人工开窗验收一次；② 0.1.7-alpha.2 仍是「实测不通」的版本，本轮没有拿它跑基线；③ 用户日常那台 3080 全程只被只读探测（R-06 的跑前/跑后对账）。"
+  ,"items": [
+    {
+      "id": "N-01",
+      "phase": "new-feature",
+      "name": "官方「插件」页在 VS Code 侧整页渲染出来，四张官方配置卡都在（#247 的主体）",
+      "expect": "plugins 树（`/tree/plugins`）在真实网关只读下：官方页面本体在场（`[data-plugin-panel]`）、官方那一组的组名与计数在场、四张官方配置卡（终端 / Agent 循环 / Subagent / 网页搜索）按官方条目 id 逐张落座且每张的摘要一行都渲染出来、`plugins.item` 锚点 4 枚、零 `slot entry crashed` / 零装载未激活 / 零 pageerror / 零 `data-slot-error`；并且这棵树被纳入 F-01 CONTRACT 表（第五棵树）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/247-plugins-tree.png",
+        "/tmp/dsh-sandbox-shots/247-plugins-tree-contract.png"
+      ],
+      "notes": "逐条核对：① **F-74**（新套件）第 1 段全过——`ready=true 槽位锚点=6 崩溃标记=0 崩溃日志=0 未激活=0 pageerror=0 已知噪音=0`；官方组 `official=官方(6)`（「已安装」那一组在隔离实例上不在场，那是 profile 里装了什么决定的，只记事实不判据）；`plugins.item` 锚点 **4** 枚；四张卡按官方 id 逐张落座且每张摘要一行都在：`bash:终端限制 agent 运行的每一条命令。` / `agent-loop:Agent 循环Agent 如何派发工具调用。` / `subagent:Subagent设置 Subagent 的递归层级、数量和模型。` / `web-search:网页搜索DeepSeek 搜索提供方。`（卡上那一行是**文本节点**，所以判据读卡上的正文而不是 `children.length`——F-01 那一栏 `plugins.item=0` 说的正是子元素数为 0，两处口径不矛盾）。② **F-01 CONTRACT 五棵树 52/52**：plugins 那一行的读数是 `ready=true 槽位锚点=6 崩溃标记=0 崩溃日志=0 未激活=0 真实 pageerror=0 已知噪音=0 官方插件页本体=1`、槽位锚点 `main=1 plugins.item`（锚点在场），该树的自有 frame 插件 `@dsh-one/vscode-plugins-ui-layout` 的 CSS 标记在页面上（「frame 插件已执行」那条为真）。③ **整轮** `npm run verify:lab` = 75 项 3740 条、全过、退出码 0（F-74 在这一轮里 23/23、5.8 秒）。"
+    },
+    {
+      "id": "N-02",
+      "phase": "new-feature",
+      "name": "侧栏那一条「插件」行点下去真的把那一页开出来（端到端），关掉后选中态回落",
+      "expect": "点 `[data-slot=\"sidebar.panellist\"]` 里那一枚按钮（官方 PanelRow 的 onClick → 官方 `ctx.layout.selectPanel('plugins')` → 我们提供的 layout 服务受理）→ 假宿主收到**恰好一次**开页调用、那一行 `aria-current=\"page\"`、页面上**不再**出现改前那条 `layout.selectPanel: main panel \"plugins\" is not registered`；假宿主模拟「用户把那一页关掉」→ 选中态回落；不受理的面板 id 照旧抛官方那句（校验没被删）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/247-sidebar-before.png",
+        "/tmp/dsh-sandbox-shots/247-sidebar-after-click.png",
+        "/tmp/dsh-sandbox-shots/247-sidebar-after-close.png"
+      ],
+      "notes": "逐条核对：① 改后（F-74 第 2 段）**23/23 全过**：点击前 `aria-current=null`、开页调用 0 次；点击后**假宿主收到恰好 1 次 `vscode.openPlugins`**、那一行 `aria-current=\"page\"`、整页 `零 pageerror`（含改前那条恒有的「未注册」）；假宿主 `pluginsPageClosed()` 之后 `aria-current` 回落 `null`；就地负向对照两条也过——直接调 `selectPanel('dshOne.no.such.panel')` 照旧抛官方那句、调 `selectPanel('plugins')` 不抛。② **负向对照（换代码重建产物单跑）**：把 sidebar 树的 `LayoutController` 换回改前那份 `new LayoutController()`（= 缺省 `() => false` 一律拒）、重建产物、单跑 `--suite F-74`，当场 **18/23**——红的 5 条正是：`点那一行之后假宿主收到恰好一次开页调用（actual=0 expected=1）`、`那一行进入选中态（actual=null expected=\"page\"）`、`零「未注册」pageerror（actual=[\"layout.selectPanel: main panel \\\"plugins\\\" is not registered\"]）`、`整页零 pageerror`（同一条）、`直接调 selectPanel(\"plugins\") 不再抛`；改回来即 23/23。**这条负向对照复现的就是 #247 现场那条 pageerror 原文**，说明判据抓的确实是「点了没反应 + 一条报错」这件事。"
+    },
+    {
+      "id": "N-03",
+      "phase": "new-feature",
+      "name": "上游探针钉住这一支的三个名字（#248 的 P1，本支涉及的四个名字）",
+      "expect": "`clientContract.mjs` 的 `SLOT_DEPENDENCIES` 补上 `sidebar.panellist`、`plugins.item`、`plugins.bundle.config` / `plugins.row.config`，每条的 `where` 写出我方使用点；探针的 `client-slots` 那一项要读得出这些名字在场。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "逐条核对：① 本地跑探针（`node scripts/dsh-upstream-watch/probe.mjs --command dsh`，它自起临时 `DSH_HOME` + 随机端口、只读无副作用）= **24 项 23 pass / 1 fail / 0 skip**，其中 `client-slots: slot 名在场（17 组）` **pass**、detail 是 `dsh 0.1.6-alpha.2：…（共 17 组全部在场）`；17 组里最后三组就是本条新增的 `sidebar.panellist` / `plugins.item` / `plugins.bundle.config|plugins.row.config`（改前是 14 组）。② 那 1 条 fail 是 **`client-identifiers`**：`pinnedSessionIds` 与 `pinSession|unpinSession` 在 0.1.6-alpha.2 的 combo 里不在场，`where` 指向 `src/pure/sessionPinSource.ts`（#240 / #239 那条「0.1.7 起读写官方注册表」的名字，在 0.1.6 的官方产物里本来就没有）——**与本改动无关的既有红**，本轮没有动那个文件（`git diff main -- src/pure/sessionPinSource.ts` 为空）。③ 名单与源码绑死由单测盯着：`npm test` 里 `test/upstreamClientContract.test.ts` 的「依赖清单的每个名字都能在 src 里找到取用点」与「该有的名字都在时四类断言全绿」两条都过（`npm test` 1173/1173）。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "既有四棵树与整轮读数不回归",
+      "expect": "F-01 里原来四棵树那四行的断言逐条照旧（chat / sidebar / sidebar-official / settings）、F-10 FIBER 与 F-11 WIRE-LIVENESS 照旧、R-06 照旧；整轮 `npm run verify:lab` 全绿；`npm test` 全过；两道静态自检（i18n / 平台兼容性）过。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "逐条核对：① 整轮 `npm run verify:lab` = **75 项 3740 条断言全过、退出码 0**（`PASS` 逐项，含 F-01 52/52、F-10 20/20、F-11 26/26、F-74 23/23、R-06 6/6）。② F-01 由 43 条加到 **52** 条：多出来的 9 条正是 plugins 树那一块（ready / 内容 / 槽位锚点 / 零崩溃标记 / 零崩溃日志 / 零未激活 / 零 pageerror / 自有插件进了 combo / frame 插件 CSS 标记），原来四棵树的读数与改前逐项同值（例如 sidebar 行 `ready=true 槽位锚点=9 …自有工作区树的会话行=5`、settings 行 `settings.section=1`）。③ F-10 仍是四棵树（它按一张硬编码的四树表跑）**20/20**、零 scope 进 FAILED；F-11 三棵树 **26/26**；R-06 **6/6**（跑前/跑后只读探测、整轮零请求打到实例之外）。④ `npm test` **1173/1173 全过**（其中三条是与本改动直接相关的静态判据，按新口径更新过：`assemblyShellContract` 的 frame 插件清单由三棵加到四棵 + panelInfo 源由「模块级常量」改成「闭包里的可写一格」；`panelTabWiring` 的建面板站点数由 4 处改成 5 处）。⑤ 两道静态自检：`scripts/check-i18n.sh` = 「无 i18n 漏同步」、`scripts/check-platform-compat.sh` = 「没有平台分支代码、也没有状态分支（无需声明文件）」（因此没有 `verify.plugins-page-standalone.platform.json`）。"
+    }
+  ]
+}

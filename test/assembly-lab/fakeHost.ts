@@ -87,6 +87,11 @@ export function fakeHostScript(
     panelQueries: [],
     panelsOpened: [],
     settingsOpened: [],
+    // #247 插件页：pluginsOpened = 侧栏那一行点下去经能力口要过几次；pluginsPageOpen
+    // = 这一页现在开着没有（vscode.openPlugins 到达即置 true，套件用 host.pluginsPageClosed()
+    // 翻回 false 并广播一条，模拟「用户把那个编辑器标签页关掉」）。
+    pluginsOpened: [],
+    pluginsPageOpen: false,
     workspaceCreateCalls: [],
     // #176：vscode.workspaceCreate 的回执（真宿主在这儿回**新注册的 workspace**：
     // dshOne.workspace.create 命令的返回值）。null = 用户取消（命令什么都没回，
@@ -259,6 +264,16 @@ export function fakeHostScript(
       result(message.id, true, null)
       return
     }
+    if (message.call === "vscode.openPlugins") {
+      // #247 官方侧栏那条「插件」行：真宿主在这里开/聚焦插件页（独立编辑器页）；
+      // 假宿主只记录「页面确实经能力口要过这件事」，并把「这一页开着」翻成 true
+      // （真宿主建完之后确实如此）——套件据此判「点那一行 → 插件页真的开出来了」，
+      // 随后可用 host.pluginsPageClosed() 造「用户把那一页关掉」的现场。
+      host.pluginsOpened.push(true)
+      host.pluginsPageOpen = true
+      result(message.id, true, null)
+      return
+    }
     if (message.call === "vscode.openFolder") {
       // #109 工作区行「在 VS Code 打开」/「在新窗口打开文件夹」：真宿主执行
       // vscode.openFolder；假宿主只记录路径与「要不要新窗口」，不真的开窗。
@@ -330,6 +345,12 @@ export function fakeHostScript(
   host.reportPanelSessions = function (ids) {
     host.panelSessions = ids.slice()
     host.send({ type: "dshOne.panelSessions", sessionIds: ids.slice() })
+  }
+  // #247：模拟「用户把插件页那个编辑器标签页关掉」——真宿主每次建成/关掉都会广播
+  // 一条，这里两件事一起做（翻状态 + 广播），与真宿主同一份事实。
+  host.pluginsPageClosed = function () {
+    host.pluginsPageOpen = false
+    host.send({ type: "dshOne.pluginsPage", open: false })
   }
 })()`
 }

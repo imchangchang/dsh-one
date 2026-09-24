@@ -64,6 +64,11 @@
         "category": "DSH One"
       },
       {
+        "command": "dshOne.assembledPlugins",
+        "title": "%dshOne.assembledPlugins.title%",
+        "category": "DSH One"
+      },
+      {
         "command": "dshOne.restart",
         "title": "%dshOne.restart.title%",
         "category": "DSH One"

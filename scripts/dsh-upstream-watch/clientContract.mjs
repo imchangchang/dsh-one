@@ -159,6 +159,30 @@ export const SLOT_DEPENDENCIES = [
     where: 'src/ui/assembly/shell/chatLayoutPlugin.ts:263-272',
     expect: 'packages/client/ui-renderer/src/client/registry.ts:43',
   },
+  // ---- #247：官方「插件」页那一支的三个名字 ----------------------------------
+  // 这一支的落点是「官方侧栏那一行 + 官方插件页本体 + 它自己声明的三个子座」，
+  // 它们全都不在我们手写的取用名之外、却也不在任何既有条目里，所以上游改名时
+  // 探针原本不会响（#248 的 P1 点名的正是这一类，这里只补这一支涉及的四个名字；
+  // #248 清单里其余名字（`settings.onboarding` / `settings.trigger` /
+  // `conversation.view` / `sidebar.right.*`）仍归 #248）。
+  {
+    names: ['sidebar.panellist'],
+    why: '官方侧栏的全局面板行清单：官方 ui-sidebar 声明它、官方插件页往它注册那一行；dsh-one 里那一行的点击走官方 `ctx.layout.selectPanel(id)`，落到侧栏树的 layout 服务上（#247）',
+    where: 'src/ui/assembly/shell/sidebarLayoutPlugin.ts（openPanel 受理 plugins 那条路径；名字也在 frameShared.ts 的 PLUGINS_PANEL_ID 注释里）',
+    expect: 'packages/client/ui-sidebar/src/client/contract/slots.ts（`sidebar.panellist` 一项）',
+  },
+  {
+    names: ['plugins.item'],
+    why: '官方插件页声明的座：官方四张配置卡（终端 / Agent 循环 / Subagent / 网页搜索）经 `slots.inject` 注册进来，plugins 树的 frame 声明 keyed `main` 才让插件页那条条目成立（#247）',
+    where: 'src/ui/assembly/shell/pluginsLayoutPlugin.ts（root children 的 keyed `main`，key = plugins）与 src/ui/assembly/trees.ts（PLUGINS_TREE）',
+    expect: 'packages/client/ui-plugin-manager/src/client/slot-contract.d.ts（`plugins.item` 一项）',
+  },
+  {
+    names: ['plugins.bundle.config', 'plugins.row.config'],
+    why: '官方插件页另外两个子座（一个 bundle 自己的配置 / 一行的配置表单），与 `plugins.item` 同一处声明；少一个意味着官方配置面又少一块',
+    where: 'src/ui/assembly/shell/pluginsLayoutPlugin.ts 与 src/ui/assembly/wireFilter.ts 的 PLUGINS_BLOCK_LIST（这一页要保留的官方件正是声明这两个座的那一件）',
+    expect: 'packages/client/ui-plugin-manager/src/client/slot-contract.d.ts（`plugins.bundle.config` / `plugins.row.config` 两项）',
+  },
 ]
 
 /**

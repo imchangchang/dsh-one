@@ -12,19 +12,22 @@ DSH One 是 dsh 与 VS Code 之间的桥接扩展。dsh 由用户自己装、自
 
 「装配（assembly）」在这个仓库里专指这件事：用官方 dsh web 的前端组件在我们的 shell 里组装出 VS Code 界面。
 
-### 三个装配页（三棵树）
+### 四个装配页（四棵树）
 
-树定义在 `src/ui/assembly/trees.ts`，一棵树 = 一份 block list（不进这棵树的官方插件）+ 一个自有 frame 插件 id + 追加的自有插件。三棵树共用同一套 mirror 与页面生成器，差别只在清单与 frame 插件。
+树定义在 `src/ui/assembly/trees.ts`，一棵树 = 一份 block list（不进这棵树的官方插件）+ 一个自有 frame 插件 id + 追加的自有插件。四棵树共用同一套 mirror 与页面生成器，差别只在清单与 frame 插件。
 
 | 树 | 落在哪个容器 | block list | 自有 frame 插件 | 追加的自有插件 |
 | --- | --- | --- | --- | --- |
 | `CHAT_TREE` | 编辑器标签页，命令 `dshOne.assembledChat`（单例，可另开会话标签页） | 2 条：官方外框、官方侧栏 | `@dsh-one/vscode-chat-ui-layout` | theme-follow、session-boot、dsh-session-export、dsh-git-card、dsh-context-menu、dsh-composer-clear |
 | `SIDEBAR_TREE` | 侧栏 view `dshOne.chat` | 13 条：官方外框、对话区那几件、设置子页组、侧栏专属件 | `@dsh-one/vscode-sidebar-ui-layout` | theme-follow、settings-gear、session-bridge、dsh-workspace-tree |
 | `SETTINGS_TREE` | 编辑器标签页，命令 `dshOne.assembledSettings`（单例） | 14 条：官方外框、官方侧栏、对话流卡片组 | `@dsh-one/vscode-settings-ui-layout` | theme-follow |
+| `PLUGINS_TREE` | 编辑器标签页，命令 `dshOne.assembledPlugins`（单例），也是侧栏那条「插件」行的落点 | 14 条：与设置页同一份构成（官方外框、官方侧栏、对话流卡片组） | `@dsh-one/vscode-plugins-ui-layout` | theme-follow |
 
-每一条 block list 的理由写在 `src/ui/assembly/wireFilter.ts` 里对应清单的注释中，判据与逐条复核结论见本文第 8 章。
+**plugins 树（#247）为什么是一棵独立的树**：官方那个「插件」页是官方 web 里的一个**全局面板**——它挂在 keyed `main` 上（key = `plugins`），由官方外框按 `panelInfo.activePanelId` 取键渲染；它的入口（官方侧栏 `sidebar.panellist` 上那一行）在侧栏 webview 里，页面本体却要在另一份装配里。两件事决定了它不能落在任何既有树上：我们的每棵树都是一个独立的 webview、各自只渲染自己那几条 keyed 条目。所以照设置页的先例给它单开一棵树 + 一个编辑器页，页面本体仍是官方那条 keyed 条目自己的渲染（本树只声明 keyed `main` 与 `shell.overlay` 两个座），它自己声明的三个子座（`plugins.item` / `plugins.bundle.config` / `plugins.row.config`）随之落下——官方那四张配置卡（终端 / Agent 循环 / Subagent / 网页搜索）因此一起回到 VS Code 侧。
 
-浏览器验证（`npm run verify:lab`）在真网关上跑**四棵树**：上面三棵生产树，加一棵只存在于实验室的对照档 `sidebar-official`（同一份 block list、只是不装自有工作区树插件，用来把「自有树」与「官方浏览区」逐项对照）。
+那一行点了之后做什么落在**我们提供的 `layout` 服务**上（机制层 2：官方侧栏的 `PanelRow` 点击就是 `ctx.layout.selectPanel(id)`，官方通过服务契约调我们的实现）：`LayoutController` 的 `openPanel` 处置只受理 `plugins` 这个 id，经宿主能力口 `openPlugins()` 请宿主开（或聚焦）那一页，宿主确认建成之后才把 `panelInfo.activePanelId` 写成 `plugins`（官方 `PanelRow` 的选中态读的就是这份快照），宿主关掉那一页时再推一条 `dshOne.pluginsPage` 让它回落。不受理的面板 id 照旧抛官方那句 `is not registered`。
+
+浏览器验证（`npm run verify:lab`）在真网关上跑**五棵树**：上面四棵生产树，加一棵只存在于实验室的对照档 `sidebar-official`（同一份 block list、只是不装自有工作区树插件，用来把「自有树」与「官方浏览区」逐项对照）。
 
 ## 2. 模块结构
 
@@ -133,7 +136,7 @@ dsh-one/
 - 对话区是单例面板，后开替换先开；另有「在新标签页打开」的会话标签页（一个会话一个面板）。面板与 webview 状态经 `acquireVsCodeApi().setState()` 存在页面上，标签页的恢复注册在 `registerWebviewPanelSerializer`（`view type` 与状态形状在 `src/pure/chatPanelState.ts`）——窗口重载或扩展宿主重启后标签页能装回原会话，恢复不出来就落状态页而不是丢标签页。
 - 侧栏 view 用 `retainContextWhenHidden`，折叠不触发 dispose；服务在别处起停时状态页跟着重画（`src/pure/sidebarStatusFollow.ts`）。
 - 设置页也是单例面板。
-- 扩展激活且网关在跑时后台预热一次 mirror 与三棵树的过滤整包（`preheatAssembly()`），失败只落日志。
+- 扩展激活且网关在跑时后台预热一次 mirror 与四棵树的过滤整包（`preheatAssembly()`），失败只落日志。
 
 ## 6. 状态与配置
 
@@ -241,7 +244,7 @@ dsh 上游出于安全只监听 `127.0.0.1`（拒绝 `--host 0.0.0.0`），所�
 
 判据统一是两条：**① 与 VS Code 容器的形态冲突**（官方件要占同一块视觉区域，或画我们不要的外框）；**② 这棵树声明不了它注册的槽位**（槽位没声明 ⇒ 官方 `slots.inject` 的回调永不跑 ⇒ 整个条目停车、零渲染，继续挂着只是白背一个官方 id 依赖，摘掉才是对的）。2026-09-18 起按这套判据把 22 个 id 逐条复核过一遍（`#180`，续 `#202` / `#204`）。
 
-**三棵树共有的一条：官方外框 `@deepseek-ai/dsh-client-ui-layout`。** 官方 AppFrame 自己画三列网格、拖拽把手与最窄 56px 侧栏轨，与 VS Code 的容器形态直接冲突，由该树的自有 frame 插件接管 root 组合。为什么不能走铁律的首选路径（加载官方件 + 只遮蔽它的 root slot）：`#77` 实测三条硬约束——root 子槽的声明是排他的（两边谁先登记都会让另一方死）、渲染授权按条目算（遮蔽后契约全活着但没有人渲染那些槽位）、服务提供点在同一隔离域唯一（第二次 `provide('layout', …)` 抛错并让整页 boot 失败）。证据与结论留在 `src/ui/assembly/shell/frameShared.ts` 的文件头，接手的契约清单也在那里（见 §8.3）。
+**四棵树共有的一条：官方外框 `@deepseek-ai/dsh-client-ui-layout`。** 官方 AppFrame 自己画三列网格、拖拽把手与最窄 56px 侧栏轨，与 VS Code 的容器形态直接冲突，由该树的自有 frame 插件接管 root 组合。为什么不能走铁律的首选路径（加载官方件 + 只遮蔽它的 root slot）：`#77` 实测三条硬约束——root 子槽的声明是排他的（两边谁先登记都会让另一方死）、渲染授权按条目算（遮蔽后契约全活着但没有人渲染那些槽位）、服务提供点在同一隔离域唯一（第二次 `provide('layout', …)` 抛错并让整页 boot 失败）。证据与结论留在 `src/ui/assembly/shell/frameShared.ts` 的文件头，接手的契约清单也在那里（见 §8.3）。
 
 **`CHAT_TREE`（2 条）**：官方外框 + 官方侧栏。后者是因为对话区这棵树没有侧栏位——侧栏位由 `SIDEBAR_TREE` 承担。对话流卡片全保留；`#202` / `#204` 把 `ui-settings-general` 与两件插件设置页从这份清单里摘掉了（本树一个 `sidebar.settings` 子槽都没声明，它们本来就在停车）。
 
@@ -265,7 +268,7 @@ dsh 上游出于安全只监听 `127.0.0.1`（拒绝 `--host 0.0.0.0`），所�
 
 一律走官方机制层 1（槽位机制）与层 2（官方服务 API），没有 DOM 兜底。
 
-**接管官方契约（不是 shadow，因为对方被下线了）**：三棵树的 frame 插件接手了官方 ui-layout 对插件承诺的全部四项——① root 槽位注册与子槽位声明表（`sidebar` / `main` / `rightbar` / `shell.overlay`，加 0.1.2 线的 `conversation` / `details`）；② `ctx.layout` 服务（官方 `ILayout` 语义，含 `openRightbar` / `closeRightbar` 的呈现上报）；③ 主题呈现 `ThemePresenter`；④ root 级 hook `panelInfo`。核对办法：读 `dsh-client-ui-layout/lib/client.js` 的 `apply()` 与 `lib/types/client/*.d.ts`，逐项对照 `frameShared.ts` 文件头那份清单；常驻核对是 `npm run verify:lab` 的 CONTRACT 套件（四棵树零未激活、零槽位崩溃、关键槽位有内容、根条目声明表覆盖预期槽位名）。
+**接管官方契约（不是 shadow，因为对方被下线了）**：四棵树的 frame 插件接手了官方 ui-layout 对插件承诺的全部四项——① root 槽位注册与子槽位声明表（`sidebar` / `main` / `rightbar` / `shell.overlay`，加 0.1.2 线的 `conversation` / `details`）；② `ctx.layout` 服务（官方 `ILayout` 语义，含 `openRightbar` / `closeRightbar` 的呈现上报）；③ 主题呈现 `ThemePresenter`；④ root 级 hook `panelInfo`。核对办法：读 `dsh-client-ui-layout/lib/client.js` 的 `apply()` 与 `lib/types/client/*.d.ts`，逐项对照 `frameShared.ts` 文件头那份清单；常驻核对是 `npm run verify:lab` 的 CONTRACT 套件（五棵树零未激活、零槽位崩溃、关键槽位有内容、根条目声明表覆盖预期槽位名）。
 
 **shadow（同名单独注册 + 更低优先号，官方件仍在注册表里、契约照常存活）**：
 
@@ -287,7 +290,7 @@ dsh 上游出于安全只监听 `127.0.0.1`（拒绝 `--host 0.0.0.0`），所�
 | 手段 | 查什么 | 什么时候跑 |
 | --- | --- | --- |
 | 每日上游探针（`scripts/dsh-upstream-watch/probe.mjs`，24 项） | **名字还在不在**：伺服面（wire 协议、认证、RPC、WS 帧、网关 `/` 的启动契约、整包端点、Origin 栅栏，17 项）+ 客户端契约面（整包里的 slot 名/hook 名/字段名，4 项）+ 官方产物面（本机官方包里的 11 条内部标识符 + 我们取用的 26 枚图标的导出名（#236）+ 三棵树 block list 的服务依赖补全，3 项） | GitHub Actions 每日 04:00（UTC+8），结果进 `upstream-watch` label 的 issue 与 README 徽章 |
-| 浏览器验证的 CONTRACT / FIBER / WIRE-LIVENESS 套件（`npm run verify:lab`） | **装起来活不活**：四棵树零槽位崩溃、零装载未激活、关键槽位有内容、根条目声明覆盖预期槽位名（F-01）；四棵树零 cordis fiber 进 FAILED（F-10，fiber 失败不进浏览器控制台）；三棵树 block list 的每个 id 都要在当天 wire 里找得到（F-11，官方改名会让过滤静默失效） | 改装配相关代码后必跑；接新版本时用 `npm run verify:lab-version <版本>` |
+| 浏览器验证的 CONTRACT / FIBER / WIRE-LIVENESS 套件（`npm run verify:lab`） | **装起来活不活**：五棵树零槽位崩溃、零装载未激活、关键槽位有内容、根条目声明覆盖预期槽位名（F-01）；四棵树零 cordis fiber 进 FAILED（F-10，fiber 失败不进浏览器控制台；这一条今天只跑 chat / sidebar / sidebar-official / settings 四棵，plugins 树由 F-01 与 F-74 覆盖）；三棵树 block list 的每个 id 都要在当天 wire 里找得到（F-11，官方改名会让过滤静默失效） | 改装配相关代码后必跑；接新版本时用 `npm run verify:lab-version <版本>` |
 | `docs/dsh-compat-checklist.md` 的「装配面」一节 | 探针查不出的那一类（**名字一个没少、语义变了**）：0.1.6-alpha.2 上客户端契约面全绿，可页面整棵渲染不出来 | 接新版本时按那一节的流程走 |
 
 探针只读字节，所以它看不见「名字还在但装起来不活」；实验室只看行为，看不见「官方把某个我们没在页面上跑过的名字改了」。两者合起来才覆盖：#76 的 `usePanelInfo is not a function`、`imageIds` → `attachmentIds` 是探针抓的；0.1.6-alpha.2 的整页白、会话服务删掉 `open` / `select` / `clear`、`current` 字段消失、`completed` 挪进 `sessionStatus` 是实验室抓的。

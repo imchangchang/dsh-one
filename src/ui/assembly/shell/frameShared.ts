@@ -12,7 +12,7 @@
  *
  * ## 官方框架插件 ui-layout 的契约清单（我们接手了什么、为什么、怎么核对）
  *
- * 三棵树的 block list 都下线了官方框架插件 `dsh-client-ui-layout`（官方 AppFrame
+ * 四棵树的 block list 都下线了官方框架插件 `dsh-client-ui-layout`（官方 AppFrame
  * 自己画三列外框与拖拽把手，与 VS Code 外壳形态冲突）。代价是官方 root 槽位对
  * 插件下发的契约要由我们的底座接手——目前接手的全部四项：
  * 1. root 槽位注册（含子槽位声明表）：自有 ShellFrame/SidebarFrame/SettingsFrame。
@@ -81,7 +81,7 @@ export interface ThemeSnapshot {
  * root 条目 `inject` 面拿到的动作集 = 本 store 的 actions 绑定（框架按 entry
  * 实例化后注入），layout 服务与面板呈现上报都落到这里。官方 ILayout 的五个
  * 成员各有落点：toggleSidebar/openRightbar/closeRightbar 直接映到同名动作；
- * selectPanel 的校验与导航作废由 LayoutController 自己兜——我们三棵树的 frame
+ * selectPanel 的校验与导航作废由 LayoutController 自己兜——我们四棵树的 frame
  * 都不按 `panelInfo.activePanelId` 取面板，而是按 key 显式取（见该类注释）。
  */
 export interface PanelActions {
@@ -97,6 +97,19 @@ export interface PanelActions {
   /** 右侧栏隐藏上报（官方 ILayout.closeRightbar）。 */
   closeRightbar(): void
 }
+
+/**
+ * 官方那个「插件」全局面板的 id（#247）：官方
+ * `@deepseek-ai/dsh-client-ui-plugin-manager` 的 `PANEL_ID`
+ *（`lib/client.js` 的 `const PANEL_ID = "plugins"`）同时是它的两处身份——
+ * keyed `main` 上的 `key`，与 `sidebar.panellist` 上那一行的 `id`。
+ *
+ * 为什么写在我们这边：这两处身份是**跨树**约定的——plugins 树按它取 keyed
+ * `main` 上的条目，侧栏树按它认「这一行要开的是那棵树那个页面」。官方两处用同一个
+ * 常量，我们这一侧也只能有一个（`wireFilter.ts` 的 block list 决定它还在不在
+ * wire 里，改名要让上游探针先响）。
+ */
+export const PLUGINS_PANEL_ID = 'plugins'
 
 export interface ShellLayoutState {
   sidebar: number
@@ -220,7 +233,7 @@ export function createLayoutStore() {
  * - `selectPanel`：官方工作区树（ui-workspace.openSession 返回会话面板）、
  *   官方侧栏的面板清单（ui-sidebar.selectPanel）与 settings 树选中设置页时调用；
  * - `beginNavigation`：官方工作区树开工作区/fork 时拿导航 signal，用于
- *   「上一次导航作废」的竞态判定；
+ *   「上一次导航已作废」的竞态判定；
  * - `openRightbar` / `closeRightbar`：官方右侧栏（ui-sidebar-right）上报呈现
  *   形态，供外框决定右侧轨道宽度；
  * - `openDetails` / `closeDetails`：自有 chat 树的 details 面板（官方 0.1.6
@@ -231,18 +244,32 @@ export function createLayoutStore() {
 export class LayoutController {
   #panels: PanelActions | undefined
   #hasMainPanel: (panelId: string) => boolean
+  #openPanel: (panelId: string) => boolean
   #navigation = new AbortController()
 
   /**
-   * @param hasMainPanel - 官方同款判据「这个 key 在 keyed `main` 槽位上有条目吗」。
-   * 官方 ui-layout 构造时就是这么给的（`dsh-client-ui-layout/lib/client.js:515`）：
-   * `new LayoutController(instance.actions, (id) => ctx.slots.entries("main")
-   * .some((entry) => entry.options.key === id))`。缺省 `() => false` = 本树没有
-   * keyed `main` 槽位（sidebar 树的 root children 只有 sidebar / shell.overlay，
-   * 任何面板 key 都不成立）。
+   * @param options.hasMainPanel - 官方同款判据「这个 key 在 keyed `main` 槽位上有条目吗」。
+   *   官方 ui-layout 构造时就是这么给的（`dsh-client-ui-layout/lib/client.js:515`）：
+   *   `new LayoutController(instance.actions, (id) => ctx.slots.entries("main")
+   *   .some((entry) => entry.options.key === id))`。缺省 `() => false` = 本树没有
+   *   keyed `main` 槽位（sidebar 树的 root children 只有 sidebar / shell.overlay，
+   *   任何面板 key 都不成立）。
+   * @param options.openPanel - 选中一个**不在本树 keyed `main` 上**的全局面板时的处置，
+   *   返回 true = 本树受理（不再抛「未注册」）。缺省不接受任何面板。
+   *
+   *   为什么需要它（#247）：官方侧栏的面板行（`sidebar.panellist`）点击走的是
+   *   `ctx.layout.selectPanel(id)`——**官方通过我们提供的 layout 服务契约调它**
+   *   （机制层 2），所以「那一行点了做什么」这件事的落点就在这个口上。官方 web 里
+   *   插页面挂在同一个 root 的 keyed `main` 上、由官方外框按 `activePanelId` 取键
+   *   渲染；我们的 shell 把那个页面放在**另一个 webview**（独立编辑器页，照设置页
+   *   的先例），本树既不可能声明那个 key 的条目、也不该假装它注册过。所以这里给的
+   *   是一条**显式的跨 webview 处置**：受理条件与「打开方式」都由传入方定义
+   *   （sidebar 树 = 经宿主能力口开那棵树那个页面），校验本身照旧在（不受理的面板
+   *   id 仍然抛官方那句 `is not registered`）。
    */
-  constructor(hasMainPanel: (panelId: string) => boolean = () => false) {
-    this.#hasMainPanel = hasMainPanel
+  constructor(options: LayoutControllerOptions = {}) {
+    this.#hasMainPanel = options.hasMainPanel ?? (() => false)
+    this.#openPanel = options.openPanel ?? (() => false)
   }
 
   /** root 注册 inject 回调接线（官方 sanctioned side effect）。 */
@@ -264,10 +291,15 @@ export class LayoutController {
    * 我们这里不落状态：官方把选中项写进 store 的 `panelInfo.activePanelId`，
    * 由官方外框按 `entryKey: activePanelId ?? …` 决定中列渲染哪条 keyed 条目；
    * 我们的 frame 直接按 key 取（settings 树的设置页就是那条 keyed 条目，
-   * chat 树的对话面板本来也是默认档），所以选中态没有第二个消费方。
+   * chat 树的对话面板本来也是默认档），所以那些树里选中态没有第二个消费方。
+   *
+   * **例外是 `openPanel` 那条**（#247）：见构造函数的说明——不受理的面板 id 照旧
+   * 抛官方那句，受理的由传入方去开（sidebar 树是跨 webview 开插件页）。官方那一行
+   * 的选中态由 `panelInfo.activePanelId` 驱动（官方 PanelRow 自己读它），所以受理方
+   * 通常还要顺手更新那份快照，界面上的选中态才会跟着走。
    */
   selectPanel(panelId: string | null): void {
-    if (panelId !== null && !this.#hasMainPanel(panelId)) {
+    if (panelId !== null && !this.#hasMainPanel(panelId) && !this.#openPanel(panelId)) {
       throw new Error(`layout.selectPanel: main panel "${panelId}" is not registered`)
     }
     this.#navigation.abort()
@@ -320,6 +352,52 @@ export interface PanelInfoSnapshot {
 }
 
 /**
+ * `panelInfo` 钩子的源（官方 `ctx.slots.provideRoot({ hooks: { panelInfo } })`
+ * 那一份的形状）。
+ *
+ * 与官方一样，选中态是**可写的**：官方把它落在自己的 store 里（ui-layout 的
+ * `panelInfo.activePanelId`，由 `selectPanel` 写、由外框与侧栏面板行读），我们这份
+ * 是同一个语义的最小实现——快照 + 订阅 + 一个写入口。官方侧唯一读它的地方是
+ * 各槽位 props 上的 `usePanelInfo`（官方 renderer 的 `standardHookPropName` 映射），
+ * 它按 `useSyncExternalStore(subscribe, getSnapshot)` 消费，所以：
+ * - `getSnapshot` 返回值在**没有变化时必须引用稳定**（每次返回新对象会导致无限重渲）；
+ * - 有变化时换一个新对象，并通知所有订阅者。
+ */
+export interface PanelInfoSource {
+  getSnapshot(): PanelInfoSnapshot
+  subscribe(listener: () => void): () => void
+  /** 写选中态（官方 store 的 `panelInfo.activePanelId` 同义；null = 回到会话面板）。 */
+  setActivePanelId(panelId: string | null): void
+}
+
+/** 造一份可写的 `panelInfo` 源；`activePanelId` 缺省 null = 没有全局面板被选中。 */
+export function createPanelInfoSource(activePanelId: string | null = null): PanelInfoSource {
+  let snapshot: PanelInfoSnapshot = { activePanelId }
+  const listeners = new Set<() => void>()
+  return {
+    getSnapshot: () => snapshot,
+    subscribe: (listener) => {
+      listeners.add(listener)
+      return () => {
+        listeners.delete(listener)
+      }
+    },
+    setActivePanelId: (panelId) => {
+      if (snapshot.activePanelId === panelId) return
+      snapshot = { activePanelId: panelId }
+      // 复制一份再遍历：订阅者在回调里退订是合法行为（React 就会）。
+      for (const listener of [...listeners]) listener()
+    },
+  }
+}
+
+/** `LayoutController` 的两条判据/处置（见该类的构造函数说明）。 */
+export interface LayoutControllerOptions {
+  hasMainPanel?: (panelId: string) => boolean
+  openPanel?: (panelId: string) => boolean
+}
+
+/**
  * 官方 root 槽位钩子 `panelInfo` 的源（机制层 1：官方槽位机制）。
  *
  * 官方 ui-layout 在 `apply()` 里用
@@ -332,20 +410,14 @@ export interface PanelInfoSnapshot {
  * 官方框架插件 ui-layout 被下线后没人再提供这份钩子，树组件挂载即抛
  * `usePanelInfo is not a function`，会话行整块消失（#76 现场日志实锤）。
  *
- * 取舍：这份快照是**恒定 null** 的静默源。消费它的官方组件只在「侧栏会话树 /
- * 右栏」这些槽位里挂载（chat 树没有 sidebar 槽位、sidebar 树没有会话面板、
- * settings 树只渲染设置页），因此三棵树都不依赖选中态：settings 树虽然把设置页
- * 注册成 keyed `main` 上的条目并选中它（#95），但那条条目的渲染是按 key 显式取的
- * （见 settingsLayoutPlugin 的 renderSlot），不走 `activePanelId`。恒定 null 与官方
- * 默认态（未选全局面板）语义一致，会话行照常高亮。快照对象必须引用稳定：官方把它
- * 交给 useSyncExternalStoreWithSelector，每次返回新对象会导致无限重渲。
+ * 这份**恒定 null** 的实例给那几棵不落选中态的树用（chat / settings / plugins：
+ * 它们的舞台是单页，页面上没有会跟着选中态变的官方件——settings 树虽然把设置页
+ * 注册成 keyed `main` 上的条目并选中它（#95），但那条条目的渲染是按 key 显式取的，
+ * 不走 `activePanelId`）。**sidebar 树不共用这一份**：官方侧栏给每个全局面板渲染一行、
+ * 行的选中态就读这份快照（#247），那一行点得着、就必须写得动，所以它自己造一份可写的
+ * （`createPanelInfoSource`，见 sidebarLayoutPlugin 的 openPanel 处置）。
  */
-const PANEL_INFO_SNAPSHOT: PanelInfoSnapshot = { activePanelId: null }
-
-export const PANEL_INFO_SOURCE = {
-  getSnapshot: (): PanelInfoSnapshot => PANEL_INFO_SNAPSHOT,
-  subscribe: (_listener: () => void): (() => void) => () => {},
-}
+export const PANEL_INFO_SOURCE: PanelInfoSource = createPanelInfoSource(null)
 
 const DARK_ATTRIBUTE = 'data-ds-dark-theme'
 const CONTENT_FONT_SIZE_VARIABLE = '--dsh-content-font-size'

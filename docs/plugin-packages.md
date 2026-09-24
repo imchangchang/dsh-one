@@ -93,7 +93,7 @@ bundle 各打一份进去。这个包 `private: true` 且不发 npm，所以对�
 发布的包只发产物（`files` 白名单只放 `lib/` 里的产物与补丁文件；`dsh-host-capabilities`
 是纯宿主半，只有 `lib/index.js` 一个），源码不进 npm 包。
 
-哪些件**不进** `packages/`：只能用在我们 shell 里的 `@dsh-one/vscode-*`（三棵树的
+哪些件**不进** `packages/`：只能用在我们 shell 里的 `@dsh-one/vscode-*`（四棵树的
 外框、主题跟随、会话选择桥、对话面板启动注入、设置齿轮）——它们要么渲染我们自己的外框，
 要么调 VS Code 宿主，拿到官方 web 里跑没有意义。它们照旧直接打成
 `dist/assembly/plugins/<id>/client.js`。

@@ -52,15 +52,16 @@
 <b>先用一句话说清楚我们在做什么</b>：你的 dsh 网关照常跑，浏览器打开还是完整的官方界面；与此同时，VS Code 里的 dsh-one 页面用<b>同一套官方前端代码</b>渲染出界面——对话区、侧栏、设置页各是一棵「装配树」，装的是官方插件，只是把与 VS Code 容器撞车的官方件挡在门外，再叠上我们自己的件。网关那边一行代码都没改。
 </div>
 
-<h2>0. 三棵树，四个层</h2>
+<h2>0. 四棵树，四个层</h2>
 <p>「装配」在这个仓库里指：用官方 dsh web 的前端组件，在我们的 shell 里组装出 VS Code 界面。树定义在 <code>src/ui/assembly/trees.ts</code>，一棵树 = 一份 block list（不进这棵树的官方插件）+ 一个自有 frame 插件 + 追加的自有插件。</p>
 <table>
   <tr><th>树</th><th>落在哪个容器</th><th>block list</th><th>自有 frame 插件</th></tr>
   <tr><td><code>CHAT_TREE</code></td><td>编辑器标签页（<code>dshOne.assembledChat</code>，单例，可另开会话标签页）</td><td>2 条：官方外框、官方侧栏</td><td><code>@dsh-one/vscode-chat-ui-layout</code></td></tr>
   <tr><td><code>SIDEBAR_TREE</code></td><td>侧栏 view <code>dshOne.chat</code></td><td>12 条：官方外框、对话区那几件、设置子页组、侧栏专属件</td><td><code>@dsh-one/vscode-sidebar-ui-layout</code></td></tr>
   <tr><td><code>SETTINGS_TREE</code></td><td>编辑器标签页（<code>dshOne.assembledSettings</code>，单例）</td><td>14 条：官方外框、官方侧栏、对话流卡片组</td><td><code>@dsh-one/vscode-settings-ui-layout</code></td></tr>
+  <tr><td><code>PLUGINS_TREE</code></td><td>编辑器标签页（<code>dshOne.assembledPlugins</code>，单例）；也是侧栏那条「插件」行的落点</td><td>14 条：与设置页同一份构成</td><td><code>@dsh-one/vscode-plugins-ui-layout</code></td></tr>
 </table>
-<p>浏览器验证（<code>npm run verify:lab</code>）在真网关上跑<b>四棵树</b>：上面三棵生产树，加一棵只存在于实验室的对照档 <code>sidebar-official</code>（同一份 block list、只是不装自有工作区树插件，用来把自有树与官方浏览区逐项对照）。</p>
+<p>浏览器验证（<code>npm run verify:lab</code>）在真网关上跑<b>五棵树</b>：上面四棵生产树，加一棵只存在于实验室的对照档 <code>sidebar-official</code>（同一份 block list、只是不装自有工作区树插件，用来把自有树与官方浏览区逐项对照）。</p>
 
 <div class="layer host"><b class="tag">第 1 层</b><b>VS Code 扩展宿主（Node）</b> —— 把面板搭起来
   <p>你在命令面板点「打开装配」之后（或侧栏/设置被打开时），这一层做六件事：确保网关在跑（没有就启动或复用，绝不碰别人正在用的实例）；用 token 换登录 cookie；带 cookie 请求网关首页，取出官方 <code>__DSH_BOOT__</code> 清单与前端资产名；按该树的 block list 过滤清单、把自有插件加进去；起 loopback 代理；生成装配页 HTML 塞进 webview。</p>
@@ -128,7 +129,7 @@
 <table>
   <tr><th>验证</th><th>怎么做</th><th>管什么用</th></tr>
   <tr><td><b>上游探针</b></td><td><code>node scripts/dsh-upstream-watch/probe.mjs</code>（CI 每日自动跑，22 项）</td><td>官方那些名字还在不在：wire 协议、网关首页的启动契约、整包端点、Origin 栅栏、整包里的 slot / hook / 字段名、本机官方包里的内部标识符。坏了当天就在 issue 里报出来</td></tr>
-  <tr><td><b>浏览器验证</b></td><td><code>npm run verify:lab</code>：实验室自己起一台隔离的 dsh（临时数据目录、随机端口），用 Playwright 开四棵树跑断言</td><td>装起来活不活：零槽位崩溃、零装载未激活、关键槽位有内容、四棵树零 fiber 失败、block list 的每个 id 都在当天清单里找得到。改装配相关代码后必跑；接新版本用 <code>npm run verify:lab-version &lt;版本&gt;</code></td></tr>
+  <tr><td><b>浏览器验证</b></td><td><code>npm run verify:lab</code>：实验室自己起一台隔离的 dsh（临时数据目录、随机端口），用 Playwright 开五棵树跑断言</td><td>装起来活不活：零槽位崩溃、零装载未激活、关键槽位有内容、四棵树零 fiber 失败、block list 的每个 id 都在当天清单里找得到。改装配相关代码后必跑；接新版本用 <code>npm run verify:lab-version &lt;版本&gt;</code></td></tr>
   <tr><td><b>官方页面真机</b></td><td><code>npm run verify:plugins-official</code>：隔离的数据目录与 profile 里把自有插件包装进去，用 Playwright 开<b>官方页面本身</b></td><td>可移植插件在官方那边真的加载并工作（改插件包之后必跑）</td></tr>
   <tr><td><b>VS Code 验证</b></td><td><code>scripts/dev-ui-test.sh</code> 起隔离的 VS Code 窗口，人在窗口里操作</td><td>最终准绳。webview 宿主层才有差异的部分（剪贴板、原生菜单、多 webview 生命周期）只有这里能验</td></tr>
 </table>
@@ -138,7 +139,7 @@
 <table>
   <tr><th>路径</th><th>在哪一层</th><th>一句话说明</th></tr>
   <tr><td><code>src/ui/assemblyView.ts</code></td><td>宿主</td><td>三个页面的命令、面板生命周期、清单与代理的准备、面板恢复</td></tr>
-  <tr><td><code>src/ui/assembly/trees.ts</code> / <code>wireFilter.ts</code></td><td>宿主</td><td>三棵树的定义；清单过滤（纯函数，有单测）</td></tr>
+  <tr><td><code>src/ui/assembly/trees.ts</code> / <code>wireFilter.ts</code></td><td>宿主</td><td>四棵树的定义；清单过滤（纯函数，有单测）</td></tr>
   <tr><td><code>src/ui/assembly/pageHtml.ts</code> / <code>probe.ts</code> / <code>failureNotice.ts</code> / <code>hostSdk.ts</code> / <code>hostBridge.ts</code></td><td>宿主与页面之间</td><td>装配页生成、诊断探针、失败提示条、页面侧的宿主调用 SDK 与宿主侧的白名单实现</td></tr>
   <tr><td><code>src/server/assemblyMirror.ts</code></td><td>代理</td><td>loopback 代理：接口与数据流转发、整包过滤、事件流过滤、伺服自有插件产物</td></tr>
   <tr><td><code>src/ui/assembly/shell/*.ts</code></td><td>页面（我们自己的插件源码）</td><td>只能用在我们 shell 里的 <code>@dsh-one/vscode-*</code>：三个 frame 插件、主题跟随、会话启动注入、会话桥、设置齿轮、外链捕获</td></tr>

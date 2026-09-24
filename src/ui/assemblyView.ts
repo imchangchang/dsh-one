@@ -12,6 +12,7 @@ import { assemblyPageHtml } from './assembly/pageHtml.ts'
 import { defaultHostBridgeDeps, subscribeHostCalls, type HostBridgeDeps } from './assembly/hostBridge.ts'
 import { createGatewayWorkspaceRoots } from './assembly/hostWorkspaceRoots.ts'
 import { panelOpenSessionIds, panelSessionsMessage, routeSelection } from '../pure/sessionPanelRouting.ts'
+import { pluginsPageMessage } from '../pure/pluginsPageRouting.ts'
 import { chatPanelTabTitle, panelTabTitle } from '../pure/panelTab.ts'
 import { panelTabIconPath } from './panelIcon.ts'
 import { assignSessionTab, releaseSessionTab, sessionTabOf } from '../pure/sessionTabs.ts'
@@ -25,7 +26,7 @@ import {
   type BootWire,
   type GatewayAssets,
 } from './assembly/wireFilter.ts'
-import { ASSEMBLY_TREES, CHAT_TREE, SETTINGS_TREE, SIDEBAR_TREE, localPluginIdsOf, type AssemblyTree } from './assembly/trees.ts'
+import { ASSEMBLY_TREES, CHAT_TREE, PLUGINS_TREE, SETTINGS_TREE, SIDEBAR_TREE, localPluginIdsOf, type AssemblyTree } from './assembly/trees.ts'
 import {
   ASSEMBLED_CHAT_VIEW_TYPE,
   decodeChatPanelState,
@@ -250,6 +251,12 @@ function hostBridgeDeps(
      * 与上面两条一样是**该面板专属**的能力——只有侧栏那棵树需要它。
      */
     newSessionInWorkspace?: (workspaceId: string) => void
+    /**
+     * #247：打开（或聚焦）官方插件页（那个全局面板在我们的 shell 里是一个独立编辑器页）。
+     * 同样是侧栏面板专属：官方侧栏那条「插件」行的点击经 `ctx.layout.selectPanel` 落到
+     * 侧栏树的 layout 服务上，受理方再经能力口 `openPlugins` 回到宿主。
+     */
+    openPlugins?: () => void
   },
 ): HostBridgeDeps {
   let roots = gatewayRootsByManager.get(manager)
@@ -1288,6 +1295,12 @@ class AssembledSidebarProvider implements vscode.WebviewViewProvider, vscode.Dis
      * 在底部那一行、走 `dshOne.openSettings` 消息，那条路已随 #99 撤掉）。
      */
     private readonly onOpenSettings?: () => void,
+    /**
+     * 开/聚焦插件页（#247：官方侧栏那条「插件」行的落点，经宿主能力口
+     * `openPlugins` 触发——那一行的点击走官方 `ctx.layout.selectPanel('plugins')`，
+     * 落到我们提供的 layout 服务上，受理方再经能力口回到这里）。
+     */
+    private readonly onOpenPlugins?: () => void,
   ) {}
 
   resolveWebviewView(view: vscode.WebviewView): void {
@@ -1303,6 +1316,10 @@ class AssembledSidebarProvider implements vscode.WebviewViewProvider, vscode.Dis
         // #176 的「添加完接着开新会话」复用 `dshOne.session.new` 命令（建会话 + 开
         // 装配对话页），页面只看得到能力口。
         openSettings: () => this.onOpenSettings?.(),
+        // #247：官方侧栏那条「插件」行点了之后开我们那一页（它落在独立编辑器页里，
+        // 与设置页同一个形状）。受理这次点击的是侧栏树自己的 layout 服务（机制层 2：
+        // 官方通过服务契约调它），这里只是那条链路的宿主端。
+        openPlugins: () => this.onOpenPlugins?.(),
         // 返回值要**原样透出**：命令给的是新注册的 `WorkspaceView`，页面靠它的 id
         // 去开新会话、并在被分组过滤挡住时点名提示（#176 之前这里把它丢掉了）。
         createWorkspaceDirectory: async () => await vscode.commands.executeCommand('dshOne.workspace.create'),
@@ -1448,9 +1465,16 @@ export function registerAssembledSidebar(
   context: vscode.ExtensionContext,
   manager: ServerManager,
   logger: Logger,
-  options: { onDidBecomeVisible?: () => void; onOpenSettings?: () => void } = {},
+  options: { onDidBecomeVisible?: () => void; onOpenSettings?: () => void; onOpenPlugins?: () => void } = {},
 ): vscode.Disposable {
-  const provider = new AssembledSidebarProvider(context, manager, logger, options.onDidBecomeVisible, options.onOpenSettings)
+  const provider = new AssembledSidebarProvider(
+    context,
+    manager,
+    logger,
+    options.onDidBecomeVisible,
+    options.onOpenSettings,
+    options.onOpenPlugins,
+  )
   return vscode.Disposable.from(
     vscode.window.registerWebviewViewProvider(ASSEMBLED_SIDEBAR_VIEW_ID, provider, {
       webviewOptions: { retainContextWhenHidden: true },
@@ -1797,4 +1821,235 @@ function discardFailedSettingsPanel(panel: vscode.WebviewPanel | undefined, mirr
   disposedSettingsPanels.add(panel)
   clearSettingsRefs(panel)
   releaseSettingsPanelResources(panel)
+}
+
+
+// ---------------------------------------------------------------------------
+// 插件页面板（#247）：官方那个「插件」全局面板（keyed `main` 的 key `plugins`）
+// 在 VS Code 侧单开一个编辑器页
+//
+// 形态与设置面板同源（#70 设置独立成页）：单例、装配一棵自己的树（PLUGINS_TREE）、
+// 共享 mirror、命令 `dshOne.assembledPlugins` 全量新建、经宿主能力口
+// `openPlugins` 打开（侧栏那一行点击的落点，见 sidebarLayoutPlugin 的 openPanel
+// 处置）。
+//
+// 与设置面板的两处差别，都在这一段里写清：
+// 1. **多一条「这一页开着没有」的回灌**（`broadcastPluginsPage`）：那一页的入口在
+//    侧栏 webview 里，而它自己开在另一个 webview——侧栏那一行的选中态（官方
+//    PanelRow 读 root 槽位钩子 `panelInfo`）要跟着这份事实走，所以建成/关掉各推一条
+//    `dshOne.pluginsPage`（形状与解析在 `pure/pluginsPageRouting.ts`）。设置页没有
+//    这一条：它的入口（顶栏齿轮）不显示选中态。
+// 2. **不注册 WebviewPanelSerializer**：chat 面板注册 serializer 是因为它要恢复
+//    「开的是哪条会话」这份状态（#169）；插件页没有随面板变的参数，重载窗口丢掉标签页
+//    与设置页同一种处置（用户从命令面板/侧栏那一行再开一次即可）。
+// ---------------------------------------------------------------------------
+
+/** 当前打开的插件页面板（单例：后开替换先开，与 chat / 设置面板一致）。 */
+let activePlugins: { panel: vscode.WebviewPanel; mirror: AssemblyMirror } | undefined
+
+/** 已 dispose 的插件页面板：取面板的地方据此把死面板当没有（口径同设置面板 #233）。 */
+const disposedPluginsPanels = new WeakSet<vscode.WebviewPanel>()
+
+/** 插件页面板占的那份共享 mirror 引用的释放动作（幂等，同设置面板）。 */
+const pluginsRelease = new WeakMap<vscode.WebviewPanel, () => void>()
+
+/** 在途的插件页面板创建：连点两次只建一个面板（口径同 chat / 设置面板）。 */
+let creatingPluginsPanel: Promise<PluginsPanelCreateResult> | undefined
+
+/** 建设置/插件页面板的结果（口径同设置面板 #233：失败要写得出失败在哪一步）。 */
+type PluginsPanelCreateResult = { ok: true } | { ok: false; step: string }
+
+/** 取这次请求该用的插件页面板：死面板一律当没有（口径同设置面板）。 */
+function pickPluginsPanel(): vscode.WebviewPanel | undefined {
+  const panel = activePlugins?.panel
+  if (panel === undefined) return undefined
+  if (disposedPluginsPanels.has(panel)) {
+    clearPluginsRefs(panel)
+    releasePluginsPanelResources(panel)
+    pluginsDeps?.logger.warn('plugins open: panel is already gone')
+    return undefined
+  }
+  return panel
+}
+
+/** 清掉指向这个面板的引用（插件页只有单例这一格）。 */
+function clearPluginsRefs(panel: vscode.WebviewPanel): void {
+  if (activePlugins?.panel === panel) activePlugins = undefined
+}
+
+/** 释放这个插件页面板占的资源（只生效一次）：dispose 与「发现已死」两条路共用。 */
+function releasePluginsPanelResources(panel: vscode.WebviewPanel): void {
+  const release = pluginsRelease.get(panel)
+  if (release === undefined) return
+  pluginsRelease.delete(panel)
+  release()
+}
+
+/** 插件页面板的日志句柄（同设置面板：`revealAssembledPlugins` 导出给 extension.ts 调）。 */
+let pluginsDeps: { logger: Logger } | undefined
+
+/**
+ * 「插件页现在开着没有」的回灌（见本节文件头第 1 条）：侧栏那一行的选中态读的
+ * 就是这份事实。广播对象是所有装配 webview（`assemblyWebviews`，主题广播同一份
+ * 名单），`postMessage` 的拒绝吞掉——名单里可能有刚 dispose 的页面（#223 同因）。
+ */
+function broadcastPluginsPage(): void {
+  const message = pluginsPageMessage(activePlugins !== undefined)
+  for (const target of assemblyWebviews) void target.postMessage(message).then(undefined, () => undefined)
+}
+
+/**
+ * 已开则聚焦并返回 true：侧栏那一行（经宿主能力口 `openPlugins`）与命令面板共用
+ * （`extension.ts` 那条 `if (!revealAssembledPlugins()) 走命令`），避免重复装配。
+ *
+ * 死面板当没有（口径同设置面板 #233）：那一行是不等着调用的（`hostBridge` 里
+ * `deps.openPlugins()` 后面没有 await），抛出去就是一个没人接的 rejection = 用户侧
+ * 「点了没反应」。
+ */
+export function revealAssembledPlugins(): boolean {
+  const panel = pickPluginsPanel()
+  if (panel === undefined) return false
+  try {
+    panel.reveal()
+    return true
+  } catch (err) {
+    if (!isDeadWebviewError(err)) throw err
+    disposedPluginsPanels.add(panel)
+    clearPluginsRefs(panel)
+    releasePluginsPanelResources(panel)
+    pluginsDeps?.logger.warn(`plugins open: panel is already gone: ${errorText(err)}`)
+    return false
+  }
+}
+
+/** 注册插件页命令（#247）：dshOne.assembledPlugins。 */
+export function registerAssembledPlugins(
+  context: vscode.ExtensionContext,
+  manager: ServerManager,
+  logger: Logger,
+): vscode.Disposable {
+  pluginsDeps = { logger }
+  return vscode.commands.registerCommand('dshOne.assembledPlugins', async () => {
+    await openPluginsPanel(context, manager, logger)
+  })
+}
+
+/** 在途创建就等它建完（口径同 chat / 设置面板）：连点两次只建一个面板，不增生。 */
+async function openPluginsPanel(
+  context: vscode.ExtensionContext,
+  manager: ServerManager,
+  logger: Logger,
+): Promise<PluginsPanelCreateResult> {
+  const inFlight = creatingPluginsPanel
+  if (inFlight !== undefined) return await inFlight
+  const creating = createPluginsPanel(context, manager, logger)
+  creatingPluginsPanel = creating
+  try {
+    return await creating
+  } finally {
+    creatingPluginsPanel = undefined
+  }
+}
+
+/** 真正的建插件页面板流程（由 openPluginsPanel 串行化调用）：单例语义，任何创建都顶替旧单例。 */
+async function createPluginsPanel(
+  context: vscode.ExtensionContext,
+  manager: ServerManager,
+  logger: Logger,
+): Promise<PluginsPanelCreateResult> {
+  const status = await manager.ensureStarted()
+  if (status.state !== 'running' || !status.url) {
+    void vscode.window.showErrorMessage(vscode.l10n.t('DSH service is not running'))
+    return { ok: false, step: 'service' }
+  }
+  let assembly: GatewayAssembly
+  try {
+    assembly = await loadGatewayAssembly(context, status.url, PLUGINS_TREE, logger)
+  } catch (err) {
+    void vscode.window.showErrorMessage(
+      vscode.l10n.t('Failed to load the UI manifest from the dsh gateway: {0}', errorText(err)),
+    )
+    return { ok: false, step: 'manifest' }
+  }
+  let mirror: AssemblyMirror
+  try {
+    mirror = await acquireSharedMirror(context, manager, logger)
+  } catch (err) {
+    void vscode.window.showErrorMessage(vscode.l10n.t('Failed to start the local UI proxy: {0}', errorText(err)))
+    return { ok: false, step: 'mirror' }
+  }
+  // 单例语义：任何创建都顶替旧单例（取面板走 pickPluginsPanel——引用指着死面板时它
+  // 当场把坏引用清掉、把那份 mirror 引用还掉，下面这一跳就不会漏下旧面板的资源）。
+  const replaced = pickPluginsPanel()
+  if (replaced !== undefined) {
+    logger.info('plugins panel replaced')
+    replacing = true
+    try {
+      replaced.dispose()
+    } finally {
+      replacing = false
+    }
+  }
+  let created: vscode.WebviewPanel | undefined
+  try {
+    const panel = vscode.window.createWebviewPanel(
+      'dshOne.assembledPlugins',
+      panelTabTitle(vscode.l10n.t('Plugins')),
+      vscode.ViewColumn.Active,
+      { enableScripts: true, retainContextWhenHidden: true },
+    )
+    created = panel
+    panel.iconPath = panelTabIconPath(context.extensionUri)
+    activePlugins = { panel, mirror }
+    pluginsRelease.set(panel, () => releaseSharedMirror(mirror))
+    logger.info(`assembled plugins: ${mirror.origin}`)
+    logger.info('plugins panel created')
+    const probeSub = subscribeAssemblyProbe(panel.webview, logger)
+    const hostSub = subscribeHostCalls(panel.webview, logger, hostBridgeDeps(manager, logger, () => mirror.origin))
+    trackAssemblyWebview(context, panel.webview)
+    panel.onDidDispose(() => {
+      disposedPluginsPanels.add(panel)
+      logger.info(`plugins panel disposed: reason=${replacing ? 'replace' : 'other'}`)
+      try {
+        probeSub.dispose()
+        hostSub.dispose()
+        untrackAssemblyWebview(panel.webview)
+      } finally {
+        clearPluginsRefs(panel)
+        releasePluginsPanelResources(panel)
+      }
+      // 那一页没了：侧栏行的选中态跟着回落（见本节文件头第 1 条）。
+      broadcastPluginsPage()
+    })
+    panel.webview.html = assemblyPageHtml({
+      mirrorOrigin: mirror.origin,
+      cspNonce: crypto.randomBytes(16).toString('base64'),
+      assets: assembly.assets,
+      bootWire: assembly.wire,
+      bootstrapUrl: bootstrapUrlOf(assembly.wire),
+      theme: currentTheme(),
+      banner: versionBanner(dshVersion(status.url) ?? status.version),
+      localPluginIds: localPluginIdsOf(PLUGINS_TREE),
+    })
+    // 建好了：侧栏那一行的选中态点亮（此刻起这一页真的开着）。
+    broadcastPluginsPage()
+  } catch (err) {
+    // 建面板 / 装页中途失败：撤掉刚登记的引用与那份 mirror 引用，再给用户一行可见反馈
+    // （命令这条路不许静默——它被侧栏那一行不等着调用，抛出去就是一个没人接的 rejection）。
+    discardFailedPluginsPanel(created, mirror)
+    void vscode.window.showErrorMessage(vscode.l10n.t('Failed to open the plugins panel: {0}', errorText(err)))
+    return { ok: false, step: `create:${errorText(err)}` }
+  }
+  return { ok: true }
+}
+
+/** 建插件页面板中途失败时的收尾（口径同设置面板的 discardFailedSettingsPanel）。 */
+function discardFailedPluginsPanel(panel: vscode.WebviewPanel | undefined, mirror: AssemblyMirror): void {
+  if (panel === undefined) {
+    releaseSharedMirror(mirror)
+    return
+  }
+  disposedPluginsPanels.add(panel)
+  clearPluginsRefs(panel)
+  releasePluginsPanelResources(panel)
 }

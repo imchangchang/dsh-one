@@ -41,8 +41,20 @@
  * externals 种子表满足）。
  */
 import { createElement as h, useEffect, useRef, useState } from 'react'
-import { createLayoutStore, LayoutController, PANEL_INFO_SOURCE, ThemePresenter, type PanelActions, type ThemeSnapshot } from './frameShared'
+import { hostCapabilities } from '@dsh-one/dsh-plugin-kit/hostCapabilities'
+import {
+  createLayoutStore,
+  createPanelInfoSource,
+  LayoutController,
+  PLUGINS_PANEL_ID,
+  PANEL_INFO_SOURCE,
+  ThemePresenter,
+  type PanelActions,
+  type PanelInfoSource,
+  type ThemeSnapshot,
+} from './frameShared'
 import { installExternalLinkShim } from './externalLinkShim'
+import { parsePluginsPageMessage } from '../../../pure/pluginsPageRouting'
 
 // ---------------------------------------------------------------------------
 // 类型（本地最小面）
@@ -436,11 +448,74 @@ function SidebarFrame({ renderSlot }: SidebarFrameProps) {
 
 export const inject = ['slots', 'theme']
 
+/**
+ * 官方那个「插件」全局面板那一行点了之后做什么（#247）——**机制层 2（官方服务 API）**：
+ * 官方侧栏的面板行点击是 `ctx.layout.selectPanel(id)`（官方
+ * `dsh-client-ui-sidebar` 的 `PanelRow` onClick → `SidebarRoot` 的 injectProps →
+ * `ctx.layout`），而 `ctx.layout` 就是本插件提供的那份服务（`LayoutController`）。
+ * 也就是说**官方通过服务契约把这次点击交给我们**，处置权本来就在我们手上：改前那份
+ * 缺省判据 `() => false` 一律不认，于是官方那句
+ * `layout.selectPanel: main panel "plugins" is not registered` 被抛到用户脸上、
+ * 页面什么都不做。
+ *
+ * 处置分三步（都不碰官方产物、不走 DOM）：
+ * 1. 只受理 `plugins` 这一个 id（其余不在本树 keyed `main` 上的面板照旧抛官方那句
+ *    ——校验本身不删）；
+ * 2. 经**宿主能力口** `openPlugins()` 请宿主开（或聚焦）那一页——VS Code 侧是
+ *    扩展宿主建的独立编辑器页（`dshOne.assembledPlugins` 那条路），与设置页同一个
+ *    形状；能力口是自有插件向宿主提要求的唯一入口，插件不直接 postMessage；
+ * 3. **宿主确认这一页开了之后**才写这份 `panelInfo` 快照（`activePanelId` =
+ *    `plugins`）——官方 PanelRow 的选中态读的就是它
+ *    （`usePanelInfo((info) => info.activePanelId === id)`，`aria-current="page"`），
+ *    所以界面上的选中态跟着这次打开走；用户关掉那一页时宿主推一条
+ *    `dshOne.pluginsPage{open:false}`（见 {@link syncPluginsPageState}），选中态回落。
+ *
+ * 为什么本树的 `panelInfo` 不能再是那份恒定 null 的共用实例：官方侧栏给每个全局面板
+ * 渲染一行，行的选中态就是这份快照——这一页在另一个 webview 里，只有这里写它，
+ * 那一行才会亮。`PANEL_INFO_SNAPSHOT` 那份只读常量继续给不落选中态的树用。
+ */
+function openPluginsPage(panelInfo: PanelInfoSource, logger: (line: string) => void): void {
+  void hostCapabilities()
+    .openPlugins()
+    .then(
+      () => panelInfo.setActivePanelId(PLUGINS_PANEL_ID),
+      (err: unknown) => {
+        // 开不了就什么都不改（选中态不点亮），日志留痕——官方 web 侧没有宿主能力口，
+        // 走到这里会是一条 unavailable，那本来就不是这条路的主场。
+        logger(`[dsh-one] open plugins page failed: ${err instanceof Error ? err.message : String(err)}`)
+      },
+    )
+}
+
+/**
+ * 宿主那份事实回灌：那个编辑器页被开/被关时，把侧栏这一行的选中态跟上（#247）。
+ * 消息形状与解析在 `pure/pluginsPageRouting.ts`（宿主与页面共用一处常量）。
+ */
+function syncPluginsPageState(panelInfo: PanelInfoSource): () => void {
+  const onMessage = (event: MessageEvent): void => {
+    const open = parsePluginsPageMessage(event.data)
+    if (open === undefined) return
+    panelInfo.setActivePanelId(open ? PLUGINS_PANEL_ID : null)
+  }
+  addEventListener('message', onMessage)
+  return () => removeEventListener('message', onMessage)
+}
+
 export function apply(ctx: ShellContext): void {
   scheduleGeometrySnapshot()
   // 官方根元素的标记（#178 C7+C9）：CSS 那三条规则与几何快照都按它取。
   ctx.effect(() => watchOfficialRoot(), 'dsh-one sidebar shell: mark official root on its own attribute')
-  const layout = new LayoutController()
+  // 本树自己的 panelInfo 快照（可写）：官方侧栏那一行的选中态读它，而那一行点了要开
+  // 的是**另一个 webview** 里的页面——只有这里写它，那一行才会跟着亮/灭（见上方
+  // openPluginsPage）。
+  const panelInfo = createPanelInfoSource()
+  const layout = new LayoutController({
+    openPanel: (panelId) => {
+      if (panelId !== PLUGINS_PANEL_ID) return false
+      openPluginsPage(panelInfo, (line) => console.warn(line))
+      return true
+    },
+  })
   ctx.effect(() => {
     const disposeService = ctx.reflect.provide('layout', layout)
     // 官方 root 槽位钩子 panelInfo（机制层 1：官方槽位机制）。0.1.6 的官方
@@ -448,7 +523,10 @@ export function apply(ctx: ShellContext): void {
     // `usePanelInfo((info) => info.activePanelId !== null)` 判定当前会话行是否
     // 高亮；官方框架插件 ui-layout 被下线后无人提供这份钩子，槽位挂载即抛
     // `usePanelInfo is not a function`，会话列表整块消失（#76 现场实锤）。
-    const disposePanelInfo = ctx.slots.provideRoot({ hooks: { panelInfo: PANEL_INFO_SOURCE } })
+    // 本树这份是**可写**的（#247，见上方 openPluginsPage）：官方侧栏的全局面板行
+    // 的选中态读它。
+    const disposePanelInfo = ctx.slots.provideRoot({ hooks: { panelInfo } })
+    const disposePluginsPage = syncPluginsPageState(panelInfo)
     const disposeRegistration = ctx.slots.register(
       {
         name: 'root',
@@ -476,10 +554,12 @@ export function apply(ctx: ShellContext): void {
       disposeBrandMark()
       disposeBrandName()
       disposeRegistration()
+      disposePluginsPage()
       disposePanelInfo()
       disposeService()
     }
   }, 'dsh-one sidebar shell: layout service + panel-info hook + root registration + brand shadow')
+
   ctx.effect(() => {
     const presenter = new ThemePresenter()
     presenter.apply(ctx.theme.getTheme())
@@ -491,6 +571,6 @@ export function apply(ctx: ShellContext): void {
       presenter.dispose()
     }
   }, 'dsh-one sidebar shell: theme presenter')
-  // #150：外链锚点的捕获阶段兜底（三棵树共用同一份实现，见 externalLinkShim.ts）。
+  // #150：外链锚点的捕获阶段兜底（四棵树共用同一份实现，见 externalLinkShim.ts）。
   ctx.effect(() => installExternalLinkShim(), 'dsh-one sidebar shell: external link takeover')
 }

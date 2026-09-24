@@ -19,6 +19,7 @@
  * | `isSessionInPanel` / `openSessionPanel`（#121） | 扩展宿主按面板↔会话的跟踪如实回答 + 把面板亮到该会话 | **false / 静默空操作**——官方 web 没有「宿主面板」这个概念，那一端的「打开会话」就是官方自己的那条入口 |
  * | `onPanelSessions`（#147） | 扩展宿主先回一条快照（`session.panelSessions`），此后每次面板↔会话映射变化都广播 `dshOne.panelSessions` | **永不推送**（订阅返回一个退订函数、立刻回空集）——官方 web 那一端没有「宿主面板」这件事实，集合恒为空 = 不抑制任何提醒 |
  * | `openSettings`（+ `settingsPage`） | 扩展宿主开/聚焦设置页（设置独立成编辑器页，#70） | **无**——官方 web 的设置是官方底部那一行，没有独立设置页；能力恒缺席，侧栏齿轮在那一端不渲染 |
+ * | `openPlugins`（+ `pluginsPage`， #247） | 扩展宿主开/聚焦插件页（官方「插件」全局面板独立成编辑器页） | **无**——官方 web 里那一页由官方外框按 `panelInfo.activePanelId` 自己渲染，没有「独立页」这个概念；能力恒缺席（消费方是侧栏树的 layout 服务，那一端根本不会走到这条路） |
  * | `createWorkspaceDirectory`（+ `workspaceCreate`） | 扩展宿主建目录并注册（`dshOne.workspace.create` 命令：`~/.dsh/workspaces/<名>`），#176 起把新工作区的 id 与名字带回页面 | **无**——官方 web 的「新建目录」归官方 directory-flow 占用者（见 #99 的说明），能力恒缺席 |
  * | `newSessionInWorkspace`（+ `sessionNewInWorkspace`， #176） | 扩展宿主跑既有 `dshOne.session.new(<工作区 id>)` 命令（建会话 + 开对话页） | **无**——官方 web 添加工作区后建不建会话归官方自己的 directory-flow，页面在那一端只添加、不开会话（能力恒缺席） |
  * | `openWorkspaceFolder`（+ `workspaceOpen`） | 扩展宿主 `dshOne.workspace.openFolder` 命令（`vscode.openFolder`，可要求新窗口） | **无**——官方 web 是浏览器里的一页，没有「编辑器窗口」可以放这个文件夹，能力恒缺席 |
@@ -196,6 +197,20 @@ export interface HostCapabilities {
   readonly settingsPage: boolean
   /** 打开（或聚焦）设置页。宿主没有独立设置页时以 `unavailable` 拒绝。 */
   openSettings(): Promise<void>
+  /**
+   * 这套宿主有没有「独立的插件页」（#247 官方插件页面板）：**同步判定**，与
+   * {@link settingsPage} 同形同因——VS Code 侧那页是我们自己开的编辑器页（能力在），
+   * 官方 web 侧这一页本来就是官方外框渲染的全局面板（没有「独立页」这回事，
+   * 能力恒缺席）。
+   *
+   * 消费方是**侧栏树**：官方侧栏那一行的点击经 `ctx.layout.selectPanel('plugins')`
+   * 落到我们提供的 layout 服务上，受理方的处置就是这条能力。能力不在场时那一行
+   * 照旧按官方语义抛「未注册」（官方 web 形态里根本不会走到这条路：官方外框自己
+   * 会按 `activePanelId` 把那一页渲染出来）。
+   */
+  readonly pluginsPage: boolean
+  /** 打开（或聚焦）插件页。宿主没有独立插件页时以 `unavailable` 拒绝。 */
+  openPlugins(): Promise<void>
   /**
    * 这套宿主能不能「建一个新工作区目录」（#99 顶栏 ＋ 菜单第二项）：**同步判定**，
    * 消费方按它决定该项出不出现。VS Code 侧由扩展宿主建目录并注册；官方 web 侧
@@ -489,6 +504,19 @@ export function hostCapabilities(ctx?: CapabilityContext): HostCapabilities {
         return
       }
       throw fail('unavailable', 'this shell has no separate settings page; the official settings row owns settings here')
+    },
+    // #247：官方那个「插件」全局面板在 VS Code 侧的落点（独立编辑器页，照设置页的先例）。
+    // 与 settingsPage 同一形态：官方 web 侧那一页由官方外框自己渲染，没有「独立页」这个
+    // 概念，能力恒缺席——消费方（侧栏树的 layout 服务）在那一端本来也不会走到这条路。
+    get pluginsPage() {
+      return viaBridge()
+    },
+    async openPlugins() {
+      if (viaBridge()) {
+        await bridgeCall('vscode.openPlugins', {})
+        return
+      }
+      throw fail('unavailable', 'this shell has no separate plugins page; the official frame renders that panel here')
     },
     get workspaceCreate() {
       return viaBridge()

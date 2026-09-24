@@ -271,7 +271,7 @@ export const inject = ['slots', 'theme', 'locale']
 export function apply(ctx: ShellContext): void {
   // selectPanel 的合法性判据照官方取 keyed `main` 的实时注册表（官方 ui-layout
   // 同款构造点，见 frameShared.LayoutController）。
-  const layout = new LayoutController((panelId) => ctx.slots.entries('main').some((entry) => entry.options.key === panelId))
+  const layout = new LayoutController({ hasMainPanel: (panelId) => ctx.slots.entries('main').some((entry) => entry.options.key === panelId) })
   const sections = createSectionsMirror(ctx)
   ctx.effect(() => {
     const disposeService = ctx.reflect.provide('layout', layout)
@@ -394,6 +394,6 @@ export function apply(ctx: ShellContext): void {
       presenter.dispose()
     }
   }, 'dsh-one settings shell: theme presenter')
-  // #150：外链锚点的捕获阶段兜底（三棵树共用同一份实现，见 externalLinkShim.ts）。
+  // #150：外链锚点的捕获阶段兜底（四棵树共用同一份实现，见 externalLinkShim.ts）。
   ctx.effect(() => installExternalLinkShim(), 'dsh-one settings shell: external link takeover')
 }

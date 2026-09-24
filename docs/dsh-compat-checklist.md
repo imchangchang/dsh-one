@@ -133,7 +133,7 @@ F-72 在那一代判**负向不变量**（不渲染空壳、不翻出归档会�
 
 探针分三类：**伺服面**（wire——网关对外的 HTTP/WS 接口。含装配形态直引的那两样网关前端产物：`/` 的 HTML 与 `/plugins/??` 的 combo——上游改了交互方式或改了产物写法，都在这一面现形）、**客户端契约面**（combo——装配线直引官方前端插件代码，官方的 slot 名、hook 名、字段名就是我们的 ABI）与**官方产物面**（本机已安装的官方包文件——静默失效型依赖：坏了不报错、只是不生效；含每棵树 block list 的补全检查）。三类都由 `.github/workflows/dsh-upstream-watch.yml` 每日 04:00 UTC+8 跑。
 
-两者的分工：探针只查「名字还在不在」，不查「装起来崩不崩」——后者归 `npm run verify:lab`：F-01 CONTRACT 套件（四棵树零崩溃、零缺失契约），外加 #91 加的两条漂移断言 **F-10 FIBER**（四棵树零 cordis scope 进 FAILED——fiber 失败不进控制台，只能运行期看）与 **F-11 WIRE-LIVENESS**（三棵树 block list 的每个 id 都要在当天 wire 里找得到——官方改名会让过滤静默失效）。
+两者的分工：探针只查「名字还在不在」，不查「装起来崩不崩」——后者归 `npm run verify:lab`：F-01 CONTRACT 套件（五棵树零崩溃、零缺失契约），外加 #91 加的两条漂移断言 **F-10 FIBER**（四棵树零 cordis scope 进 FAILED——fiber 失败不进控制台，只能运行期看）与 **F-11 WIRE-LIVENESS**（三棵树 block list 的每个 id 都要在当天 wire 里找得到——官方改名会让过滤静默失效）。
 
 ### 伺服面（17 项）
 
@@ -311,7 +311,7 @@ root 卸掉——页面上一个可见的盒都不剩。页面运行时据此兜
 | 跑什么 | 命令 | 覆盖什么 | 前置 |
 |---|---|---|---|
 | 上游探针 | `node scripts/dsh-upstream-watch/probe.mjs --command dsh --expect-version <版本>`（CI 里由 dsh-upstream-watch 每日自动跑） | 伺服面（wire + 网关前端产物：`/` 的启动契约、combo 端点、Origin 栅栏）+ 客户端契约面（combo 里的 slot/hook/字段名）+ 官方产物面（本机官方包里的内部标识符、三棵树 block list 的服务依赖补全） | 本机有 dsh；探针自起临时 `DSH_HOME` 实例，只读 |
-| 浏览器验证（候选版本） | `npm run verify:lab-version <版本>` | **候选版本**上四棵树装不装得起来：零崩溃、零装载未激活、槽位有内容（F-01 CONTRACT）。脚本把候选版本装到临时目录再用它跑实验室，不动本机安装 | 见上一节「装配面」 |
+| 浏览器验证（候选版本） | `npm run verify:lab-version <版本>` | **候选版本**上五棵树装不装得起来：零崩溃、零装载未激活、槽位有内容（F-01 CONTRACT）。脚本把候选版本装到临时目录再用它跑实验室，不动本机安装 | 见上一节「装配面」 |
 | 浏览器验证（本机版本） | `npm run verify:lab` | 同上，但验的是本机已装的那一版；改装配相关代码后跑它 | 无（这条 script 自己先 `npm run build`） |
 | 宿主半验证 | `npm run verify:host-half` | 网关侧插件半（`packages/dsh-host-capabilities`）与官方 dsh 的兼容 | 见 `scripts/verify-host-half-official.mjs` |
 

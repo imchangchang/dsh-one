@@ -80,6 +80,7 @@ import { THIRD_PARTY_PLUGIN_SUITE } from './thirdPartySuites.ts'
 import { OFFICIAL_PIN_SUITE } from './officialPinSuites.ts'
 import { PROFILE_PLUGIN_SERVICE_SUITE } from './profilePluginServiceSuites.ts'
 import { ROSTER_REVS_SUITE } from './rosterRevsSuites.ts'
+import { PLUGINS_PAGE_SUITE } from './pluginsPageSuites.ts'
 import { ARCHIVED_RESTORE_SUITE } from './archivedRestoreSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
@@ -159,14 +160,18 @@ const CONTRACT_TREES: ReadonlyArray<{
   { route: 'sidebar-official', content: { label: '官方浏览区的会话行', selector: '[class*="_sessionRow"]' }, seats: ['sidebar', 'sidebar.workspaces'] },
   { route: 'chat', content: { label: '对话区 composer 槽位', selector: '[data-slot="conversation.composer.bar"] > *' }, seats: ['main', 'conversation.composer.bar', 'rightbar'] },
   { route: 'settings', content: { label: '设置内容区', selector: '[data-slot="settings.section"] > *' }, seats: ['main', 'settings.section'] },
+  // #247：plugins 树（官方「插件」全局面板单开一页）。它的两个座就是这一页的全部
+  // 声明面——`main`（keyed，key = plugins，官方页面本体坐在上面）与官方页面自己
+  // 声明出来的 `plugins.item`（四张配置卡的座）。
+  { route: 'plugins', content: { label: '官方插件页本体', selector: '[data-plugin-panel]' }, seats: ['main', 'plugins.item'] },
 ]
 
 export const CONTRACT_SUITE: LabSuite = {
   id: 'F-01',
   phase: 'new-feature',
-  name: '底座契约完备性：四棵树在真实网关上零崩溃、零缺失契约（CONTRACT 套件）',
+  name: '底座契约完备性：五棵树在真实网关上零崩溃、零缺失契约（CONTRACT 套件）',
   expect:
-    '实验室四棵树（自有 sidebar 树、官方浏览区对照档、chat 树、settings 树）各自在真实网关只读下打开：**零 `slot entry crashed`**（官方渲染层崩溃 + 页面无 `data-slot-error` 元素）、**零 pageerror**、**零装载未激活**（官方 `web boot: … did not activate` / `waiting for service`；0.1.5 线那种「审计跑不到」的版本上是 `failed to <import|apply> loader entry …`——两种形状都算，见 `harness.ts` 的 `BOOT_FAIL_RE`，即缺服务/缺钩子那类底座缺口）；该树自己的关键槽位**有内容**（不是空壳）、**预期槽位锚点都在**（官方改槽位名/改归属时这里先红）、该树的 frame 插件 bundle 真的装进了页面（combo 请求里有它的 id、页面上有它的 CSS 标记）；chat 树额外核官方右栏槽位（声明 + 官方 ui-sidebar-right 的槽位已注册 + 面板几何在官方钳位区间内）。缺 hook 与缺服务在页面上的表现就是 `slot entry crashed` / `did not activate`，所以这两条断言即 hook/服务的完备性断言。',
+    '实验室五棵树（自有 sidebar 树、官方浏览区对照档、chat 树、settings 树、plugins 树）各自在真实网关只读下打开：**零 `slot entry crashed`**（官方渲染层崩溃 + 页面无 `data-slot-error` 元素）、**零 pageerror**、**零装载未激活**（官方 `web boot: … did not activate` / `waiting for service`；0.1.5 线那种「审计跑不到」的版本上是 `failed to <import|apply> loader entry …`——两种形状都算，见 `harness.ts` 的 `BOOT_FAIL_RE`，即缺服务/缺钩子那类底座缺口）；该树自己的关键槽位**有内容**（不是空壳）、**预期槽位锚点都在**（官方改槽位名/改归属时这里先红）、该树的 frame 插件 bundle 真的装进了页面（combo 请求里有它的 id、页面上有它的 CSS 标记）；chat 树额外核官方右栏槽位（声明 + 官方 ui-sidebar-right 的槽位已注册 + 面板几何在官方钳位区间内）。缺 hook 与缺服务在页面上的表现就是 `slot entry crashed` / `did not activate`，所以这两条断言即 hook/服务的完备性断言。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     for (const entry of CONTRACT_TREES) {
@@ -6682,4 +6687,8 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // `root` 槽的注册随之撤销、整页白（F-73：#240 占了 F-71、#239 占了 F-72，按
   // 「从未占用的继续」顺延；套件本体在 rosterRevsSuites.ts，同为独立文件，少一处合入热点）。
   ROSTER_REVS_SUITE,
+  // #247 官方「插件」页在 VS Code 侧有落点（F-74：F-01…F-73 与 R-06 已占，按
+  // 「从未占用的继续」顺延；套件本体在 pluginsPageSuites.ts，同为独立文件，
+  // 少一处合入热点）。它同时判 plugins 树页面本身与侧栏那一行的端到端点击。
+  PLUGINS_PAGE_SUITE,
 ]

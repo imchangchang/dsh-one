@@ -36,7 +36,7 @@ import { localBundleRev } from '../../src/server/localBundleRev.ts'
 import { registerVersion } from '../../src/server/serverAuth.ts'
 import { defaultOwnedPath, readOwnedRecord } from '../../src/server/ownedRecord.ts'
 import { bootstrapUrlOf, extractBootWire, extractFrontendAssets, filterWire, WORKSPACE_TREE_PLUGIN_ID, type BootWire } from '../../src/ui/assembly/wireFilter.ts'
-import { ASSEMBLY_TREES, CHAT_TREE, SETTINGS_TREE, SIDEBAR_TREE, localPluginIdsOf, type AssemblyTree } from '../../src/ui/assembly/trees.ts'
+import { ASSEMBLY_TREES, CHAT_TREE, PLUGINS_TREE, SETTINGS_TREE, SIDEBAR_TREE, localPluginIdsOf, type AssemblyTree } from '../../src/ui/assembly/trees.ts'
 import { inPrereqRange, installCommand, prereqRangeLabel } from '../../src/pure/versionGate.ts'
 import type { LogSink } from '../../src/log.ts'
 
@@ -138,6 +138,13 @@ export const LAB_TREES: ReadonlyArray<LabTreeRoute> = [
     tree: SETTINGS_TREE,
     readySelector: '[data-slot="settings.section"]',
     note: '设置页：官方外框/侧栏/对话流卡片下线，设置四件套保留。',
+  },
+  {
+    route: 'plugins',
+    title: 'plugins 树（官方插件页独立成页）',
+    tree: PLUGINS_TREE,
+    readySelector: '[data-plugin-panel]',
+    note: '官方「插件」全局面板（keyed `main` 的 key `plugins`）整页渲染：四张官方配置卡坐落在 plugins.item 上。',
   },
 ]
 
