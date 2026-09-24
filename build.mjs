@@ -118,6 +118,7 @@ for (const dir of (await fsp.readdir('packages')).sort()) {
 // - @dsh-one/vscode-chat-ui-layout：chat 树 frame（对话区，#64）
 // - @dsh-one/vscode-sidebar-ui-layout：sidebar 树 frame（侧栏位，#70）
 // - @dsh-one/vscode-settings-ui-layout：settings 树 frame（设置独立成页，#70）
+// - @dsh-one/vscode-plugins-ui-layout：plugins 树 frame（官方插件页独立成页，#247）
 // - @dsh-one/vscode-theme-follow：主题跟随（三树共用，#70）
 // - @dsh-one/vscode-settings-gear：侧栏设置入口 shadow（sidebar 树，#70）
 // id 与 src/ui/assembly/wireFilter.ts 的常量保持一致。
@@ -131,6 +132,12 @@ const VSCODE_PLUGINS = [
     externals: ['@deepseek-ai/dsh-client-ui-primitives'],
   },
   { id: '@dsh-one/vscode-theme-follow', entry: 'src/ui/assembly/shell/themeFollowPlugin.ts' },
+  {
+    // #247：官方那个「插件」全局面板在 VS Code 侧的独立编辑器页（plugins 树 frame）。
+    // 只要种子表那几个外部件（与 chat / sidebar 两个 frame 同源）。
+    id: '@dsh-one/vscode-plugins-ui-layout',
+    entry: 'src/ui/assembly/shell/pluginsLayoutPlugin.ts',
+  },
   { id: '@dsh-one/vscode-session-bridge', entry: 'src/ui/assembly/shell/sessionBridgePlugin.ts' },
   { id: '@dsh-one/vscode-session-boot', entry: 'src/ui/assembly/shell/sessionBootPlugin.ts' },
   {

@@ -1,5 +1,5 @@
 /**
- * 三棵装配树的定义（#78 从 `ui/assemblyView.ts` 抽出的纯数据）：每棵树 =
+ * 四棵装配树的定义（#78 从 `ui/assemblyView.ts` 抽出的纯数据）：每棵树 =
  * 一份 block list + 一个自有 frame 插件 id + 该树追加的共用插件。
  *
  * 为什么单独成模块：浏览器验证 harness（`test/assembly-lab/`）要在普通 Node
@@ -12,6 +12,8 @@ import {
   COMPOSER_CLEAR_PLUGIN_ID,
   CONTEXT_MENU_PLUGIN_ID,
   GIT_CARD_PLUGIN_ID,
+  PLUGINS_BLOCK_LIST,
+  PLUGINS_FRAME_PLUGIN_ID,
   SESSION_BOOT_PLUGIN_ID,
   SESSION_BRIDGE_PLUGIN_ID,
   SESSION_EXPORT_PLUGIN_ID,
@@ -68,8 +70,26 @@ export const SETTINGS_TREE: AssemblyTree = {
   extraPluginIds: [THEME_FOLLOW_PLUGIN_ID],
 }
 
+/**
+ * plugins 树（#247 官方插件页独立成页）：官方那个「插件」全局面板
+ * （`@deepseek-ai/dsh-client-ui-plugin-manager`，挂在 keyed `main` 的 key
+ * `plugins` 上）在 VS Code 里单开一个编辑器页——与设置页同一个形状
+ * （自定义 frame 插件 + 扩展侧 webview 面板 + 一条宿主能力口）。
+ *
+ * 页面本体是官方那条 keyed 条目自己的渲染，本树不重现它的任何内容：frame 只声明
+ * `main` 与 `shell.overlay` 两个座、按 key 取那一条渲染。它自己声明的三个子座
+ * （`plugins.item` / `plugins.bundle.config` / `plugins.row.config`）随之落下，
+ * 官方那四张配置卡（终端 / Agent 循环 / Subagent / 网页搜索）因此一起回到
+ * VS Code 侧。
+ */
+export const PLUGINS_TREE: AssemblyTree = {
+  blockList: PLUGINS_BLOCK_LIST,
+  framePluginId: PLUGINS_FRAME_PLUGIN_ID,
+  extraPluginIds: [THEME_FOLLOW_PLUGIN_ID],
+}
+
 /** mirror 要同时伺服的树（缓存键 = 各树 framePluginId，见 server/assemblyMirror.ts）。 */
-export const ASSEMBLY_TREES: ReadonlyArray<AssemblyTree> = [CHAT_TREE, SIDEBAR_TREE, SETTINGS_TREE]
+export const ASSEMBLY_TREES: ReadonlyArray<AssemblyTree> = [CHAT_TREE, SIDEBAR_TREE, SETTINGS_TREE, PLUGINS_TREE]
 
 /**
  * 一棵树的「自有插件 id」列表：第一个是 frame 插件 id，其余是该树追加的共用插件。

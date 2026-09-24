@@ -12,13 +12,16 @@
  *   按 __ModuleLoader__.load 边界剥掉 blocked 段后伺服，见 assemblyMirror)。
  * - bootstrap 批只有 client-modules，永不过滤。
  *
- * 三棵树三份 block list（#70 立、#71 瘦身、#180 逐条复核、#202 / #204 续）：
+ * 四棵树四份 block list（#70 立、#71 瘦身、#180 逐条复核、#202 / #204 续、#247 加
+ * plugins 树）：
  * - chat 树（装配对话区）：官方外框 + 官方侧栏都下线（#64 行为不变）；
  *   对话区本身在这棵树上，对话流卡片全保留。
  * - sidebar 树（侧栏位装配）：官方外框 + 对话区那几件下线，官方侧栏（品牌位/
  *   工作区树/设置入口/底部动作）原样进侧栏位。
  * - settings 树（设置独立成页）：官方外框 + 官方侧栏 + 对话区那几件下线，
  *   设置子页组保留（那正是这一页的内容）。
+ * - plugins 树（官方插件页独立成页，#247）：与 settings 树同一份构成——这两页在
+ *   装配上是同一个形状（都是「官方某个全局面板单开一页」）。
  *
  * 每一条为什么在**这一棵**树上还要下线，理由写在各自的清单里（#180：22 个 id
  * 逐条复核过一遍，判据是「这棵树有没有声明它注册的槽位」——没声明的整件停车，
@@ -312,6 +315,46 @@ export const SETTINGS_BLOCK_LIST: ReadonlyArray<BlockedPlugin> = [
   ...FLOW_SETTINGS_TREE,
 ]
 
+/**
+ * plugins 树 block list（#247 官方插件页单开一个 VS Code 页面）：官方外框 +
+ * 官方侧栏壳 + 对话流卡片组，与 settings 树同一份构成。
+ *
+ * 为什么与 settings 树逐条相同（不是照抄，是这两个页面在装配上是同一形状）：
+ * - **官方外框 `ui-layout`**：形态理由，与其余三棵树同一条（它自己画三列网格）。
+ * - **官方侧栏壳 `ui-sidebar`**：插件页不是侧栏位页，它的 `sidebar` 座在这棵树上
+ *   没人声明，放回来只是整件停车。与 settings 树那条同一个理由（那边写全了
+ *   官方注册点的出处）。
+ * - **`FLOW_BOTH_TREES`（6 件）**：本树的 root 条目要声明 keyed `main`（插件页挂在
+ *   它上面），而官方 `ui-conversation` 的整棵对话子树也挂在同一个名字上——声明
+ *   `main` 等于把这棵子树连同它声明的 `conversation.*` 座一起带进来，这 6 件于是
+ *   真注册得成。它们不是这一页的内容，照 settings 树的做法继续下线（判据是
+ *   「这棵树有没有声明它注册的槽位」，不是「放回去今天看起来会不会变」）。
+ * - **`FLOW_SETTINGS_TREE`（6 件）**：对话流卡片 + 会话日志导出，理由同上一条。
+ *   与 settings 树唯一的差别在这里：那棵树要的是设置节，这棵树要的是**插件页
+ *   自己声明的三个子座**（`plugins.item` / `plugins.bundle.config` /
+ *   `plugins.row.config`），而声明它们的是 `ui-plugin-manager` 那条 keyed `main`
+ *   条目——本树**保留** `ui-plugin-manager`，官方那四张配置卡（
+ *   `ui-settings-plugins` 经 `slots.inject("plugins.item", …)` 注册）因此有座可落。
+ *
+ * **没进这份名单的两类**（按 #180 立的判据：这棵树不声明它注册的槽位 ⇒ 整件停车，
+ * 挂着只是白背一个官方 id 依赖，不该继续留在依赖名单上）：
+ * - 设置子页组里除 `ui-settings-plugins` 以外的那几件（`ui-settings-general` /
+ *   `ui-settings-models` / `ui-settings-plugin-inventory` / 已归档会话那两个设置节）：
+ *   它们注册的是 `settings.*`，而本树的 root children 只声明 `main` 与
+ *   `shell.overlay`，一个 `settings.*` 都没有 ⇒ 官方 `slots.inject` 的回调永不跑、
+ *   整件停车、零渲染、零报错（官方语义见 `dsh-client-ui-renderer` 的 inject 实现）。
+ * - `rightbar` 系与 `sidebar.*` 系：同上，本树一个都没声明。
+ */
+export const PLUGINS_BLOCK_LIST: ReadonlyArray<BlockedPlugin> = [
+  UI_LAYOUT,
+  {
+    id: '@deepseek-ai/dsh-client-ui-sidebar',
+    reason: 'the plugins page is not a sidebar page: this tree declares no `sidebar` seat, so the official sidebar shell would only park here',
+  },
+  ...FLOW_BOTH_TREES,
+  ...FLOW_SETTINGS_TREE,
+]
+
 /** block list → id 列表。 */
 export const blockedIdsOf = (list: ReadonlyArray<BlockedPlugin>): string[] => list.map((b) => b.id)
 
@@ -349,6 +392,9 @@ export const CHAT_BLOCKED_IDS: Readonly<string[]> = blockedIdsOf(CHAT_BLOCK_LIST
 /** settings 树 blocked id。 */
 export const SETTINGS_BLOCKED_IDS: Readonly<string[]> = blockedIdsOf(SETTINGS_BLOCK_LIST)
 
+/** plugins 树 blocked id。 */
+export const PLUGINS_BLOCKED_IDS: Readonly<string[]> = blockedIdsOf(PLUGINS_BLOCK_LIST)
+
 /** chat 树自有外框插件（frame 插件）id（root 外框/layout 桩/ThemePresenter，经 mirror /plugins-local 伺服)。 */
 export const CHAT_FRAME_PLUGIN_ID = '@dsh-one/vscode-chat-ui-layout'
 
@@ -360,6 +406,13 @@ export const SIDEBAR_FRAME_PLUGIN_ID = '@dsh-one/vscode-sidebar-ui-layout'
  * layout + sidebar，官方 SettingsRoot 不进页，设置槽位由整页宿主直渲）。
  */
 export const SETTINGS_FRAME_PLUGIN_ID = '@dsh-one/vscode-settings-ui-layout'
+
+/**
+ * plugins 树自有 frame 插件 id（#247 官方插件页单开一个 VS Code 页面）：
+ * root 只声明 keyed `main` + `shell.overlay`，页面本体 = `main` 上 key = `plugins`
+ * 的那条官方条目（`@deepseek-ai/dsh-client-ui-plugin-manager` 注册的）。
+ */
+export const PLUGINS_FRAME_PLUGIN_ID = '@dsh-one/vscode-plugins-ui-layout'
 
 /**
  * 主题跟随小插件 id（三棵树共用，#70 VS Code 验收）：收到宿主
