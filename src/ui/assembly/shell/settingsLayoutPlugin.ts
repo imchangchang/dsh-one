@@ -18,6 +18,8 @@
  *   + 内容区 renderSlot('settings.section', {}, { only: active }) 单节渲染——
  *   导航行来自官方同款推导（slots.entries('settings.section') 的 id/order/
  *   label，按槽版本 + locale 修订缓存，双订阅），与官方弹窗观感对齐。
+ *   `settings.onboarding` 也在这页上渲染（#249）：与设置面板同级、一次只放
+ *   官方游标选中的那一步，见 SettingsPage 上方那段。
  * - Models「settings are unavailable in this browser」根因修复在 pageHtml 的
  *   __DSH_TRANSPORT__.ownsHost（client-connection isLoopback 判定），此处消费。
  */
@@ -41,6 +43,17 @@ interface SectionsMirror {
   subscribe(listener: () => void): () => void
 }
 
+/** `settings.onboarding` 座上的一条留步（官方游标要的是 id + order）。 */
+interface OnboardingRow {
+  id: string
+  order: number
+}
+
+interface OnboardingMirror {
+  getSnapshot(): OnboardingRow[]
+  subscribe(listener: () => void): () => void
+}
+
 /**
  * 设置页在官方 keyed `main` 槽位上的 key（官方 `MainPanelId` 语义：条目注册时
  * 声明 `key`，渲染时 `renderSlot('main', {}, { entryKey })` 按它取条目，
@@ -51,6 +64,7 @@ const SETTINGS_MAIN_KEY = 'dshOne.settings'
 interface SettingsFrameProps {
   renderSlot: (name: string, params: Record<string, unknown>, opts?: { only?: string; entryKey?: string }) => unknown
   sections: SectionsMirror
+  onboarding: OnboardingMirror
 }
 
 interface SlotEntryLite {
@@ -140,22 +154,79 @@ function resolveSlotLabel(label: unknown): string | undefined {
 }
 
 /**
+ * `settings.onboarding` 座上的留步推导（与 section 行同一套读法：槽版本缓存 +
+ * 按 order 排）。官方 `SettingsRoot` 就是拿 `ctx.slots.entries("settings.onboarding")`
+ * 这一份当游标清单的（`dsh-client-ui-settings-general/lib/client.js:877-890`），
+ * 所以这里读的是同一份公开读数，不猜官方内部状态。
+ */
+function createOnboardingMirror(ctx: ShellContext): OnboardingMirror {
+  let rowsVersion = -1
+  let rows: OnboardingRow[] = []
+  return {
+    getSnapshot() {
+      const version = ctx.slots.getVersion('settings.onboarding')
+      if (version !== rowsVersion) {
+        rowsVersion = version
+        rows = ctx.slots
+          .entries('settings.onboarding')
+          .map((e) => ({ id: e.options.id ?? '', order: e.options.order ?? 0 }))
+          .sort((a, b) => a.order - b.order)
+      }
+      return rows
+    },
+    subscribe(listener) {
+      return ctx.slots.subscribe('settings.onboarding', listener)
+    },
+  }
+}
+
+/**
  * 整页宿主（官方 SettingsPanel 组合复刻；官方机制第 1/2 层：renderSlot 的
  * list 槽位 only 过滤是框架原生选项，官方 SettingsPanel 同款）：
  * 左分节导航 + 右内容单节渲染（only:active），当前节高亮；
  * 导航行订阅槽/语言变化，节缺席自动回落首行。
+ *
+ * `settings.onboarding` 那一段是**官方设置弹层壳 `SettingsRoot` 的同款语义**
+ * （2026-09-25，本座的渲染面此前一直缺席，见 #249）：官方在那里的写法是
+ * `onboardingStep !== void 0 && renderSlot("settings.onboarding", { stepId, complete,
+ * openSection }, { only: onboardingStep.id })`（`dsh-client-ui-settings-general/lib/client.js:438`），
+ * 即**与设置面板同级、一次只渲染当前这一步**；游标由壳持有——取 `entries` 里
+ * order 最小的那条还没完成过的（官方 `completedOnboarding` 集合，同文件 `:317` 与 `:344`），
+ * 组件自查完成后回调 `complete()` 让游标前进。这里照抄的正是这两件事：
+ * **壳只给座位与游标，显不显示由官方组件按自己的状态决定**（`welcome-notice` 看
+ * `ui-onboarding` 里那个确认标记、`deepseek-official` 看有没有可用凭据），我们不写死
+ * 任何显示条件。两条最终都是 body 级 portal 的模态框（官方 `Modal` 原语
+ * `createPortal(..., document.body)`），所以渲染面不在本锚点里。
+ *
+ * `data-dshone-onboarding-step` 是本页自己的游标读数（F-75 的壳座位对账要拿它把
+ * 「官方两条都挂上了」与「这一轮到底是哪一条在渲染」对上账，见 `test/assembly-lab/shellSeats.ts`）。
  */
-function SettingsPage({ renderSlot, sections }: SettingsFrameProps) {
+/** 游标初值：一条都没完成。空集常量（本仓库的 react 环境声明没有 `useState` 的惰性初值重载）。 */
+const NO_COMPLETED_STEPS: ReadonlySet<string> = new Set<string>()
+
+function SettingsPage({ renderSlot, sections, onboarding }: SettingsFrameProps) {
   const rows = sections.getSnapshot()
   const [activeId, setActiveId] = useState<string | undefined>(rows[0]?.id)
   const [tick, setTick] = useState(0)
-  useEffect(() => sections.subscribe(() => setTick(tick + 1)), [sections, tick])
+  const [completed, setCompleted] = useState<ReadonlySet<string>>(NO_COMPLETED_STEPS)
+  const bump = (): void => setTick(tick + 1)
+  useEffect(() => sections.subscribe(bump), [sections, tick])
+  useEffect(() => onboarding.subscribe(bump), [onboarding, tick])
   void tick // 订阅驱动重渲染（getSnapshot 在渲染期取新值）
   const latest = sections.getSnapshot()
   const active = latest.some((r) => r.id === activeId) ? activeId : latest[0]?.id
+  // 官方游标语义（见本函数上方那段）：order 最小的那条还没完成过的留步。
+  const step = onboarding.getSnapshot().find((row) => !completed.has(row.id))
+  const completeStep = (id: string): void => {
+    setCompleted((previous) => (previous.has(id) ? previous : new Set([...previous, id])))
+  }
   return h(
     'div',
-    { className: 'dshOneSettingsShell_page', 'data-shell': 'dsh-one-settings' },
+    {
+      className: 'dshOneSettingsShell_page',
+      'data-shell': 'dsh-one-settings',
+      'data-dshone-onboarding-step': step?.id ?? '',
+    },
     h(
       'div',
       { className: 'dshOneSettingsShell_column' },
@@ -187,6 +258,16 @@ function SettingsPage({ renderSlot, sections }: SettingsFrameProps) {
           : null,
       ),
     ),
+    // 当前这一步的官方 onboarding（与设置面板同级，官方 `SettingsRoot` 同款位置与
+    // 过滤方式；见本函数上方那段说明）。没有当前步时这个座整段不渲染——官方也是
+    // 「`onboardingStep !== void 0 &&` 才 renderSlot」。
+    step === undefined
+      ? null
+      : renderSlot(
+          'settings.onboarding',
+          { stepId: step.id, complete: () => completeStep(step.id), openSection: setActiveId },
+          { only: step.id },
+        ),
   )
 }
 
@@ -273,6 +354,7 @@ export function apply(ctx: ShellContext): void {
   // 同款构造点，见 frameShared.LayoutController）。
   const layout = new LayoutController({ hasMainPanel: (panelId) => ctx.slots.entries('main').some((entry) => entry.options.key === panelId) })
   const sections = createSectionsMirror(ctx)
+  const onboarding = createOnboardingMirror(ctx)
   ctx.effect(() => {
     const disposeService = ctx.reflect.provide('layout', layout)
     // 官方 root 槽位钩子 panelInfo（机制层 1：官方槽位机制）：本页不渲染任何
@@ -363,9 +445,12 @@ export function apply(ctx: ShellContext): void {
             'settings.action': { kind: 'list', scope: 'root' },
             'settings.close': { kind: 'single', scope: 'root' },
             'settings.section': { kind: 'list', scope: 'root' },
+            // 官方两条 onboarding（ui-settings-models 的 `welcome-notice` /
+            // `deepseek-official`）的座。声明之后它们的 `slots.inject` 回调才会跑
+            // （官方 inject 语义），本页由 SettingsPage 渲染它（#249）。
             'settings.onboarding': { kind: 'list', scope: 'root' },
           },
-          inject: () => ({ sections }),
+          inject: () => ({ sections, onboarding }),
         },
         SettingsPage,
       )
