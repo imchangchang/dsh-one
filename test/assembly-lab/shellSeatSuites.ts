@@ -19,7 +19,7 @@
  * （停车不抛错、没有 fiber 失败）。所以这一条**按座对账**：官方页与四棵树各读一次
  * `ctx.slots.snapshot()`，逐座比「声明了没有 / 座上有没有人 / 页面上渲染出来了没有」。
  *
- * ## 两条判据（判的都是「有没有落点」，不是「长得对不对」）
+ * ## 三条判据（判的都是「有没有落点」，不是「长得对不对」）
  *
  * ① **官方页有、本树既没声明也没占位**的壳座，必须落在 `shellSeats.ts` 的白名单里
  *    （白名单每条带一句「为什么这是有意收敛」）。这一条抓的是「官方把页搬进 / 新增一处壳，
@@ -27,6 +27,13 @@
  *    `sidebar.workspaces`，一个插件都没新增）。
  * ② **本树声明了、座上也有人、页面上却零渲染节点**的壳座，同样必须落在白名单里。
  *    这一条抓的是「注册成功了但内容进不来」（c-ii 档）。
+ * ③ **设置页 onboarding 的正面判据**（#249 起）：`settings.onboarding` 座上那两条官方
+ *    onboarding 的形态是 **body 级 portal 的模态框**（官方 `OnboardingModal` 用官方 `Modal`
+ *    原语 `createPortal(..., document.body)`），锚点里永远不会有节点——判 ② 那一份读数
+ *    看不见它们，所以除了白名单那档 `lazy`，另有一段正面判据：座上就是那两条、锚点按壳
+ *    自己的游标在场、游标非空时那一步真的画在 `document.body` 下且归属得上这个座
+ *    （归属沿 React fiber 的 `return` 链读，见 `shellSeats.ts` 的 `readPortals`）。
+ *    判的是机制，不是「这一轮必须出现某一条」——那两条显不显示由官方组件按自己的状态决定。
  *
  * 判 ② 时要「座上也有人」：一处空的 list 座本来就没内容可丢，那不是缺陷。渲染面按
  * **锚点 + 里面的元素或文字**读（官方插件页那四张卡的摘要是文字节点、不是元素，只数元素会
@@ -157,7 +164,7 @@ export const SHELL_SEAT_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '壳座位对账：官方页有的壳座，每棵树要么声明并渲染、要么在白名单里带理由（SHELL-SEATS 套件）',
   expect:
-    '官方页面（网关 origin 的原始页面）与四棵树（sidebar / chat / settings / plugins）各读一次槽位快照 `ctx.slots.snapshot()`（经 fiber 探针留下的 ctx 反射取 slots 服务），**逐座对账 `shellSeats.ts` 里那份壳座表**（`main` / `sidebar.panellist` / `sidebar.settings` / `sidebar.footer.action` / `sidebar.workspaces` / `settings.section` / `settings.action` / `settings.trigger` / `settings.onboarding` / `shell.overlay` / `rightbar` / `plugins.item`）。① **官方页有、本树既没声明也没占位**的座必须落在白名单里（每条带「为什么这是有意收敛」的整句理由），否则判红——这一档就是 #248 里那两种静默坏法中的「座没声明 ⇒ 官方 `slots.inject` 停车、能力静默消失」（侧栏「插件」那一行与它连带的三处子座、官方设置弹层那条触发条都是它）；② **本树声明了、座上也有人、页面上却零渲染节点**的座同样必须在白名单里——这一档是「座声明了但没人渲染 ⇒ 内容进不来」（官方设置弹层那两条 onboarding 是它）。判 ② 要求座上有占位者（空 list 座没内容可丢）；渲染面按「锚点 + 里面的元素或文字」读（官方插件页那四张卡的摘要是文字节点）。**不吃当天数据**：只扫这份壳座表（root 级的页 / 弹层 / 面板座），会话级 / 数据级的座只记事实不判。另外逐座记下渲染出来的条目与它们的第一枚可点元素（F-54 的壳上入口扫描用同一份读数与同一份白名单），并核对白名单里没有**用不上**的条目（读数形状变了、理由不再描述现状时点名）。全程只读：只读快照与 DOM，一个字节都不写网关、不点任何控件。',
+    '官方页面（网关 origin 的原始页面）与四棵树（sidebar / chat / settings / plugins）各读一次槽位快照 `ctx.slots.snapshot()`（经 fiber 探针留下的 ctx 反射取 slots 服务），**逐座对账 `shellSeats.ts` 里那份壳座表**（`main` / `sidebar.panellist` / `sidebar.settings` / `sidebar.footer.action` / `sidebar.workspaces` / `settings.section` / `settings.action` / `settings.trigger` / `settings.onboarding` / `shell.overlay` / `rightbar` / `plugins.item`）。① **官方页有、本树既没声明也没占位**的座必须落在白名单里（每条带「为什么这是有意收敛」的整句理由），否则判红——这一档就是 #248 里那两种静默坏法中的「座没声明 ⇒ 官方 `slots.inject` 停车、能力静默消失」（侧栏「插件」那一行与它连带的三处子座、官方设置弹层那条触发条都是它）；② **本树声明了、座上也有人、页面上却零渲染节点**的座同样必须在白名单里——这一档是「座声明了但没人渲染 ⇒ 内容进不来」（官方设置弹层那两条 onboarding 在 #249 之前是它）。判 ② 要求座上有占位者（空 list 座没内容可丢）；渲染面按「锚点 + 里面的元素或文字」读（官方插件页那四张卡的摘要是文字节点）。**不吃当天数据**：只扫这份壳座表（root 级的页 / 弹层 / 面板座），会话级 / 数据级的座只记事实不判。③ **设置页 onboarding 的正面判据**（#249 起）：`settings.onboarding` 座上那两条官方 onboarding 是**按需渲染 + body 级 portal** 的模态框，锚点里永远不会有节点——所以除了白名单那档 `lazy`，还要正面判「座上就是这两条」「锚点按壳自己的游标在场（游标非空 ⇒ 锚点在场）」「游标非空时那一步真的画在 `document.body` 下、且沿 React fiber 的 `return` 链归属得上这个座」，并把两条各自的读数（谁在座上、谁是当前这一步、另一条为什么不出现）逐条记进事实。另外逐座记下渲染出来的条目与它们的第一枚可点元素（F-54 的壳上入口扫描用同一份读数与同一份白名单），并核对白名单里没有**用不上**的条目（读数形状变了、理由不再描述现状时点名）。全程只读：只读快照与 DOM，一个字节都不写网关、不点任何控件。',
   async run(ctx: SuiteContext, check): Promise<string[]> {
     const screenshots: string[] = []
 
@@ -340,9 +347,6 @@ export const SHELL_SEAT_SUITE: LabSuite = {
       const ONBOARDING_STEPS = ['welcome-notice', 'deepseek-official'] as const
       const cursor = settingsTree.onboardingCursor
       const onboardingPortals = settingsTree.portals.filter((portal) => portal.seat === 'settings.onboarding')
-      const unattributed = settingsTree.portals.filter(
-        (portal: PortalReading) => portal.seat === '' || portal.seat === 'settings.onboarding',
-      )
       check.eq(
         '设置页：`settings.onboarding` 座上就是官方那两条（welcome-notice / deepseek-official）——座在、贡献也注册进来了',
         [...occupants].sort(),
@@ -371,8 +375,8 @@ export const SHELL_SEAT_SUITE: LabSuite = {
           }——归属探针没认出／这一页没画出来都会落到这里`,
         )
         check.ok(
-          '设置页 onboarding：这一轮的 portal 覆盖层都归属得上（归属探针断了也算红，免得「零渲染」是假绿）',
-          unattributed.every((portal) => portal.seat !== ''),
+          '设置页 onboarding：这一页的 portal 覆盖层都归属得上一个座（归属探针断了要在这里现形，免得「零渲染」是假绿）',
+          settingsTree.portals.every((portal) => portal.seat !== ''),
           settingsTree.portals.map(describePortal).join('；') || '（一处都没有）',
         )
       }
@@ -381,7 +385,7 @@ export const SHELL_SEAT_SUITE: LabSuite = {
         `设置页 onboarding 逐条读数 —— ${ONBOARDING_STEPS.map((id) => {
           const onSeat = occupants.includes(id)
           const isCursor = cursor === id
-          const drawn = onboardingPortals.some((portal) => portal.label !== '' || portal.text !== '')
+          const drawn = onboardingPortals.length > 0
           const why = !onSeat
             ? '不在座上（官方没注册它，或本 dsh 版本里没有这一条）'
             : isCursor

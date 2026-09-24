@@ -201,9 +201,9 @@ dsh 上游出于安全只监听 `127.0.0.1`（拒绝 `--host 0.0.0.0`），所�
 | --- | --- | --- |
 | root 与 root 子槽 | `root`、`main` / `conversation`、`rightbar` / `details`、`sidebar`、`shell.overlay` | 自有 frame 注册 `root` 并声明子槽；`main` 是会话面板座（0.1.2 线是 single `conversation`，0.1.6 线是 keyed `main`），`rightbar` 是右列座（0.1.2 线叫 `details`） |
 | 侧栏细槽 | `sidebar.workspaces`、`sidebar.workspaces.directoryFlow`、`sidebar.brand.mark` / `sidebar.brand.name`、`sidebar.settings` | 自有工作区树遮蔽 `sidebar.workspaces`；自有 frame 提供品牌位并遮蔽官方品牌块；设置齿轮遮蔽 `sidebar.settings` |
-| 设置页 | `settings.section`、`settings.header`、`settings.action` | 自有设置 frame 渲染官方的设置节、标题与动作 |
+| 设置页 | `settings.section`、`settings.header`、`settings.action`、`settings.onboarding` | 自有设置 frame 渲染官方的设置节、标题、动作与官方那两条 onboarding（`settings.onboarding` 是单步游标：与设置面板同级、一次只放当前那一步，`#249`） |
 | 对话区 | `conversation.input.overlay`、`conversation.session.header.utilities` | 清空件的提示浮层、会话日志导出的入口 |
-| 壳座位（#248） | `sidebar.panellist`、`sidebar.footer.action`、`plugins.item`、`plugins.bundle.config` / `plugins.row.config`、`settings.trigger`、`settings.onboarding` | 官方那些「页 / 弹层 / 全局面板住在某个壳里」的座：侧栏那一行与插件页本体（`#247`）、回收站入口行、官方插件页那四张配置卡、官方设置弹层自己的触发条与两条 onboarding。它们**不都由我们取用**，钉的是「座名一改这一支就静默失效」——座没声明时官方 `slots.inject` 只是停车（不报错、不打日志） |
+| 壳座位（#248） | `sidebar.panellist`、`sidebar.footer.action`、`plugins.item`、`plugins.bundle.config` / `plugins.row.config`、`settings.trigger`、`settings.onboarding` | 官方那些「页 / 弹层 / 全局面板住在某个壳里」的座：侧栏那一行与插件页本体（`#247`）、回收站入口行、官方插件页那四张配置卡、官方设置弹层自己的触发条与两条 onboarding。**不是每一个都由我们渲染**（`settings.trigger` 就没有渲染面：入口在 VS Code 工具栏齿轮上），钉它们是因为「座名一改这一支就静默失效」——座没声明时官方 `slots.inject` 只是停车（不报错、不打日志） |
 | 官方件自己声明的座（#248） | `conversation.view`、`sidebar.right.pane.tab` / `.title`、`sidebar.right.tab.menu.item` | 对话区那排视图页签（对话 / 轨迹）与官方右栏四面的页签。**我们一个都不取用**（声明与注入都在官方件那一半），钉它们是因为那是用户看得见的一块面：官方换一套座时装配页上跟着变的就是这些，探针要在这天先响 |
 
 #### 用到的 root 级 hook（4 组）

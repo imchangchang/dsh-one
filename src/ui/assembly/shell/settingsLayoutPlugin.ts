@@ -43,7 +43,7 @@ interface SectionsMirror {
   subscribe(listener: () => void): () => void
 }
 
-/** `settings.onboarding` 座上的一条留步（官方游标要的是 id + order）。 */
+/** `settings.onboarding` 座上的一步（官方游标按 id 认它、按 order 排序）。 */
 interface OnboardingRow {
   id: string
   order: number
@@ -154,7 +154,7 @@ function resolveSlotLabel(label: unknown): string | undefined {
 }
 
 /**
- * `settings.onboarding` 座上的留步推导（与 section 行同一套读法：槽版本缓存 +
+ * `settings.onboarding` 座上的步骤推导（与 section 行同一套读法：槽版本缓存 +
  * 按 order 排）。官方 `SettingsRoot` 就是拿 `ctx.slots.entries("settings.onboarding")`
  * 这一份当游标清单的（`dsh-client-ui-settings-general/lib/client.js:877-890`），
  * 所以这里读的是同一份公开读数，不猜官方内部状态。
@@ -181,6 +181,12 @@ function createOnboardingMirror(ctx: ShellContext): OnboardingMirror {
 }
 
 /**
+ * 游标初值：一条都没完成（空集常量——本仓库的 react 环境声明没有 `useState` 的惰性
+ * 初值重载，所以不能写成 `useState(() => new Set())`）。
+ */
+const NO_COMPLETED_STEPS: ReadonlySet<string> = new Set<string>()
+
+/**
  * 整页宿主（官方 SettingsPanel 组合复刻；官方机制第 1/2 层：renderSlot 的
  * list 槽位 only 过滤是框架原生选项，官方 SettingsPanel 同款）：
  * 左分节导航 + 右内容单节渲染（only:active），当前节高亮；
@@ -201,9 +207,6 @@ function createOnboardingMirror(ctx: ShellContext): OnboardingMirror {
  * `data-dshone-onboarding-step` 是本页自己的游标读数（F-75 的壳座位对账要拿它把
  * 「官方两条都挂上了」与「这一轮到底是哪一条在渲染」对上账，见 `test/assembly-lab/shellSeats.ts`）。
  */
-/** 游标初值：一条都没完成。空集常量（本仓库的 react 环境声明没有 `useState` 的惰性初值重载）。 */
-const NO_COMPLETED_STEPS: ReadonlySet<string> = new Set<string>()
-
 function SettingsPage({ renderSlot, sections, onboarding }: SettingsFrameProps) {
   const rows = sections.getSnapshot()
   const [activeId, setActiveId] = useState<string | undefined>(rows[0]?.id)
@@ -215,7 +218,7 @@ function SettingsPage({ renderSlot, sections, onboarding }: SettingsFrameProps) 
   void tick // 订阅驱动重渲染（getSnapshot 在渲染期取新值）
   const latest = sections.getSnapshot()
   const active = latest.some((r) => r.id === activeId) ? activeId : latest[0]?.id
-  // 官方游标语义（见本函数上方那段）：order 最小的那条还没完成过的留步。
+  // 官方游标语义（见本函数上方那段）：order 最小的那一步还没完成过就选它。
   const step = onboarding.getSnapshot().find((row) => !completed.has(row.id))
   const completeStep = (id: string): void => {
     setCompleted((previous) => (previous.has(id) ? previous : new Set([...previous, id])))
