@@ -506,7 +506,7 @@ export function defaultHostBridgeDeps(): HostBridgeDeps {
 
 /**
  * 把宿主调用通道挂到一条装配 webview 上：收 dshOne.hostCall，跑白名单调用，回
- * dshOne.hostResult。三棵树（chat/侧栏/设置）都挂同一份（能力是通用基础设施，
+ * dshOne.hostResult。四棵树（chat/侧栏/设置/插件页）都挂同一份（能力是通用基础设施，
  * 后续多项复用）。返回 Disposable。
  */
 export function subscribeHostCalls(

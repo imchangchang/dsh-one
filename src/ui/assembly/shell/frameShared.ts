@@ -12,7 +12,7 @@
  *
  * ## 官方框架插件 ui-layout 的契约清单（我们接手了什么、为什么、怎么核对）
  *
- * 三棵树的 block list 都下线了官方框架插件 `dsh-client-ui-layout`（官方 AppFrame
+ * 四棵树的 block list 都下线了官方框架插件 `dsh-client-ui-layout`（官方 AppFrame
  * 自己画三列外框与拖拽把手，与 VS Code 外壳形态冲突）。代价是官方 root 槽位对
  * 插件下发的契约要由我们的底座接手——目前接手的全部四项：
  * 1. root 槽位注册（含子槽位声明表）：自有 ShellFrame/SidebarFrame/SettingsFrame。
@@ -81,7 +81,7 @@ export interface ThemeSnapshot {
  * root 条目 `inject` 面拿到的动作集 = 本 store 的 actions 绑定（框架按 entry
  * 实例化后注入），layout 服务与面板呈现上报都落到这里。官方 ILayout 的五个
  * 成员各有落点：toggleSidebar/openRightbar/closeRightbar 直接映到同名动作；
- * selectPanel 的校验与导航作废由 LayoutController 自己兜——我们三棵树的 frame
+ * selectPanel 的校验与导航作废由 LayoutController 自己兜——我们四棵树的 frame
  * 都不按 `panelInfo.activePanelId` 取面板，而是按 key 显式取（见该类注释）。
  */
 export interface PanelActions {

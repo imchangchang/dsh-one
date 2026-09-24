@@ -7,7 +7,7 @@
  * ## 为什么需要这一棵树
  *
  * 官方 web 里那一页住在 **keyed `main`** 上（key = `plugins`），由官方外框按
- * `panelInfo.activePanelId` 取键渲染。我们的 shell 不按选中态取键（三棵树的 frame
+ * `panelInfo.activePanelId` 取键渲染。我们的 shell 不按选中态取键（四棵树的 frame
  * 都按 key 显式取），四个 webview 又各是一棵独立的树——所以「侧栏点那一行打开这一页」
  * 这件事在任何一棵既有树上都没有落点：它的入口在侧栏 webview、页面本体却在另一份
  * 装配里。这一棵树就是那个页面在 VS Code 侧的落点，与设置页同一个形状。

@@ -63,7 +63,7 @@ export interface BlockedPlugin {
   reason: string
 }
 
-/** 官方外框条目（三棵树共用）：与 VS Code 外壳形态冲突，由自有 frame 插件接管根组合。 */
+/** 官方外框条目（四棵树共用）：与 VS Code 外壳形态冲突，由自有 frame 插件接管根组合。 */
 const UI_LAYOUT: BlockedPlugin = {
   id: '@deepseek-ai/dsh-client-ui-layout',
   // 官方应用外框（三列网格 + 拖拽把手 + 最小 56px 侧栏轨），与 VS Code 的
@@ -103,7 +103,7 @@ const UI_LAYOUT: BlockedPlugin = {
  *
  * 放回 sidebar 树那一步的 inject 闭包核过（7 件的 inject 服务在那棵树里都有提供方）：
  * `slots` / `sessions` / `locale` / `remote.*` 与树无关；`commandUi` 由 ui-commands
- * 提供（#164 起三棵树都不下线它）、`sidebarRight` 由 ui-sidebar-right 提供，两件都没
+ * 提供（#164 起四棵树都不下线它）、`sidebarRight` 由 ui-sidebar-right 提供，两件都没
  * 被下过线。缺服务是硬约束——boot 的规矩是一个条目没激活就整页抛错（#164 现场）。
  */
 const FLOW_SETTINGS_TREE: ReadonlyArray<BlockedPlugin> = [
@@ -179,7 +179,7 @@ const FLOW_BOTH_TREES: ReadonlyArray<BlockedPlugin> = [
  *   `ui-settings-models` 两行禁掉了；全新 `DSH_HOME` 上这两条一直在官方 wire 里
  *   （0.1.6-alpha.1 实测，见 F-55）。教训：**「官方有没有这个插件」只能看全新
  *   `DSH_HOME` 的 wire**，被自己的补丁改过的 profile 拿来做这个判断一定得出反的结论。
- *   它今天三棵树都不下线：只在 `conversation.input.model` 槽位渲染，sidebar 树没声明
+ *   它今天四棵树都不下线：只在 `conversation.input.model` 槽位渲染，sidebar 树没声明
  *   那个槽位（停车），settings 树声明了但不渲染对话区。
  */
 

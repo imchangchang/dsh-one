@@ -40,8 +40,8 @@
  *
  * 兜底补偿的是 VS Code webview 的行为，所以只在宿主注入过 `acquireVsCodeApi` 的页面里装
  * （「这个页面在 webview 里」的判据与 `ui/assembly/probe.ts`、`ui/assembly/hostSdk.ts`
- * 同一处来源）；官方 web 与普通浏览器里锚点本来就打得开，不接管。三棵树各只有一个 frame
- * 插件，各自的 `apply` 调一次本函数（三份 bundle 共用这一份源码），页面级再加一道全局
+ * 同一处来源）；官方 web 与普通浏览器里锚点本来就打得开，不接管。四棵树各只有一个 frame
+ * 插件，各自的 `apply` 调一次本函数（四份 bundle 共用这一份源码），页面级再加一道全局
  * 标记防重装。
  *
  * ## 走的是哪一层机制
@@ -55,7 +55,7 @@
 import { parseAllowedUrl } from '../../../pure/hostCapabilities.ts'
 import { hostCapabilities } from '@dsh-one/dsh-plugin-kit/hostCapabilities'
 
-/** 页面级「兜底已经装过了」的标记（三棵树的 frame 插件是同族三份 bundle，页面级只装一层）。 */
+/** 页面级「兜底已经装过了」的标记（四棵树的 frame 插件是同族四份 bundle，页面级只装一层）。 */
 const INSTALLED_FLAG = '__DSH_ONE_EXTERNAL_LINK_SHIM__'
 
 /**
