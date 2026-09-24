@@ -82,6 +82,7 @@ import { PROFILE_PLUGIN_SERVICE_SUITE } from './profilePluginServiceSuites.ts'
 import { ROSTER_REVS_SUITE } from './rosterRevsSuites.ts'
 import { PLUGINS_PAGE_SUITE } from './pluginsPageSuites.ts'
 import { ARCHIVED_RESTORE_SUITE } from './archivedRestoreSuites.ts'
+import { SHELL_SEAT_SUITE } from './shellSeatSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
 import { subscribeWorkspaceStream } from '../../src/server/modernStreams.ts'
 import type { Logger } from '../../src/log.ts'
@@ -6691,4 +6692,10 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // 「从未占用的继续」顺延；套件本体在 pluginsPageSuites.ts，同为独立文件，
   // 少一处合入热点）。它同时判 plugins 树页面本身与侧栏那一行的端到端点击。
   PLUGINS_PAGE_SUITE,
+  // #248 壳座位对账（F-75：F-01…F-74 与 R-06 已占，按「从未占用的继续」顺延；套件本体在
+  // shellSeatSuites.ts，同为独立文件，少一处合入热点）。它把「官方页住在某个壳里、我们接管
+  // 了壳却没给落点」这一类静默失效变成常驻判据：官方页与四棵树各读一次槽位快照，逐座比
+  // 「声明了没有 / 座上有没有人 / 页面上渲染出来了没有」，缺席的一律要在带理由的白名单里
+  // （表与白名单在 shellSeats.ts，F-54 的壳上入口扫描共用同一份）。
+  SHELL_SEAT_SUITE,
 ]
