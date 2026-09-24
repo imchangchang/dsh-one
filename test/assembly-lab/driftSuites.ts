@@ -30,7 +30,7 @@ import { filterWire, type BootWire, type BootWireBatch } from '../../src/ui/asse
 import type { LabSuite } from './suites.ts'
 
 // ---------------------------------------------------------------------------
-// F-10 FIBER：四棵树里没有任何 cordis scope 进 FAILED
+// F-10 FIBER：五棵树里没有任何 cordis scope 进 FAILED
 // ---------------------------------------------------------------------------
 
 const route = (name: string): LabTreeRoute => {
@@ -48,11 +48,13 @@ const FIBER_VIEWPORT: Readonly<Record<string, { width: number; height: number }>
 export const FIBER_SUITE: LabSuite = {
   id: 'F-10',
   phase: 'new-feature',
-  name: 'fiber 级契约：四棵树里没有任何 cordis scope 进 FAILED（FIBER 套件）',
+  name: 'fiber 级契约：五棵树里没有任何 cordis scope 进 FAILED（FIBER 套件）',
   expect:
-    '实验室四棵树（自有 sidebar 树、官方浏览区对照档、chat 树、settings 树）在真实网关只读下打开，页面里装上 cordis fiber 探针（包 `__ModuleLoader__.load` 的 factory 记插件 id → 包 `@deepseek-ai/dsh-client-modules` 的 apply 拿 ctx → 监听 `internal/plugin` 与 `internal/status`，见 `fiberProbeScript`）：**没有任何 scope 进 FAILED**（官方 Fiber 状态枚举里的 3）。这条断言要抓的是 F-01 抓不到的那一类——cordis 插件 fiber 失败**不进浏览器控制台**（官方 client logger 没有 console exporter），#74 那条 `slot "conversation.hero.agentPreset" is not declared` 就是靠派生症状才被发现的；F-01 看的是装起来的症状（槽位锚点、槽位崩溃、页面报错），这条看的是**装载本身**。同时钉住探针本身没瞎：接上了事件总线、登记到了该树的自有 frame 插件、真观察到 scope 状态变化、探针自身零异常——否则「零失败」是空的。',
+    '实验室五棵树（自有 sidebar 树、官方浏览区对照档、chat 树、settings 树、plugins 树）在真实网关只读下打开，页面里装上 cordis fiber 探针（包 `__ModuleLoader__.load` 的 factory 记插件 id → 包 `@deepseek-ai/dsh-client-modules` 的 apply 拿 ctx → 监听 `internal/plugin` 与 `internal/status`，见 `fiberProbeScript`）：**没有任何 scope 进 FAILED**（官方 Fiber 状态枚举里的 3）。这条断言要抓的是 F-01 抓不到的那一类——cordis 插件 fiber 失败**不进浏览器控制台**（官方 client logger 没有 console exporter），#74 那条 `slot "conversation.hero.agentPreset" is not declared` 就是靠派生症状才被发现的；F-01 看的是装起来的症状（槽位锚点、槽位崩溃、页面报错），这条看的是**装载本身**。同时钉住探针本身没瞎：接上了事件总线、登记到了该树的自有 frame 插件、真观察到 scope 状态变化、探针自身零异常——否则「零失败」是空的。',
   run: async (ctx, check) => {
-    for (const name of ['sidebar', 'sidebar-official', 'chat', 'settings']) {
+    // plugins 树（#248 跟到五棵）：它是 #247 开的第四棵装配树，与其余四棵同一套判据——
+    // 那棵树同样是「官方全局面板 + 我们的 frame 接管根组合」，fiber 级失败一样不进控制台。
+    for (const name of ['sidebar', 'sidebar-official', 'chat', 'settings', 'plugins']) {
       const tree = route(name)
       const viewport = FIBER_VIEWPORT[name] ?? { width: 1200, height: 900 }
       const opened = await openTreePage(ctx.browser, ctx.lab, tree, {
@@ -102,9 +104,10 @@ export const FIBER_SUITE: LabSuite = {
 // ---------------------------------------------------------------------------
 
 /**
- * 被检查的树 = 三棵生产树；标签取实验室的路由名（chat / sidebar / settings）。
- * 第四棵树 `sidebar-official` 是侧栏树的对照档（同一份 block list，只是不装自有
- * 树插件），按 `framePluginId` 去重掉，避免同一条 block list 被报两遍。
+ * 被检查的树 = 四棵生产树（chat / sidebar / settings / plugins，标签取实验室的路由名）。
+ * 实验室第五条路由 `sidebar-official` 是侧栏树的对照档（同一份 block list，只是不装自有
+ * 树插件），按 `framePluginId` 去重掉，避免同一条 block list 被报两遍（#248 起四棵都在表里
+ * ——`LAB_TREES` 就是事实源，这支按 `ASSEMBLY_TREES` 的形状自己收敛）。
  */
 const AUDITED_TREES: ReadonlyArray<{ label: string; tree: AssemblyTree }> = ((): Array<{ label: string; tree: AssemblyTree }> => {
   const seen = new Set<string>()

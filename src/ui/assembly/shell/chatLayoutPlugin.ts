@@ -419,6 +419,11 @@ function ShellFrame({ useStore, useSessions, usePanelInfo, actions, renderSlot, 
   // AppFrame 的 MainPanel 同款取键方式：全局面板 id ?? 'conversation'）；
   // 0.1.2 线登记的是 single `conversation`。两版槽位都声明，实际渲染哪个由
   // 注册表里有贡献的那个决定（见 conversationSeat 镜像）。
+  //
+  // 渲染出来的是官方对话区本体，它自己声明并渲染的一处子座是 `conversation.view`
+  // （对话区顶部那排视图页签：对话 / 轨迹）——那个名字**我们不取用**，列在这里是因为
+  // 上游探针的 `SLOT_DEPENDENCIES` 钉着它（#248）：页签是用户看得见的一块面，官方哪天
+  // 换一套座，装配页上跟着变的就是这一排，探针要在这天先响。
   const conversation =
     conversationSeat.getSnapshot() === 'main'
       ? renderSlot('main', {}, { entryKey: activePanelId ?? 'conversation' })
@@ -452,6 +457,13 @@ function ShellFrame({ useStore, useSessions, usePanelInfo, actions, renderSlot, 
       // （ui-sidebar-right 的 RightbarRoot），呈现上报走 ctx.layout（见 frameShared
       // 的 openRightbar）。props 三个字段是官方契约（官方 AppFrame 同款）：
       // width = 正常态面板宽、viewportWidth = 外框宽、canShow = 容器装不装得下。
+      //
+      // 官方件注册进来之后自己声明的两处子座是 `sidebar.right.pane.tab` /
+      // `sidebar.right.pane.tab.title`（右栏四面的页签与页签标题）与
+      // `sidebar.right.tab.menu.item`（页签菜单项的 list 座）——这几个名字**我们一个都不
+      // 取用**，声明与注入都在官方件自己那一半；列在这里是因为上游探针的
+      // `SLOT_DEPENDENCIES` 钉着它们（#248）：那几个座是用户看得见的右栏面，官方哪天
+      // 把右栏整个换一套座，装配页上跟着变的就是这一块，探针要在这天先响。
       h(
         'div',
         { className: 'dshOneShell_rightbarCol', style: { width: rightbarTrackWidth } },

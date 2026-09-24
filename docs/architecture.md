@@ -191,9 +191,11 @@ dsh 上游出于安全只监听 `127.0.0.1`（拒绝 `--host 0.0.0.0`），所�
 
 清单条目数随上游版本与用户 profile 变化，探针实测过的读数：0.1.7-alpha.2 = 62 条 entries、0.1.6-alpha.1 = 56 条、0.1.2-rc.1 = 46 条。批的个数也随版本变（官方按 combo URL 长度上限把 application 阶段切开）：0.1.6-alpha.2 是 bootstrap + 1 个 application 批，0.1.7-alpha.2 是 bootstrap + **2 个** application 批（第二批装 `dsh-api-workspace-controller` / `dsh-api-session-controller` / `dsh-client-ui-directory-picker-native`），所以 `batches[].url` 既不能假定「只有一个」，也不能假定「带前导斜杠」——0.1.7-alpha.2 起它是相对地址（`plugins/??…`）。我们的 `filterWire` 与 mirror 按全部 application 批求并集（#165），批 URL 一律用 `new URL(url, gateway)` 解析。
 
-#### 用到的 slot 名（14 组）
+#### 用到的 slot 名（23 组）
 
 名单的单一事实源在 `scripts/dsh-upstream-watch/clientContract.mjs` 的 `SLOT_DEPENDENCIES`，由 `test/upstreamClientContract.test.ts` 保证「名单里的名字在 `src/` 里还有取用点」。
+
+这些名字背后的两类坏法（座没声明 ⇒ 官方贡献停车、能力静默消失；座声明了却没人渲染 ⇒ 内容进不来）原来只能靠用户点到才发现（`#247` 就是用户报的）。`#248` 起有一条**按座对账**的常驻判据：`F-75`（`test/assembly-lab/shellSeatSuites.ts`）把官方页面与四棵生产树的槽位快照逐壳座比一遍，「官方页有而我们既没声明也没占位」「我们声明了却零渲染节点」两类都必须落在带理由的白名单里（表与白名单在 `test/assembly-lab/shellSeats.ts`）；同一份读数喂 `F-54` 的「壳上入口扫描」——壳座上渲染出来的条目由读数枚举、逐枚点一次，哪一格渲染出了条目却没表态当场判红。这两条合起来才是闭环：探针管**名字还在不在**，对账管**座还对不对得上**。
 
 | 组 | 名字 | 用在哪 |
 | --- | --- | --- |
@@ -201,6 +203,8 @@ dsh 上游出于安全只监听 `127.0.0.1`（拒绝 `--host 0.0.0.0`），所�
 | 侧栏细槽 | `sidebar.workspaces`、`sidebar.workspaces.directoryFlow`、`sidebar.brand.mark` / `sidebar.brand.name`、`sidebar.settings` | 自有工作区树遮蔽 `sidebar.workspaces`；自有 frame 提供品牌位并遮蔽官方品牌块；设置齿轮遮蔽 `sidebar.settings` |
 | 设置页 | `settings.section`、`settings.header`、`settings.action` | 自有设置 frame 渲染官方的设置节、标题与动作 |
 | 对话区 | `conversation.input.overlay`、`conversation.session.header.utilities` | 清空件的提示浮层、会话日志导出的入口 |
+| 壳座位（#248） | `sidebar.panellist`、`sidebar.footer.action`、`plugins.item`、`plugins.bundle.config` / `plugins.row.config`、`settings.trigger`、`settings.onboarding` | 官方那些「页 / 弹层 / 全局面板住在某个壳里」的座：侧栏那一行与插件页本体（`#247`）、回收站入口行、官方插件页那四张配置卡、官方设置弹层自己的触发条与两条 onboarding。它们**不都由我们取用**，钉的是「座名一改这一支就静默失效」——座没声明时官方 `slots.inject` 只是停车（不报错、不打日志） |
+| 官方件自己声明的座（#248） | `conversation.view`、`sidebar.right.pane.tab` / `.title`、`sidebar.right.tab.menu.item` | 对话区那排视图页签（对话 / 轨迹）与官方右栏四面的页签。**我们一个都不取用**（声明与注入都在官方件那一半），钉它们是因为那是用户看得见的一块面：官方换一套座时装配页上跟着变的就是这些，探针要在这天先响 |
 
 #### 用到的 root 级 hook（4 组）
 
@@ -244,7 +248,7 @@ dsh 上游出于安全只监听 `127.0.0.1`（拒绝 `--host 0.0.0.0`），所�
 
 判据统一是两条：**① 与 VS Code 容器的形态冲突**（官方件要占同一块视觉区域，或画我们不要的外框）；**② 这棵树声明不了它注册的槽位**（槽位没声明 ⇒ 官方 `slots.inject` 的回调永不跑 ⇒ 整个条目停车、零渲染，继续挂着只是白背一个官方 id 依赖，摘掉才是对的）。2026-09-18 起按这套判据把 22 个 id 逐条复核过一遍（`#180`，续 `#202` / `#204`）。
 
-**四棵树共有的一条：官方外框 `@deepseek-ai/dsh-client-ui-layout`。** 官方 AppFrame 自己画三列网格、拖拽把手与最窄 56px 侧栏轨，与 VS Code 的容器形态直接冲突，由该树的自有 frame 插件接管 root 组合。为什么不能走铁律的首选路径（加载官方件 + 只遮蔽它的 root slot）：`#77` 实测三条硬约束——root 子槽的声明是排他的（两边谁先登记都会让另一方死）、渲染授权按条目算（遮蔽后契约全活着但没有人渲染那些槽位）、服务提供点在同一隔离域唯一（第二次 `provide('layout', …)` 抛错并让整页 boot 失败）。证据与结论留在 `src/ui/assembly/shell/frameShared.ts` 的文件头，接手的契约清单也在那里（见 §8.3）。
+**各棵装配树共有的一条：官方外框 `@deepseek-ai/dsh-client-ui-layout`。** 官方 AppFrame 自己画三列网格、拖拽把手与最窄 56px 侧栏轨，与 VS Code 的容器形态直接冲突，由该树的自有 frame 插件接管 root 组合。为什么不能走铁律的首选路径（加载官方件 + 只遮蔽它的 root slot）：`#77` 实测三条硬约束——root 子槽的声明是排他的（两边谁先登记都会让另一方死）、渲染授权按条目算（遮蔽后契约全活着但没有人渲染那些槽位）、服务提供点在同一隔离域唯一（第二次 `provide('layout', …)` 抛错并让整页 boot 失败）。证据与结论留在 `src/ui/assembly/shell/frameShared.ts` 的文件头，接手的契约清单也在那里（见 §8.3）。
 
 **`CHAT_TREE`（2 条）**：官方外框 + 官方侧栏。后者是因为对话区这棵树没有侧栏位——侧栏位由 `SIDEBAR_TREE` 承担。对话流卡片全保留；`#202` / `#204` 把 `ui-settings-general` 与两件插件设置页从这份清单里摘掉了（本树一个 `sidebar.settings` 子槽都没声明，它们本来就在停车）。
 
@@ -289,7 +293,7 @@ dsh 上游出于安全只监听 `127.0.0.1`（拒绝 `--host 0.0.0.0`），所�
 
 | 手段 | 查什么 | 什么时候跑 |
 | --- | --- | --- |
-| 每日上游探针（`scripts/dsh-upstream-watch/probe.mjs`，24 项） | **名字还在不在**：伺服面（wire 协议、认证、RPC、WS 帧、网关 `/` 的启动契约、整包端点、Origin 栅栏，17 项）+ 客户端契约面（整包里的 slot 名/hook 名/字段名，4 项）+ 官方产物面（本机官方包里的 11 条内部标识符 + 我们取用的 26 枚图标的导出名（#236）+ 三棵树 block list 的服务依赖补全，3 项） | GitHub Actions 每日 04:00（UTC+8），结果进 `upstream-watch` label 的 issue 与 README 徽章 |
+| 每日上游探针（`scripts/dsh-upstream-watch/probe.mjs`，24 项） | **名字还在不在**：伺服面（wire 协议、认证、RPC、WS 帧、网关 `/` 的启动契约、整包端点、Origin 栅栏，17 项）+ 客户端契约面（整包里的 slot 名/hook 名/字段名，4 项）+ 官方产物面（本机官方包里的 11 条内部标识符 + 我们取用的 26 枚图标的导出名（#236）+ 各棵装配树 block list 的服务依赖补全（`#248` 起含 plugins 树），3 项） | GitHub Actions 每日 04:00（UTC+8），结果进 `upstream-watch` label 的 issue 与 README 徽章 |
 | 浏览器验证的 CONTRACT / FIBER / WIRE-LIVENESS 套件（`npm run verify:lab`） | **装起来活不活**：五棵树零槽位崩溃、零装载未激活、关键槽位有内容、根条目声明覆盖预期槽位名（F-01）；四棵树零 cordis fiber 进 FAILED（F-10，fiber 失败不进浏览器控制台；这一条今天只跑 chat / sidebar / sidebar-official / settings 四棵，plugins 树由 F-01 与 F-74 覆盖）；三棵树 block list 的每个 id 都要在当天 wire 里找得到（F-11，官方改名会让过滤静默失效） | 改装配相关代码后必跑；接新版本时用 `npm run verify:lab-version <版本>` |
 | `docs/dsh-compat-checklist.md` 的「装配面」一节 | 探针查不出的那一类（**名字一个没少、语义变了**）：0.1.6-alpha.2 上客户端契约面全绿，可页面整棵渲染不出来 | 接新版本时按那一节的流程走 |
 

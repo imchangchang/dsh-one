@@ -61,12 +61,12 @@ import {
 } from '../../src/pure/blockListDerivation.ts'
 
 /**
- * 三棵树的 frame 插件顶替了官方 `dsh-client-ui-layout` 提供的服务（#227）。
+ * 各棵树（#248 起四棵）的 frame 插件顶替了官方 `dsh-client-ui-layout` 提供的服务（#227）。
  *
  * 出处：`src/ui/assembly/shell/chatLayoutPlugin.ts:467`、`sidebarLayoutPlugin.ts:445`、
  * `settingsLayoutPlugin.ts:277` 都是 `ctx.reflect.provide('layout', …)`；官方那边同一个
  * 服务名在 `@deepseek-ai/dsh-client-ui-layout/lib/client.js`（`ctx.reflect.provide("layout", …)`）。
- * 官方件被下线、自有那份顶上，所以 `layout` 这个服务在三棵树里都还在——不把自有插件
+ * 官方件被下线、自有那份顶上，所以 `layout` 这个服务在四棵树里都还在——不把自有插件
  * 当提供方传进去，`layout` 会被当成「提供方全被挡掉」，连锁挡掉一片本来该用的官方件。
  */
 export const FRAME_PLUGIN_PROVIDES = ['layout']
@@ -125,7 +125,7 @@ export function collectOfficialServiceFaces(root) {
   try {
     // 不用 withFileTypes 的 isDirectory 过滤：官方包目录里每条常常是指向安装树的符号链接
     // （`~/.dsh/profiles/node_modules/@deepseek-ai/*`），按 isDirectory 过滤会一条都读不到，
-    // 而「一个包都没读到」又会静默算成「闭包是空的、三棵树都一致」。所以逐条试读清单。
+    // 而「一个包都没读到」又会静默算成「闭包是空的、各棵树的读法一致」。所以逐条试读清单。
     entries = fs.readdirSync(root).sort()
   } catch (error) {
     return { faces, problems: [`读不到官方包目录 ${root}：${String(error?.message ?? error)}`] }
@@ -262,7 +262,8 @@ export function collectProfilePluginFaces(profilesRoot) {
  * 跑本项检查，返回 probe.mjs 的结果行 `{ id, name, status, detail }`。
  *
  * `trees` 每项：`{ key, label, blocked, framePluginId }`（`blocked` 取自
- * `src/ui/assembly/wireFilter.ts` 的三份清单，`framePluginId` 取该树的 frame 插件 id）。
+ * `src/ui/assembly/wireFilter.ts` 里各棵树的清单，`framePluginId` 取该树的 frame 插件 id）。
+ * 调用方给的是四棵装配树（`probe.mjs` 的 `BLOCK_LIST_TREES`，#248 起含 plugins 树）。
  */
 export function checkBlockListDrift({ root, version, profile, trees }) {
   const { faces, problems } = collectOfficialServiceFaces(root)
@@ -329,7 +330,7 @@ export function checkBlockListDrift({ root, version, profile, trees }) {
     status: failure.length === 0 ? 'pass' : 'fail',
     detail:
       failure.length === 0
-        ? `${head}：三棵树逐棵一致——${summary}${unaccounted.length > 0 ? `；${unaccounted.join('；')}` : ''}${profileNote}`
+        ? `${head}：各棵树逐棵一致——${summary}${unaccounted.length > 0 ? `；${unaccounted.join('；')}` : ''}${profileNote}`
         : `${head}：${failure.join('；')}（逐棵树读数：${summary}${profileNote}）`,
   }
 }
