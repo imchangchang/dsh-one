@@ -1,7 +1,7 @@
 {
   "title": "DSH One 验收报告：#247 官方「插件」页在 VS Code 侧有落点",
   "branch": "agent/plugins-page-standalone",
-  "commit": "（dev-finish 时填）",
+  "commit": "e2d19791",
   "environment": {
     "mode": "浏览器验证（装配实验室：仓库真实模块 + 实验室自起的隔离实例，0.1.6-alpha.2）",
     "dsh": "0.1.6-alpha.2",
