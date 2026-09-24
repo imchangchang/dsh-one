@@ -1,6 +1,6 @@
 # 发布验收清单（release checklist）
 
-本文对应 dsh-one 2.0.6（2026-09-24），流程与 `scripts/release-gate.sh`、
+本文对应 dsh-one 2.0 系列（2026-09 起），流程与 `scripts/release-gate.sh`、
 `.github/workflows/release.yml` 一致。
 
 发布 = `scripts/release-gate.sh --apply` 收口（version + CHANGELOG + 打 tag）并 push tag、GitHub Actions（`.github/workflows/release.yml`）构建出 **GitHub Release 产物**之后、`vsce publish` 之前的人工验收。
@@ -39,6 +39,11 @@ code --user-data-dir /tmp/dsh-relcheck/ .
 - [ ] Windows 和 macOS 至少各过一遍上面的流程（spawn/杀进程路径分平台）。
 
 **曾经有一项「先手动 `dsh web --port 3080` 起实例再开面板，确认复用该实例且不 kill」，已删除**：那走的是 dsh 0.1.1 的无认证实例路径。版本范围现在是 `[0.1.5-rc.2, 0.2.0)`（低于它不支持，见 README 的 version gate 与 `src/pure/versionGate.ts`），手动起的实例一律是认证实例，走上一条流程即可。
+
+## 发布说明复核（CHANGELOG）
+
+- [ ] 每条发布说明在**支持区间内的每个版本**上都成立：只对某几代 dsh 成立的，句子里写清版本限定（例：「dsh 0.1.6-alpha.2 起侧栏有『插件』这一条」）。这条错在 2.0.4 与 2.0.7 各犯过一次——说明里写「现在能用了」，而那个官方组件在支持区间里更老的版本上根本不存在，用户照着找会找不到。
+- [ ] 逐条对照 `.agents/skills/changelog-conventions/SKILL.md` 的审校清单（短关键词、一句用户话、无函数名/路径/内部术语、一条只归一个节）。
 
 ## README 与版本确认
 
