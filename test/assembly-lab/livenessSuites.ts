@@ -130,9 +130,18 @@ import {
   texts,
   withoutKnownNoise,
   type Check,
+  type PageCapture,
 } from './harness.ts'
 import { fakeHostScript } from './fakeHost.ts'
 import { LAB_TREES, type LabTreeRoute } from './labServer.ts'
+import {
+  SHELL_SEAT_NAMES,
+  clearSeatEntryMarks,
+  markSeatEntries,
+  readTreeSeats,
+  seatClickRule,
+  type SeatEntryReading,
+} from './shellSeats.ts'
 import { cookieHeader } from '../../src/server/assemblyMirror.ts'
 import { listSessions, sessionCompletedTurns } from '../../src/server/dshRpc.ts'
 import type { LabSuite, SuiteContext } from './suites.ts'
@@ -394,6 +403,11 @@ export interface ClickProbe {
   disabled: boolean
   /** 是否出现了可观测反应（按调用方挑的那几路信号判）。 */
   reacted: boolean
+  /**
+   * 这一步**故意没点**（`guardHit` 档：测量与点击之间页面重渲过，这一点下面已经不是那枚
+   * 控件了）。非空即「没点」，调用方按事实记下，别当成「点了没反应」。
+   */
+  aborted?: string
   /** 六路信号各自响没响（#170：报告里读得出「反应出在哪一路上」）。 */
   signals: Record<LivenessSignal, boolean>
   /** 人是读的观测明细（写进报告的事实里）。 */
@@ -424,7 +438,7 @@ export async function probeClick(
   page: Page,
   label: string,
   selector: string,
-  options: { signals?: readonly LivenessSignal[] } = {},
+  options: { signals?: readonly LivenessSignal[]; guardHit?: boolean } = {},
 ): Promise<ClickProbe> {
   const nothing = (): Record<LivenessSignal, boolean> => ({ ...NO_SIGNALS })
   const index = await visibleIndex(page, selector)
@@ -468,6 +482,29 @@ export async function probeClick(
   )
   await page.mouse.move(point.x, point.y)
   await page.waitForTimeout(HOVER_SETTLE_MS)
+  // `guardHit`（#248 的壳上入口扫描用）：悬停这 800 毫秒里页面可能重渲过（动画收尾、异步内容
+  // 落位），那一点底下就换成了别的控件。实测撞过一次真事故——按位置点会话头那一片，点落到了
+  // 会经网关在用户机器上拉起访达的 open-in-app 按钮上（R-06 的守卫当场拦下并判红）。
+  // 这一步在**点之前**复量落点：不在目标（也不是目标的子孙）就不点，如实记一条事实。
+  if (options.guardHit === true) {
+    const inside = await target
+      .evaluate((element: Element, at: { x: number; y: number }) => {
+        const hit = document.elementFromPoint(at.x, at.y)
+        return hit !== null && (hit === element || element.contains(hit))
+      }, point)
+      .catch(() => false)
+    if (!inside) {
+      return {
+        label,
+        present: true,
+        disabled,
+        reacted: false,
+        signals: nothing(),
+        aborted: `落点已经不在这一枚控件上（测量与点击之间页面重渲过；点下去可能落到别的控件上，所以这一步不点）· 指针落点（悬停时）${hit}`,
+        detail: `这一步没有点击（guardHit）：指针落点（悬停时）${hit}`,
+      }
+    }
+  }
   const before = await livenessSnapshot(page)
   await page.mouse.click(point.x, point.y)
   await page.waitForTimeout(REACTION_WINDOW_MS)
@@ -629,6 +666,161 @@ async function observePoint(
     seen.clicks === 0,
     `观察窗口内页面收到的点击次数=${String(seen.clicks)}；不点的理由=${reason}`,
   )
+}
+
+// ---------------------------------------------------------------------------
+// 壳上入口扫描（#248 的 P3）：座里的条目由读数枚举，不由手写清单枚举
+// ---------------------------------------------------------------------------
+
+/**
+ * 一处「没反应时页面留下的那一行」的判据（与 F-54 那条 ＋ 同一条口径，见文件头）。
+ *
+ * 为什么扫出来的入口也要这一条：手写清单里漏掉的那些入口（#247 的侧栏那一行就是）点下去
+ * 往往**什么都不发生**，能看出来的只有控制台里那一行；把它变成判据的一部分——没反应时页面
+ * 必须留下能指名道姓的一句，否则连「为什么没反应」都无处可查。
+ */
+function namedExplanation(capture: PageCapture, needles: readonly string[]): string[] {
+  const lines = [...capture.consoleErrors, ...capture.pageErrors, ...capture.consoleWarnings]
+  return lines.filter((line) => needles.some((needle) => needle !== '' && line.includes(needle)))
+}
+
+/**
+ * 扫一棵树的壳上入口（#248）：从**运行期读数**枚举「哪一格壳座渲染出了条目、每个条目里的入口
+ * 是哪一枚」，逐枚点一次走六路观测；哪一格渲染出了条目却没在 `shellSeats.ts` 的
+ * `SEAT_CLICK_RULES` 里表过态，当场判红。
+ *
+ * 为什么是这一套（而不是再写一份手写交互点清单）：F-54 原来那份表是**手写的常量数组**，所以
+ * 侧栏那一行「插件」从来没被点过——#247 是用户点出来的。改成「读数枚举 + 逐格表态」之后，
+ * 官方在某个壳上多渲染一条（或把页搬进另一处壳）都会当场被点名：`click` 的格子照点新条目，
+ * `waive` 的格子会在事实里多出一条要解释的条目，**没表过态的格子直接红**。
+ *
+ * 判据的宽严与手工那几枚完全一致：六路里**结构那四路**（元素增减 / 弹层 / 宿主通道 / 语义
+ * 上行）缺省全开，文字与属性两路按交互点表的老规矩不吃（点一枚入口的期望是「内容切过去 /
+ * 弹层开出来」，不是「按钮上的 aria 属性翻了一下」）。
+ *
+ * 座里**一条可点元素都没有**的条目（官方插件页那四张卡的摘要面、声明了但这一轮没渲染东西
+ * 的格子）如实记进事实，不当缺陷判——它们不是「点了没反应」，是没有可点的入口。
+ */
+/** 条目读数的人读一行（与 F-75 的同一份读数同一个写法）。 */
+function describeEntry(entry: SeatEntryReading): string {
+  if (entry.target === null) return `${entry.marker}=（无可点击的入口：${entry.noTarget ?? '这一格没有可点的入口'}）`
+  const marks = [entry.target.self ? '条目自己' : '', entry.target.ancestor ? '锚点外的祖先' : '', entry.target.settled ? '已选中态' : '']
+    .filter((mark) => mark !== '')
+    .join('+')
+  return `${entry.marker}=${entry.target.label}${marks === '' ? '' : `（${marks}）`}`
+}
+
+async function scanShellSeats(
+  check: Check,
+  page: Page,
+  capture: PageCapture,
+  where: string,
+): Promise<void> {
+  const read = await readTreeSeats(page)
+  check.ok(
+    `[壳扫描·${where}] 槽位快照读到了（这一格是本树「声明了哪些壳座」的读数）`,
+    read.error === '',
+    read.error === '' ? `座 ${String(read.seats.size)} 个` : read.error,
+  )
+  // 第一遍只**枚举**（哪一格座这一轮渲染出了条目），不给任何东西打标记：这一遍的读数要能
+  // 完整记进事实。
+  const survey = await markSeatEntries(page, SHELL_SEAT_NAMES)
+  const seatsWithEntries = [...new Set(survey.map((entry) => entry.seat))].sort()
+  try {
+    check.fact(
+      `[壳扫描·${where}] 本树声明的壳座：${
+        SHELL_SEAT_NAMES.filter((name) => read.readings.get(name)?.declared === true).join('、') || '（一个都没有）'
+      }；这一轮渲染出条目的格：${
+        seatsWithEntries.map((seat) => `${seat}×${String(survey.filter((entry) => entry.seat === seat).length)}`).join('、') || '（一格都没有）'
+      }`,
+    )
+    check.fact(
+      `[壳扫描·${where}] 座上的条目与它们的入口 —— ${survey.map(describeEntry).join('；') || '（一个都没有）'}`,
+    )
+    // 没有渲染出条目的座只记一条事实：那一格这一轮没有可点的入口（「声明了却零渲染」那一档
+    // 由 F-75 的壳座位对账判，两套判据的分工写在 shellSeats.ts 的文件头）。
+    for (const name of SHELL_SEAT_NAMES) {
+      if (read.readings.get(name)?.declared !== true) continue
+      if (!seatsWithEntries.includes(name)) {
+        check.fact(`[壳扫描·${where}] ${name}：本树声明了，但这一轮页面上没有它的条目（没有可点的入口）`)
+      }
+    }
+  } finally {
+    await clearSeatEntryMarks(page)
+  }
+  for (const seat of seatsWithEntries) {
+    const rule = seatClickRule(where, seat)
+    if (rule === undefined) {
+      check.ok(
+        `[壳扫描·${where}] 壳座 \`${seat}\` 渲染出了条目，但没有声明怎么扫它`,
+        false,
+        `新长出来的壳座必须当场表态：在 shellSeats.ts 的 SEAT_CLICK_RULES 里加一条（\`click\` 并写期望，或 \`waive\` 并写清为什么不点）。这一格渲染出来的条目：${survey
+          .filter((entry) => entry.seat === seat)
+          .map((entry) => entry.target?.label ?? '（无可点元素）')
+          .join('、')}`,
+      )
+      continue
+    }
+    // **逐格重打标记**：上一格点完之后这一格的内容可能已经换过了（实测：设置页点完导航格
+    // 就换了节，原来那一节里的按钮整枚不在场），所以每一格开点之前现量一次。
+    const rows = (await markSeatEntries(page, [seat])).filter((entry) => entry.seat === seat)
+    try {
+      if (rule.kind === 'waive') {
+        check.fact(
+          `[壳扫描·${where}] ${seat}：这一轮的 ${String(rows.length)} 个条目（${rows
+            .map((entry) => entry.target?.label ?? '无可点元素')
+            .join('、')}）按白名单不点——${rule.reason ?? '（没写理由）'}`,
+        )
+        continue
+      }
+      for (const entry of rows) {
+        const label = `[壳扫描·${where}] ${entry.marker}`
+        if (entry.target === null) {
+          check.fact(`${label}：这一格没有可点的入口（${entry.noTarget ?? ''}），照实记下`)
+          continue
+        }
+        if (entry.target.settled) {
+          check.fact(
+            `${label}：这一格里唯一一枚候选已经处在选中态（${entry.target.label}）——点它本来就不该有变化，照实记下`,
+          )
+          continue
+        }
+        const probe = await probeClick(page, `${label} ${entry.target.label}`, `[data-lab-seat-target="${entry.marker}"]`, {
+          signals: STRUCTURAL_SIGNALS,
+          guardHit: true,
+        })
+        check.fact(`${label} ${entry.target.label}：${probe.detail}（期望=${rule.expect ?? '（没写期望）'}）`)
+        if (probe.aborted !== undefined) {
+          check.fact(`${label}：${probe.aborted}`)
+          continue
+        }
+        if (!probe.present) {
+          check.fact(`${label}：这一轮页面上找不到它（读数与 DOM 之间被重渲打断），跳过判定`)
+          continue
+        }
+        if (probe.disabled) {
+          check.fact(`${label}：这一轮它是禁用态（点它确实不该有反应），只记事实`)
+          continue
+        }
+        const named = namedExplanation(capture, [seat, entry.target.label])
+        if (!probe.reacted && named.length > 0) {
+          check.ok(
+            `${label}：点下去没有可观测反应，但页面留下了能指名道姓的一行（${named[0]?.slice(0, 160) ?? ''}）`,
+            true,
+            `expected=${rule.expect ?? ''}`,
+          )
+          continue
+        }
+        check.ok(
+          `${label}：点下去有可观测反应（${rule.expect ?? '（没写期望）'}）`,
+          probe.reacted,
+          `没反应时页面也没留下能指名道姓的一行（控制台里没有提到 \`${seat}\` 或这一枚入口的一条）；${probe.detail}`,
+        )
+      }
+    } finally {
+      await clearSeatEntryMarks(page)
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -936,7 +1128,6 @@ function sessionUnavailable(lines: readonly string[]): boolean {
 // ---------------------------------------------------------------------------
 // 交互点表
 // ---------------------------------------------------------------------------
-
 /**
  * 一条「按文案认控件」的文案**打哪儿来**（#209）。分三档：
  *
@@ -1466,7 +1657,9 @@ export const LIVENESS_SUITE: LabSuite = {
 
     // ── 页 A：chat 树（对话区）+ 官方页对照 ────────────────────────────────
     const viewport = { width: 1400, height: 950 }
-    let chatPage = await openTreePage(ctx.browser, ctx.lab, chat, viewport)
+    // `fiberProbe`（#248 起）：壳座扫描要经 `__LAB_FIBER__.ctx` 反射读槽位快照（`slots.snapshot()`），
+    // 探针必须在页面任何脚本之前装上，所以挂在开页参数上。
+    let chatPage = await openTreePage(ctx.browser, ctx.lab, chat, { ...viewport, fiberProbe: true })
     let sessionFixture = await currentSessionId(chatPage.page)
     if (!(await conversationHeaderReady(chatPage.page))) {
       const candidates = await servableSessionCandidates(ctx.lab.gateway)
@@ -1474,7 +1667,7 @@ export const LIVENESS_SUITE: LabSuite = {
         `默认开的那条会话（${sessionFixture === '' ? '读不到 id' : sessionFixture}）没渲染出会话头——按「服务得了」逐条试 ${String(candidates.length)} 条候选会话当夹具`,
       )
       for (const candidate of candidates) {
-        const attempt = await openTreePage(ctx.browser, ctx.lab, chat, { ...viewport, sessionId: candidate })
+        const attempt = await openTreePage(ctx.browser, ctx.lab, chat, { ...viewport, sessionId: candidate, fiberProbe: true })
         if (await conversationHeaderReady(attempt.page)) {
           await chatPage.context.close()
           chatPage = attempt
@@ -1497,7 +1690,7 @@ export const LIVENESS_SUITE: LabSuite = {
         `默认那条会话（${sessionFixture === '' ? '读不到 id' : sessionFixture}）页面上没有那一排助手动作（没有已结束的助手回合）——按「完成过至少一轮」逐条试 ${String(candidates.length)} 条候选会话当夹具`,
       )
       for (const candidate of candidates) {
-        const attempt = await openTreePage(ctx.browser, ctx.lab, chat, { ...viewport, sessionId: candidate })
+        const attempt = await openTreePage(ctx.browser, ctx.lab, chat, { ...viewport, sessionId: candidate, fiberProbe: true })
         if ((await conversationHeaderReady(attempt.page)) && (await assistantActionsPresent(attempt.page))) {
           await chatPage.context.close()
           chatPage = attempt
@@ -1636,6 +1829,10 @@ export const LIVENESS_SUITE: LabSuite = {
         await stripContext.close()
       }
 
+      // 壳上入口扫描（#248）：本树声明的壳座里渲染出来的条目逐枚点一次——条目由读数枚举，
+      // 不由手写清单枚举（侧栏那一行「插件」当年就是这样漏掉的）。放在这一段的末尾：它会把
+      // 右栏等派生态点开，前面那些交互点的读数因此不受影响。
+      await scanShellSeats(check, chatPage.page, chatPage.capture, 'chat')
       check.eq(
         '[chat] 对话区零 pageerror',
         withoutKnownNoise(chatPage.capture.pageErrors).real,
@@ -1648,7 +1845,7 @@ export const LIVENESS_SUITE: LabSuite = {
     }
 
     // ── 页 B：sidebar 树（自有树的那几枚）────────────────────────────────
-    const sidebarPage = await openTreePage(ctx.browser, ctx.lab, sidebar, { width: 1400, height: 950 })
+    const sidebarPage = await openTreePage(ctx.browser, ctx.lab, sidebar, { width: 1400, height: 950, fiberProbe: true })
     await sidebarPage.page.evaluate(livenessRecorderScript())
     try {
       for (const point of SIDEBAR_POINTS) {
@@ -1668,6 +1865,8 @@ export const LIVENESS_SUITE: LabSuite = {
         }
         check.ok(`[sidebar] ${point.label}：点下去有可观测反应（${point.expect}）`, ours.reacted, ours.detail)
       }
+      // 壳上入口扫描（#248）：本树声明的壳座里渲染出来的条目逐枚点一次。
+      await scanShellSeats(check, sidebarPage.page, sidebarPage.capture, 'sidebar')
       check.eq('[sidebar] 零 pageerror', withoutKnownNoise(sidebarPage.capture.pageErrors).real, [])
       screenshots.push(await shot(ctx, sidebarPage.page, 'liveness-02-sidebar'))
     } finally {
@@ -1675,7 +1874,7 @@ export const LIVENESS_SUITE: LabSuite = {
     }
 
     // ── 页 C：settings 树（设置各节）───────────────────────────────────
-    const settingsPage = await openTreePage(ctx.browser, ctx.lab, settings, { width: 1400, height: 950 })
+    const settingsPage = await openTreePage(ctx.browser, ctx.lab, settings, { width: 1400, height: 950, fiberProbe: true })
     await settingsPage.page.evaluate(livenessRecorderScript())
     try {
       // 「打开配置文件」那条为什么只观察：`settings.action` 这个 slot 里官方那条
@@ -1714,12 +1913,28 @@ export const LIVENESS_SUITE: LabSuite = {
         }
         check.ok(`[settings] ${point.label}：点下去有可观测反应（${point.expect}）`, ours.reacted, ours.detail)
       }
+      // 壳上入口扫描（#248）：本树声明的壳座里渲染出来的条目逐枚点一次（放在探针对照件之前：
+      // 对照件那五枚合成控件是钉在视口左下角的固定定位元素，别让扫描的读数掺进它们）。
+      await scanShellSeats(check, settingsPage.page, settingsPage.capture, 'settings')
       // 探针自己的对照件（#170）：装在这一页上跑（理由与三组判据见文件头与 runProbeFixtures）。
       await runProbeFixtures(check, settingsPage.page, 'settings')
       check.eq('[settings] 零 pageerror', withoutKnownNoise(settingsPage.capture.pageErrors).real, [])
       screenshots.push(await shot(ctx, settingsPage.page, 'liveness-03-settings'))
     } finally {
       await settingsPage.context.close()
+    }
+
+    // ── 页 D：plugins 树（官方插件页那一处壳）────────────────────────────
+    // #248：壳座表里 `main` / `plugins.item` 在这一棵树上都渲染出了条目（插件页本体与四张
+    // 配置卡的摘要面），所以这一页也要扫一遍。它是 #247 新开的树，原来不在本套件的开页面里。
+    const pluginsPage = await openTreePage(ctx.browser, ctx.lab, route('plugins'), { width: 1400, height: 950, fiberProbe: true })
+    await pluginsPage.page.evaluate(livenessRecorderScript())
+    try {
+      await scanShellSeats(check, pluginsPage.page, pluginsPage.capture, 'plugins')
+      check.eq('[plugins] 零 pageerror', withoutKnownNoise(pluginsPage.capture.pageErrors).real, [])
+      screenshots.push(await shot(ctx, pluginsPage.page, 'liveness-04-plugins'))
+    } finally {
+      await pluginsPage.context.close()
     }
 
     return screenshots

@@ -33,6 +33,8 @@ import { commandsExecuteArgs } from '../../src/pure/dshWire.ts'
 import {
   CHAT_BLOCKED_IDS,
   CHAT_FRAME_PLUGIN_ID,
+  PLUGINS_BLOCKED_IDS,
+  PLUGINS_FRAME_PLUGIN_ID,
   SETTINGS_BLOCKED_IDS,
   SETTINGS_FRAME_PLUGIN_ID,
   SIDEBAR_BLOCKED_IDS,
@@ -45,11 +47,19 @@ import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 
-/** 三棵树（#227）：清单与 frame 插件 id 的单一事实源是 wireFilter.ts，探针不另抄一份。 */
+/**
+ * 四棵装配树（#227 立、#248 跟到四棵）：清单与 frame 插件 id 的单一事实源是
+ * `wireFilter.ts`，探针不另抄一份。
+ *
+ * plugins 树（#247 开的第四棵，官方插件页独立成页）这一条是 #248 补上的：它原来只被 F-01 与
+ * F-74 两处看着（浏览器里装起来的样子），离线这条「按官方服务依赖算该挡谁」一直没算过它——
+ * 那棵树与 settings 树同一份构成，官方哪天给某个被挡的件加一个服务依赖，离线这一条不会响。
+ */
 const BLOCK_LIST_TREES = [
   { key: 'chat', label: '对话区', blocked: CHAT_BLOCKED_IDS, framePluginId: CHAT_FRAME_PLUGIN_ID },
   { key: 'sidebar', label: '侧栏位', blocked: SIDEBAR_BLOCKED_IDS, framePluginId: SIDEBAR_FRAME_PLUGIN_ID },
   { key: 'settings', label: '设置页', blocked: SETTINGS_BLOCKED_IDS, framePluginId: SETTINGS_FRAME_PLUGIN_ID },
+  { key: 'plugins', label: '插件页', blocked: PLUGINS_BLOCKED_IDS, framePluginId: PLUGINS_FRAME_PLUGIN_ID },
 ]
 
 // ---------- 参数 ----------

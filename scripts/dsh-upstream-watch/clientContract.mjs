@@ -159,12 +159,12 @@ export const SLOT_DEPENDENCIES = [
     where: 'src/ui/assembly/shell/chatLayoutPlugin.ts:263-272',
     expect: 'packages/client/ui-renderer/src/client/registry.ts:43',
   },
-  // ---- #247：官方「插件」页那一支的三个名字 ----------------------------------
-  // 这一支的落点是「官方侧栏那一行 + 官方插件页本体 + 它自己声明的三个子座」，
-  // 它们全都不在我们手写的取用名之外、却也不在任何既有条目里，所以上游改名时
-  // 探针原本不会响（#248 的 P1 点名的正是这一类，这里只补这一支涉及的四个名字；
-  // #248 清单里其余名字（`settings.onboarding` / `settings.trigger` /
-  // `conversation.view` / `sidebar.right.*`）仍归 #248）。
+  // ---- 「官方页住在某个壳里」这一族（#247 的四个名字 + #248 补的五个）----------
+  // 这一族的共同形状：官方某个页 / 弹层 / 全局面板住在某个座里，而那个座在我们这
+  // 一侧由自有 frame 声明（或由我们的 block list 决定它停不停车）。**座名一改，
+  // 这一支就静默失效**——座没声明时官方 `slots.inject` 只是停车（不报错、不打日志），
+  // 页面照旧跑，页面上少的那一块没人知道。所以这几个名字要在这里钉住：上游改名 /
+  // 搬走时探针当天就响，而不是等哪天有人去接这个座才发现找不到。
   {
     names: ['sidebar.panellist'],
     why: '官方侧栏的全局面板行清单：官方 ui-sidebar 声明它、官方插件页往它注册那一行；dsh-one 里那一行的点击走官方 `ctx.layout.selectPanel(id)`，落到侧栏树的 layout 服务上（#247）',
@@ -182,6 +182,42 @@ export const SLOT_DEPENDENCIES = [
     why: '官方插件页另外两个子座（一个 bundle 自己的配置 / 一行的配置表单），与 `plugins.item` 同一处声明；少一个意味着官方配置面又少一块',
     where: 'src/ui/assembly/shell/pluginsLayoutPlugin.ts 与 src/ui/assembly/wireFilter.ts 的 PLUGINS_BLOCK_LIST（这一页要保留的官方件正是声明这两个座的那一件）',
     expect: 'packages/client/ui-plugin-manager/src/client/slot-contract.d.ts（`plugins.bundle.config` / `plugins.row.config` 两项）',
+  },
+  {
+    names: ['sidebar.footer.action'],
+    why: '官方侧栏底部动作座：自有回收站入口行就渲染在这里（list 槽，与官方 ui-cordis 的 cordis 面板同座）；名字一改，入口行会静默消失',
+    where: 'packages/dsh-workspace-tree/src/workspaceTree/recycleEntry.ts（回收站入口行）+ src/ui/assembly/shell/settingsLayoutPlugin.ts:294（设置页那棵树声明它是为了官方贡献有处注册）',
+    expect: 'packages/client/ui-sidebar/src/client/contract/slots.ts（`sidebar.footer.action` 一项）',
+  },
+  {
+    names: ['settings.trigger'],
+    why: '官方设置弹层自己的触发条座（挂在 `sidebar.settings` 之下）：侧栏树里官方 ui-settings-general 下线后它停车（不报错），属于有意；钉住它是为了「官方把触发条搬进别的座」这种形状变化当天可见',
+    where: 'src/ui/assembly/shell/settingsLayoutPlugin.ts:361-366（我们的设置条目 children 表：有意不声明它）+ test/assembly-lab/shellSeats.ts 的壳座表白名单',
+    expect: 'packages/client/ui-settings-general/src/client/contract/slots.ts（`settings.trigger` 一项）',
+  },
+  {
+    names: ['settings.onboarding'],
+    why: '官方设置弹层里那两条 onboarding（首访声明 `welcome-notice` / 引导对话框 `deepseek-official`）的座：我们的设置条目声明了它、官方件也真的注册进来，但设置页从不渲染它——**已知的「声明了却零渲染，待恢复」**（#248 正文点名的那一条），名字一改这条备注就无从追',
+    where: 'src/ui/assembly/shell/settingsLayoutPlugin.ts:366（声明面）+ test/assembly-lab/shellSeats.ts 的壳座白名单（`unrendered` 那一档，reason 里写着待恢复）',
+    expect: 'packages/client/ui-settings-models/src/client/contract/slots.ts（`settings.onboarding` 一项）',
+  },
+  {
+    names: ['conversation.view'],
+    why: '对话区顶部那排视图页签（对话 / 轨迹）的座。**这一条与上面几条不同：它自己不由我们取用**——声明与渲染都在官方 ui-conversation 那一半，我们只是渲染对话区本体（keyed `main` 上那条 `conversation` 条目）。钉它的理由是「它是一块用户看得见的面」：官方哪天把这排页签搬进别的座或改名，装配页上跟着变的就是这一排，探针要在这天先响，而不是等用户发现少了点什么',
+    where: 'src/ui/assembly/shell/chatLayoutPlugin.ts（对话面板的渲染入口 `renderSlot("main"…)` 上方的注释把「我们不取用它、钉的是什么」写全了）+ test/assembly-lab/livenessSuites.ts 的「对话区页签 · 轨迹」那一条交互点',
+    expect: 'packages/client/ui-conversation/src/client/contract/slots.ts（`conversation.view` 一项）',
+  },
+  {
+    names: ['sidebar.right.pane.tab', 'sidebar.right.pane.tab.title'],
+    why: '官方右栏（ui-sidebar-right）的页签与页签标题座：chat 树声明 `rightbar` 之后这几件才注册得进来，右栏的文件 / 终端 / 文档预览 / 浏览器四个面就坐在这些座里。**同样不由我们取用**（声明与注入都在官方件那一半），钉它是因为右栏四面的页签是用户看得见的一块面',
+    where: 'src/ui/assembly/shell/chatLayoutPlugin.ts（`renderSlot("rightbar"…)` 上方的注释：这几个座的名字、我们不取用它、以及钉它是为了什么）',
+    expect: 'packages/client/ui-sidebar-right/src/client/contract/slots.ts（`sidebar.right.pane.tab` / `.title` 两项）',
+  },
+  {
+    names: ['sidebar.right.tab.menu.item'],
+    why: '右栏页签菜单项的座（list）：官方各右栏面板往这里贡献自己的菜单项（list 槽，页签菜单的落点）。**不由我们取用**，钉它的理由与上一条同（页签那一排是用户看得见的面）',
+    where: 'src/ui/assembly/shell/chatLayoutPlugin.ts（同上那条注释；root children 声明 `rightbar`，官方右栏子树由此成立）',
+    expect: 'packages/client/ui-sidebar-right/src/client/contract/slots.ts（`sidebar.right.tab.menu.item` 一项）',
   },
 ]
 
