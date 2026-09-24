@@ -42,14 +42,16 @@ const TREE_SOURCE = ((): string => {
   return parts.join('\n')
 })()
 
-/** 三棵树的 frame 插件（官方 ui-layout 的角色承担者）。 */
-const SHELLS = ['chatLayoutPlugin.ts', 'sidebarLayoutPlugin.ts', 'settingsLayoutPlugin.ts']
+/** 四棵树的 frame 插件（官方 ui-layout 的角色承担者）。 */
+const SHELLS = ['chatLayoutPlugin.ts', 'sidebarLayoutPlugin.ts', 'settingsLayoutPlugin.ts', 'pluginsLayoutPlugin.ts']
 
-test('三棵树的 frame 插件都提供官方 root 槽位钩子 panelInfo（#76 现场缺陷）', () => {
+test('四棵树的 frame 插件都提供官方 root 槽位钩子 panelInfo（#76 现场缺陷）', () => {
   for (const file of SHELLS) {
     const text = read(file)
     assert.match(text, /provideRoot\(\{\s*hooks:\s*\{\s*panelInfo:|provideRoot\(\{\s*hooks:\s*\{\s*panelInfo\s*\}/, `${file} 必须经 ctx.slots.provideRoot 提供 panelInfo`)
-    assert.match(text, /PANEL_INFO_SOURCE/, `${file} 的 panelInfo 源必须取共享件 PANEL_INFO_SOURCE`)
+    // 源要么是共享的那份只读常量（不落选中态的树），要么是共享件里那个工厂造出来的可写
+    // 快照（sidebar 树：#247 起官方侧栏的全局面板行的选中态读它，必须写得动）。
+    assert.match(text, /PANEL_INFO_SOURCE|createPanelInfoSource/, `${file} 的 panelInfo 源必须取共享件（PANEL_INFO_SOURCE / createPanelInfoSource）`)
     assert.match(text, /disposePanelInfo\(\)/, `${file} 必须在 effect 清理里撤销 panelInfo 贡献`)
   }
 })
@@ -58,11 +60,16 @@ test('panelInfo 源：快照形状与官方 PanelInfo 一致、引用稳定、�
   const text = read('frameShared.ts')
   // 官方 stores.d.ts 的 PanelInfo = { activePanelId: MainPanelId | null }
   assert.match(text, /activePanelId:\s*string \| null/, 'panelInfo 快照必须带 activePanelId 字段')
-  // 快照必须是模块级常量：官方把它交给 useSyncExternalStoreWithSelector，
-  // 每次 getSnapshot 返回新对象会无限重渲。
-  assert.match(text, /const PANEL_INFO_SNAPSHOT:\s*PanelInfoSnapshot\s*=\s*\{\s*activePanelId:\s*null\s*\}/, '快照必须是模块级常量')
-  assert.match(text, /getSnapshot:\s*\(\)[^=>]*=>\s*PANEL_INFO_SNAPSHOT/, 'getSnapshot 必须返回同一个引用')
-  assert.match(text, /subscribe:[\s\S]{0,120}?=>\s*\(\)\s*=>\s*\{\}/, 'subscribe 必须返回可调用的撤销函数')
+  // 快照引用必须稳定：官方把它交给 useSyncExternalStoreWithSelector，每次 getSnapshot 返回
+  // 新对象会无限重渲。所以源是一个闭包里的**一格可变引用**，只有值真的变了才换对象。
+  assert.match(text, /let snapshot:\s*PanelInfoSnapshot = \{\s*activePanelId\s*\}/, '快照必须是闭包里那一格（不是每次现造）')
+  assert.match(text, /getSnapshot:\s*\(\)\s*=>\s*snapshot/, 'getSnapshot 必须返回那一格现存的引用')
+  assert.match(text, /if \(snapshot\.activePanelId === panelId\) return/, '值没变时不许换对象（引用稳定）')
+  assert.match(
+    text,
+    /subscribe:\s*\(\w*\)\s*=>\s*\{[\s\S]{0,200}?return\s*\(\)\s*=>\s*\{[\s\S]{0,120}?listeners\.delete\(listener\)/,
+    'subscribe 必须返回可调用的撤销函数（退订 = 从监听表里摘掉）',
+  )
 })
 
 test('layout 服务面覆盖官方 ILayout 全成员（官方 service.d.ts 清单）', () => {
