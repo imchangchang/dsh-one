@@ -6,6 +6,7 @@
   "dshOne.statusPanel.title": "Show Status Panel",
   "dshOne.assembledChat.title": "Open Chat",
   "dshOne.assembledSettings.title": "dsh Settings",
+  "dshOne.assembledPlugins.title": "Open Plugins Panel",
   "dshOne.restart.title": "Restart Service",
   "dshOne.stop.title": "Stop Service",
   "dshOne.external.pasteToken.title": "Paste dsh Launch Token",

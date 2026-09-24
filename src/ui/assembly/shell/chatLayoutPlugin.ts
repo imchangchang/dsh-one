@@ -479,7 +479,7 @@ export function apply(ctx: ShellContext): void {
   // selectPanel 的合法性判据照官方取 keyed `main` 的实时注册表（本树里官方
   // ui-conversation 注册的 key 是 `conversation`；官方 ui-layout 同款构造点见
   // frameShared.LayoutController）。
-  const layout = new LayoutController((panelId) => ctx.slots.entries('main').some((entry) => entry.options.key === panelId))
+  const layout = new LayoutController({ hasMainPanel: (panelId) => ctx.slots.entries('main').some((entry) => entry.options.key === panelId) })
   const conversationSeat = createConversationSeatMirror(ctx)
   const connectionState = connectionStateOf(ctx)
   ctx.effect(() => {

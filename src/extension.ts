@@ -13,9 +13,11 @@ import {
   markHostDeactivating,
   preheatAssembly,
   registerAssembledChat,
+  registerAssembledPlugins,
   registerAssembledSettings,
   registerAssembledSidebar,
   revealAssembledChat,
+  revealAssembledPlugins,
   revealAssembledSettings,
   wasAssembledChatClosedByUser,
 } from './ui/assemblyView.ts'
@@ -171,6 +173,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!revealAssembledSettings()) await vscode.commands.executeCommand('dshOne.assembledSettings')
   }
 
+  // 打开/聚焦插件页（#247 官方插件页面板独立成编辑器页）：侧栏那条「插件」行
+  // （经宿主能力口 openPlugins）与命令面板共用。同一套两步语义：已开则聚焦，
+  // 没开才走命令全量装配。
+  const openAssembledPlugins = async (): Promise<void> => {
+    if (!revealAssembledPlugins()) await vscode.commands.executeCommand('dshOne.assembledPlugins')
+  }
+
   // #86 检查更新用的「当前版本」：优先现在能不能定位到 dsh（那才是真实安装位置上的版本），
   // 定位不到就退回状态里已经探到的版本（服务在跑时总是有）。
   const installedDshVersion = async (): Promise<string | undefined> => {
@@ -197,10 +206,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // 侧栏 sessions 面板（#70）：dshOne.chat view 的内容换成官方侧栏装配
   // （第二棵 cordis 树，assemblyView.ts），自研 vanilla 侧栏（sessionsView/
   // sessionsWebview）摘钩保留——#65 迁移参照物，暂不使用。可见性钩子沿用
-  // #68 语义：侧栏 view 展示时自动开一次装配对话区；齿轮点击开设置面板。
+  // #68 语义：侧栏 view 展示时自动开一次装配对话区；齿轮点击开设置面板；
+  // #247 起官方那条「插件」行点击开插件页。
   context.subscriptions.push(registerAssembledSidebar(context, manager, logger, {
     onDidBecomeVisible: () => void autoOpenAssembledChat(),
     onOpenSettings: () => void openAssembledSettings(),
+    onOpenPlugins: () => void openAssembledPlugins(),
   }))
 
   context.subscriptions.push(
@@ -245,6 +256,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     registerAssembledChat(context, manager, logger),
     // 装配设置面板（#70 设置独立成页）：官方 settings.* 槽位整页渲染。
     registerAssembledSettings(context, manager, logger),
+    // 装配插件页（#247）：官方「插件」全局面板（keyed `main` 的 key `plugins`）整页渲染，
+    // 侧栏那条「插件」行的落点。
+    registerAssembledPlugins(context, manager, logger),
     vscode.commands.registerCommand('dshOne.restart', async () => {
       await manager.restart()
     }),

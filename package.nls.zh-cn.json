@@ -6,6 +6,7 @@
   "dshOne.statusPanel.title": "显示状态面板",
   "dshOne.assembledChat.title": "打开对话区",
   "dshOne.assembledSettings.title": "dsh 设置",
+  "dshOne.assembledPlugins.title": "打开插件页",
   "dshOne.restart.title": "重启服务",
   "dshOne.stop.title": "停止服务",
   "dshOne.external.pasteToken.title": "粘贴 dsh 启动 token",

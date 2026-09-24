@@ -80,6 +80,7 @@ export const HOST_CALLS = {
   'session.openPanel': 'Show one session in this host\'s chat panel (create / reveal / switch in place; #121).',
   'session.newInWorkspace': 'Create a new session in one workspace and open it (the sidebar + menu after adding a workspace, #176).',
   'vscode.openSettings': 'Open (or focus) the dsh-one settings editor page (the sidebar toolbar gear, #99).',
+  'vscode.openPlugins': "Open (or focus) the official Plugins panel as its own dsh-one editor page (the sidebar's Plugins row, #247).",
   'vscode.workspaceCreate': 'Create a workspace directory (~/.dsh/workspaces/<name>) and register it (the sidebar + menu, #99; returns the registered workspace id, #176).',
   'vscode.workspaceFolders': 'List the folders this VS Code window has open (the sidebar tree\'s current-workspace badge and pinning, #112).',
   'vscode.openFolder': 'Open one workspace folder in the editor window (the sidebar workspace row, #109; optionally in a new window).',
@@ -166,6 +167,12 @@ export interface HostBridgeDeps {
    * 生命周期都在那里）；缺省无实现 = `unsupported`。
    */
   openSettings?: () => void
+  /**
+   * 打开（或聚焦）插件页（#247 官方「插件」全局面板）。装配视图提供实现（插件页的
+   * 注册与生命周期都在那里）；缺省无实现 = `unsupported`——调用方（侧栏树的
+   * layout 服务）在那一端本来就不会走到这条路（官方 web 由官方外框自己渲染那一页）。
+   */
+  openPlugins?: () => void
   /**
    * 建一个新工作区目录并注册（#99 顶栏 ＋ 菜单第二项）。装配视图提供实现
    * （转发到既有 `dshOne.workspace.create` 命令，宿主原生输入框 + 建目录 + 注册）；
@@ -376,6 +383,17 @@ export async function runHostCall(
       return { code: 'unsupported', message: 'this host serves no separate settings page' }
     }
     deps.openSettings()
+    return null
+  }
+  // #247：官方那个「插件」全局面板在 VS Code 侧的独立编辑器页（侧栏那一行点击的落点，
+  // 见 sidebarLayoutPlugin 的 openPanel 处置）。与 openSettings 同一形态与同一套口径。
+  if (call === 'vscode.openPlugins') {
+    const rejected = parseNoArgs(call, args)
+    if (rejected !== undefined) return rejected
+    if (deps.openPlugins === undefined) {
+      return { code: 'unsupported', message: 'this host serves no separate plugins page' }
+    }
+    deps.openPlugins()
     return null
   }
   if (call === 'vscode.workspaceCreate') {
