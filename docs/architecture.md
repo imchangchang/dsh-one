@@ -21,13 +21,14 @@ DSH One 是 dsh 与 VS Code 之间的桥接扩展。dsh 由用户自己装、自
 | `CHAT_TREE` | 编辑器标签页，命令 `dshOne.assembledChat`（单例，可另开会话标签页） | 2 条：官方外框、官方侧栏 | `@dsh-one/vscode-chat-ui-layout` | theme-follow、session-boot、dsh-session-export、dsh-git-card、dsh-context-menu、dsh-composer-clear |
 | `SIDEBAR_TREE` | 侧栏 view `dshOne.chat` | 13 条：官方外框、对话区那几件、设置子页组、侧栏专属件 | `@dsh-one/vscode-sidebar-ui-layout` | theme-follow、settings-gear、session-bridge、dsh-workspace-tree |
 | `SETTINGS_TREE` | 编辑器标签页，命令 `dshOne.assembledSettings`（单例） | 14 条：官方外框、官方侧栏、对话流卡片组 | `@dsh-one/vscode-settings-ui-layout` | theme-follow |
-| `PLUGINS_TREE` | 编辑器标签页，命令 `dshOne.assembledPlugins`（单例），也是侧栏工具栏那枚「插件」图标的落点 | 14 条：与设置页同一份构成（官方外框、官方侧栏、对话流卡片组） | `@dsh-one/vscode-plugins-ui-layout` | theme-follow |
+| `PLUGINS_TREE` | 编辑器标签页，命令 `dshOne.assembledPlugins`（单例），也是侧栏工具栏那枚「插件」图标的落点（#253 起：这一枚只在带官方插件页的 dsh 上出现） | 14 条：与设置页同一份构成（官方外框、官方侧栏、对话流卡片组） | `@dsh-one/vscode-plugins-ui-layout` | theme-follow |
 
 **plugins 树（#247）为什么是一棵独立的树**：官方那个「插件」页是官方 web 里的一个**全局面板**——它挂在 keyed `main` 上（key = `plugins`），由官方外框按 `panelInfo.activePanelId` 取键渲染；它的入口在侧栏 webview 里（#247 时是官方侧栏 `sidebar.panellist` 上那一行，#252 起换成我们侧栏工具栏里齿轮左边那一枚），页面本体却要在另一份装配里。两件事决定了它不能落在任何既有树上：我们的每棵树都是一个独立的 webview、各自只渲染自己那几条 keyed 条目。所以照设置页的先例给它单开一棵树 + 一个编辑器页，页面本体仍是官方那条 keyed 条目自己的渲染（本树只声明 keyed `main` 与 `shell.overlay` 两个座），它自己声明的三个子座（`plugins.item` / `plugins.bundle.config` / `plugins.row.config`）随之落下——官方那四张配置卡（终端 / Agent 循环 / Subagent / 网页搜索）因此一起回到 VS Code 侧。
 
 入口点了之后做什么，两条路都汇到**同一条宿主能力口** `openPlugins()`（扩展宿主开/聚焦那个编辑器页）：
 
 - **今天的入口 = 侧栏工具栏那一枚**（#252，紧挨设置齿轮左侧）：它由可移植的工作区树插件渲染，直接调能力口。官方那条整行（`sidebar.panellist` 上 id `plugins` 的条目）由侧栏 frame 按**同 id + priority −1** 遮蔽（机制层 1），行盒子另按 css-module 名后缀摘掉（机制层 4，举证见 `sidebarLayoutPlugin` 的 CSS 上方）——官方件照常装载，插件页本体靠它。
+- **这一枚只在「这一代官方有插件页」时出现**（#253）：判据是**本页插件清单里有没有官方那一件包**（页面侧读 `__DSH_BOOT__`，宿主侧读同一棵树过滤后的清单，共用 `src/pure/officialPluginsPage.ts`）。官方插件页最早只到 dsh 0.1.6-alpha.2（`@deepseek-ai/dsh-client-ui-plugin-manager` 这一件包最早的版本），而版本门的下界是 0.1.5-rc.2——更老的版本上若照旧渲染这一枚，用户点开看到的是**空白页**（那一页本就不存在）。命令面板那条 `dshOne.assembledPlugins` 同一判据：这一代没有插件页时不开页签，只给一行说明。为什么不按 dsh 版本号、也不按 `sidebar.panellist` 座在不在判，见那个文件的文件头（三条候选读数逐条实测过）。
 - **官方那条行若回来**（上游改名把那条 CSS 撞失效）也仍然管用：官方 `PanelRow` 的点击是 `ctx.layout.selectPanel(id)`，落在**我们提供的 `layout` 服务**上（机制层 2），`LayoutController` 的 `openPanel` 处置只受理 `plugins` 这个 id，经能力口开页、宿主确认建成之后才把 `panelInfo.activePanelId` 写成 `plugins`（官方 `PanelRow` 的选中态读的就是这份快照），宿主关掉那一页时再推一条 `dshOne.pluginsPage` 让它回落。不受理的面板 id 照旧抛官方那句 `is not registered`。
 
 浏览器验证（`npm run verify:lab`）在真网关上跑**五棵树**：上面四棵生产树，加一棵只存在于实验室的对照档 `sidebar-official`（同一份 block list、只是不装自有工作区树插件，用来把「自有树」与「官方浏览区」逐项对照）。
