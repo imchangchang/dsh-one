@@ -1,10 +1,16 @@
 /**
- * #223 / #224（chat 面板）与 #233（设置面板）共用的宿主侧 harness：在 node 里用**真实
- * 宿主代码**跑「点会话 → 对话面板」与「点齿轮 → 设置面板」两条通路
- * （`src/ui/assemblyView.ts`），把判据要吃的几样东西交出去——建出来的面板、弹给用户的
- * 提示、扩展自己的日志行，以及把请求送进去的入口（侧栏桥消息 `dshOne.sessionSelected`、
- * 宿主能力口 `dshOne.hostCall` 的 `session.openPanel` / `vscode.openSettings`、命令
- * `dshOne.assembledChat` / `dshOne.assembledSettings`）。
+ * #223 / #224（chat 面板）、#233（设置面板）与 #247（插件页）共用的宿主侧 harness：
+ * 在 node 里用**真实宿主代码**跑「点会话 → 对话面板」「点齿轮 → 设置面板」「点侧栏那条
+ * 「插件」行 → 插件页」这几条通路（`src/ui/assemblyView.ts`），把判据要吃的几样东西交
+ * 出去——建出来的面板、弹给用户的提示、扩展自己的日志行，以及把请求送进去的入口
+ * （侧栏桥消息 `dshOne.sessionSelected`、宿主能力口 `dshOne.hostCall` 的
+ * `session.openPanel` / `vscode.openSettings` / `vscode.openPlugins`、命令
+ * `dshOne.assembledChat` / `dshOne.assembledSettings` / `dshOne.assembledPlugins`）。
+ *
+ * 注意它是**假 `vscode` 模块、真宿主代码**：能力调用的派发（`hostBridge.ts`）与 deps
+ * 拼装（`hostBridgeDeps()`）在这里是仓库里那一份真实现，只有 `vscode` API 与网关是替身。
+ * 与它相对的是装配实验室的假宿主（`test/assembly-lab/fakeHost.ts`）——那个把能力调用
+ * 整个吞掉自己应答，验不到宿主这一层（差别与 #247 的教训见 `AGENTS.md` 的「验证四层」）。
  *
  * 三样替身，各自的边界写在该替身自己的文件/函数上：
  * - **`vscode` 模块**（`vscodeStub.ts`）：面板与 webview 的生命周期、可见提示、命令表；

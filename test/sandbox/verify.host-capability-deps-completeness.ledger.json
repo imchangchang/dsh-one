@@ -10,7 +10,7 @@
     "image": "n/a（没有走沙盒 code-server：本轮无任何页面渲染/观感变化，沙盒截图看不出更多）",
     "date": "2026-09-25T01:00:00Z"
   },
-  "coverageNote": "本任务修的是**宿主侧**的一处拼装漏键（`src/ui/assemblyView.ts` 的 `hostBridgeDeps()` 少搬 `openPlugins` 一条），用户看到的是「点侧栏那条「插件」行没反应」。证据有两条来源：① 新增的宿主侧单测 `test/hostCapabilityDeps.test.ts`（经 test/chatPanelLiveness 的假 vscode 模块钩子真跑 `hostBridgeDeps()` 与真派发表，**不经过装配实验室的假宿主**）；② 整轮浏览器验证 `npm run verify:lab`（回归项，确认没碰坏装配页）。**为什么必须新增这一条**：#247 上一轮之所以漏过去，是这一族能力在实验室里由假宿主（`test/assembly-lab/fakeHost.ts`）自己应答——实验室验的是「页面叫得动」那一半，「真宿主那份 deps 拼装」从头到尾没被跑到；假宿主照旧应答能力调用，页面侧叫得动就全绿。**未验的部分**：① 真 VS Code webview 宿主层——在真编辑器里点侧栏那一条「插件」行、独立页签的开与关、命令面板里那一条，本轮按约定**不开真窗**（agent 一律不自己起窗口），留给用户人工验收一次；② 0.1.7-alpha.2 仍是「实测不通」的版本，本轮没拿它跑基线；③ 带 dsh 实例的真机脚本（verify:plugins-official）与本轮改动无关（没动任何插件包），未跑。",
+  "coverageNote": "本任务的读数（`npm test`、整轮 `verify:lab`、产物片段）取自代码提交 dcf2c9d8；其后只有台账与一处注释的提交，无行为改动。本任务修的是**宿主侧**的一处拼装漏键（`src/ui/assemblyView.ts` 的 `hostBridgeDeps()` 少搬 `openPlugins` 一条），用户看到的是「点侧栏那条「插件」行没反应」。证据有两条来源：① 新增的宿主侧单测 `test/hostCapabilityDeps.test.ts`（经 test/chatPanelLiveness 的假 vscode 模块钩子真跑 `hostBridgeDeps()` 与真派发表，**不经过装配实验室的假宿主**）；② 整轮浏览器验证 `npm run verify:lab`（回归项，确认没碰坏装配页）。**为什么必须新增这一条**：#247 上一轮之所以漏过去，是这一族能力在实验室里由假宿主（`test/assembly-lab/fakeHost.ts`）自己应答——实验室验的是「页面叫得动」那一半，「真宿主那份 deps 拼装」从头到尾没被跑到；假宿主照旧应答能力调用，页面侧叫得动就全绿。**未验的部分**：① 真 VS Code webview 宿主层——在真编辑器里点侧栏那一条「插件」行、独立页签的开与关、命令面板里那一条，本轮按约定**不开真窗**（agent 一律不自己起窗口），留给用户人工验收一次；② 0.1.7-alpha.2 仍是「实测不通」的版本，本轮没拿它跑基线；③ 带 dsh 实例的真机脚本（verify:plugins-official）与本轮改动无关（没动任何插件包），未跑。",
   "items": [
     {
       "id": "N-01",
