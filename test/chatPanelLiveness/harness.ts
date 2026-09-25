@@ -1,10 +1,16 @@
 /**
- * #223 / #224（chat 面板）与 #233（设置面板）共用的宿主侧 harness：在 node 里用**真实
- * 宿主代码**跑「点会话 → 对话面板」与「点齿轮 → 设置面板」两条通路
- * （`src/ui/assemblyView.ts`），把判据要吃的几样东西交出去——建出来的面板、弹给用户的
- * 提示、扩展自己的日志行，以及把请求送进去的入口（侧栏桥消息 `dshOne.sessionSelected`、
- * 宿主能力口 `dshOne.hostCall` 的 `session.openPanel` / `vscode.openSettings`、命令
- * `dshOne.assembledChat` / `dshOne.assembledSettings`）。
+ * #223 / #224（chat 面板）、#233（设置面板）与 #247（插件页）共用的宿主侧 harness：
+ * 在 node 里用**真实宿主代码**跑「点会话 → 对话面板」「点齿轮 → 设置面板」「点侧栏那条
+ * 「插件」行 → 插件页」这几条通路（`src/ui/assemblyView.ts`），把判据要吃的几样东西交
+ * 出去——建出来的面板、弹给用户的提示、扩展自己的日志行，以及把请求送进去的入口
+ * （侧栏桥消息 `dshOne.sessionSelected`、宿主能力口 `dshOne.hostCall` 的
+ * `session.openPanel` / `vscode.openSettings` / `vscode.openPlugins`、命令
+ * `dshOne.assembledChat` / `dshOne.assembledSettings` / `dshOne.assembledPlugins`）。
+ *
+ * 注意它是**假 `vscode` 模块、真宿主代码**：能力调用的派发（`hostBridge.ts`）与 deps
+ * 拼装（`hostBridgeDeps()`）在这里是仓库里那一份真实现，只有 `vscode` API 与网关是替身。
+ * 与它相对的是装配实验室的假宿主（`test/assembly-lab/fakeHost.ts`）——那个把能力调用
+ * 整个吞掉自己应答，验不到宿主这一层（差别与 #247 的教训见 `AGENTS.md` 的「验证四层」）。
  *
  * 三样替身，各自的边界写在该替身自己的文件/函数上：
  * - **`vscode` 模块**（`vscodeStub.ts`）：面板与 webview 的生命周期、可见提示、命令表；
@@ -60,6 +66,8 @@ export interface Harness {
     openSessionInNewTab(sessionId: string): Promise<void>
     /** #233：设置页「已开则聚焦」那一步（齿轮先问它，问不到才走命令）。 */
     revealAssembledSettings(): boolean
+    /** #247：插件页「已开则聚焦」那一步（侧栏那一行先问它，问不到才走命令）。 */
+    revealAssembledPlugins(): boolean
     /** #233：置「宿主开始收摊」标志（`deactivate` 的落点），销毁行的 hostTeardown 读它。 */
     markHostDeactivating(): void
   }
@@ -71,6 +79,8 @@ export interface Harness {
   requestPanel(sessionId: string): void
   /** 侧栏页的顶栏齿轮（#233）：宿主能力口 `vscode.openSettings`。 */
   gearClick(): void
+  /** 侧栏页那一行「插件」（#247）：宿主能力口 `vscode.openPlugins`。 */
+  pluginsRowClick(): void
   /** 跑一条登记过的命令（`dshOne.assembledChat`：新建会话 / fork / 默认打开那条路）。 */
   runCommand(commandId: string): Promise<void>
   /** 造一个已经没了的面板（宿主收摊形状），供恢复路径那类判据用。 */
@@ -184,15 +194,23 @@ export async function startHarness(): Promise<Harness> {
   const view = await import('../../src/ui/assemblyView.ts')
   view.registerAssembledChat(context, manager, logger)
   view.registerAssembledSettings(context, manager, logger)
+  // #247 插件页：侧栏那条「插件」行的落点是宿主能力口 `openPlugins` → 插件页面板
+  // （与设置页同形）。注册命令是 `extension.ts` 的接线，harness 照抄一份。
+  view.registerAssembledPlugins(context, manager, logger)
   // #233：设置页的齿轮走宿主能力口 `vscode.openSettings` → 侧栏 provider 的
   // `onOpenSettings`。这里如实照 `extension.ts` 的 `openAssembledSettings` 接线复刻：
   // 能聚焦就聚焦，聚焦不到（含引用指着死面板）才走命令全量新建。齿轮那条路在宿主能力口
   // 里是**不等着调用**的（`hostBridge.ts` 的 `deps.openSettings()` 后面没有 await），
   // 所以命令若是抛错，这里就是一个没人接的 rejection——判据「兜底不再静默」量它。
+  // #247 的插件页入口同一套两步语义（`openAssembledPlugins`）。
   view.registerAssembledSidebar(context, manager, logger, {
     onOpenSettings: () => {
       if (view.revealAssembledSettings()) return
       void Promise.resolve(registeredCommands.get('dshOne.assembledSettings')?.())
+    },
+    onOpenPlugins: () => {
+      if (view.revealAssembledPlugins()) return
+      void Promise.resolve(registeredCommands.get('dshOne.assembledPlugins')?.())
     },
   })
 
@@ -233,6 +251,7 @@ export async function startHarness(): Promise<Harness> {
       wasAssembledChatClosedByUser: () => view.wasAssembledChatClosedByUser(),
       openSessionInNewTab: (sessionId: string) => view.openSessionInNewTab(sessionId),
       revealAssembledSettings: () => view.revealAssembledSettings(),
+      revealAssembledPlugins: () => view.revealAssembledPlugins(),
       markHostDeactivating: () => view.markHostDeactivating(),
     },
     setFailNextPanelCreate: stub.setFailNextPanelCreate,
@@ -256,6 +275,10 @@ export async function startHarness(): Promise<Harness> {
     gearClick(): void {
       hostCallId += 1
       webview.__receive({ type: 'dshOne.hostCall', id: `lab-call-${hostCallId}`, call: 'vscode.openSettings' })
+    },
+    pluginsRowClick(): void {
+      hostCallId += 1
+      webview.__receive({ type: 'dshOne.hostCall', id: `lab-call-${hostCallId}`, call: 'vscode.openPlugins' })
     },
     newDeadPanel(): StubPanel {
       const panel = stub.window.createWebviewPanel('dshOne.assembledChat', 'lab dead panel') as StubPanel
