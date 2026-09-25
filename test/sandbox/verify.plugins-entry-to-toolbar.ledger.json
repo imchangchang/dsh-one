@@ -1,7 +1,7 @@
 {
   "title": "DSH One 验收报告：#252「插件」入口从官方那条整行挪进侧栏工具栏",
   "branch": "agent/plugins-entry-to-toolbar",
-  "commit": "",
+  "commit": "1b8ccd58178c31e96758f86577102db0e07a5f9f",
   "environment": {
     "mode": "浏览器验证（真实仓库模块 + 实验室自起的隔离实例［临时 DSH_HOME + 随机端口 + 真播种］+ 假宿主）+ 上游探针（本机官方产物，只读）",
     "dsh": "0.1.6-alpha.2",
@@ -43,7 +43,7 @@
       "expect": "新版第 27 枚图标走 `src/pure/officialIcons.ts` 的两代表按枚取：0.1.6 线要 `IconPluginPinwheelOutline16`、0.1.7 线要 `IconPluginPinwheelOutlineRegular`，**两代名字任一在场即通过**；上游探针的 `official-icon-exports` 那一项读本机官方前端产物，报出「27 枚全部在场」。",
       "result": "pass",
       "screenshots": [],
-      "notes": "逐条核对：① 本地跑探针（自起临时 `DSH_HOME` + 随机端口、只读）= **24 项 23 pass / 1 fail / 0 skip**，其中 `official-icon-exports` 的 detail 原文是 `dsh 0.1.6-alpha.2：27 枚全部在场（读的是本机默认 ~/.dsh 的 profile …，… 下 2 个 js 产物、共 1322 KB）` **✓**；那 1 条 fail 仍是既有的 `client-identifiers`（#240 的 0.1.7 专属名字 `pinnedSessionIds` / `pinSession|unpinSession` 在 0.1.6 的 combo 里不在场）——**与本改动无关的既有红**。② 单测 `test/upstreamIconExports.test.ts` 全过（枚数断言 26 → 27、探针那一条吃合成产物）；`test/pluginLocales.test.ts` 全过（`toolbar.plugins` 的 zh/en 键集齐）。③ **两代同一枚"最硬的一条证据"**（读 `npm pack` 下来的官方产物原件）：0.1.6-alpha.2 的 `IconPluginPinwheelOutline16` 与 0.1.7-alpha.2 的 `IconPluginPinwheelOutline` 图形件**四条 path 的 `d` 逐字相同**（`M7.84457 5.06199C…` / `M5.12742 8.07731C…` / `M8.02457 10.6802C…` / `M10.7476 7.89535C…`），0.1.6 是每条写死 `stroke-width: 1.2`、0.1.7 改成按档位给描边（`Regular` = 1、`Medium` = 1.3）；官方自家插件代码（`dsh-client-ui-plugin-manager` 0.1.7-alpha.2 的 `PluginsPanelIcon`）取的是 `IconPluginPinwheelOutlineRegular`，与表里缺省的 `Regular` 一致。④ 渲染读数：F-54 那一枚的指针落点是 `svg`（图标真的画在按钮里）、F-41 那一族的「同一排图标都渲染成 16 档」在 F-25/F-40 里照旧绿（顶栏动作组的图标尺寸那一条仍要求全为 16）。"
+      "notes": "逐条核对：① 本地跑探针（自起临时 `DSH_HOME` + 随机端口、只读）= **24 项 23 pass / 1 fail / 0 skip**，其中 `official-icon-exports` 的 detail 原文是 `dsh 0.1.6-alpha.2：27 枚全部在场（读的是本机默认 ~/.dsh 的 profile …，… 下 2 个 js 产物、共 1322 KB）` **✓**；那 1 条 fail 仍是既有的 `client-identifiers`（#240 的 0.1.7 专属名字 `pinnedSessionIds` / `pinSession|unpinSession` 在 0.1.6 的 combo 里不在场）——**与本改动无关的既有红**。② 单测 `test/upstreamIconExports.test.ts` 全过（枚数断言 26 → 27、探针那一条吃合成产物）；`test/pluginLocales.test.ts` 全过（`toolbar.plugins` 的 zh/en 键集齐）。③ **两代同一枚「最硬的一条证据」**（读 `npm pack` 下来的官方产物原件）：0.1.6-alpha.2 的 `IconPluginPinwheelOutline16` 与 0.1.7-alpha.2 的 `IconPluginPinwheelOutline` 图形件**四条 path 的 `d` 逐字相同**（`M7.84457 5.06199C…` / `M5.12742 8.07731C…` / `M8.02457 10.6802C…` / `M10.7476 7.89535C…`），0.1.6 是每条写死 `stroke-width: 1.2`、0.1.7 改成按档位给描边（`Regular` = 1、`Medium` = 1.3）；官方自家插件代码（`dsh-client-ui-plugin-manager` 0.1.7-alpha.2 的 `PluginsPanelIcon`）取的是 `IconPluginPinwheelOutlineRegular`，与表里缺省的 `Regular` 一致。④ 渲染读数：F-54 那一枚的指针落点是 `svg`（图标真的画在按钮里）、F-41 那一族的「同一排图标都渲染成 16 档」在 F-25/F-40 里照旧绿（顶栏动作组的图标尺寸那一条仍要求全为 16）。"
     },
     {
       "id": "N-04",
