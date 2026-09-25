@@ -59,7 +59,7 @@ npm `latest`（= `next`）今天指的版本（2026-09-23 实测），所以照 
 
 `@deepseek-ai/dsh-client-ui-primitives` 的图标导出在 0.1.7-alpha.2 整批换了一代写法：0.1.6-alpha.2 是尺寸后缀（`IconCloseFill14`、`IconArchiveOutline20`），0.1.7-alpha.2 是字重后缀（`IconCloseFillMedium` / `IconCloseFillRegular`），两代**互不重叠**。模块加载器按名字取导出，取不到不报错、只是 `undefined`，于是渲染时才炸：`slot entry crashed in 'sidebar.workspaces': Error: Minified React error #130`。
 
-我们取用的 34 个名字里 26 个是这代消失的图标，剩下 8 个（`Button` / `HoverCard` / `Menu` / `Modal` / `StateDot` / `Tooltip` / `relativeTime` / `writeClipboard`）两代都在。适配工作另立 #236；在那之前 0.1.7-alpha.2 不算支持版本。
+我们取用的 35 个名字里 27 个是这代消失的图标，剩下 8 个（`Button` / `HoverCard` / `Menu` / `Modal` / `StateDot` / `Tooltip` / `relativeTime` / `writeClipboard`）两代都在。适配工作另立 #236；在那之前 0.1.7-alpha.2 不算支持版本。
 
 **整轮读数（2026-09-23，候选版本装到临时目录、独占跑）**：69 项 **11 过 / 58 红**；断言按各套件实际跑到的条数合计 **409 / 592**（大量套件在头一两条上就中止，所以条数远少于全绿那一版的 3620——**这两个条数不可直接比**）。红项按根因只有一类，另有一项是空过：
 

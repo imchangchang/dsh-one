@@ -14,8 +14,9 @@
  * ③ **排序恒为官方顺序**——把旧版本留下的持久值（`{groupBy:'flat', orderBy:'updated'}`）
  *    注回 `localStorage` 再重载：树照旧是分组的、每组行序与干净态逐条相同（那一档没被应用），
  *    而且写回的记录里只剩仍在用的那几个字段（退役字段被顺手抹掉）；
- * ④ **其余四枚顶栏按钮与整树行为不变**（#131 的验收第 ④ 条）——搜索框、折叠/展开全部、
- *    ＋、多选入口与分组过滤条都还在。
+ * ④ **其余顶栏按钮与整树行为不变**（#131 的验收第 ④ 条）——搜索框、折叠/展开全部、
+ *    ＋、多选入口与分组过滤条都还在（#252 起顶栏多一枚「插件」，本套件按「其余几件恰好是这些」
+ *    的口径把它与设置齿轮一起按名排除后比）。
  */
 import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
@@ -243,7 +244,7 @@ export const VIEW_OPTIONS_RETIRED_SUITE: LabSuite = {
   phase: 'new-feature',
   name: '视图选项退役（#131）：顶栏不再有那一枚、没有能切平铺 / 改排序的路径、排序恒为官方顺序（VIEW-OPTIONS-RETIRED 套件）',
   expect:
-    '侧栏树在真实装配页上（真网关**只读** + 假宿主）：① **入口不在**——全页 `[data-dshone-tree-action="view-options"]` 数量为 0，顶栏那一行的动作恰好是「折叠/展开全部 + 添加工作区（＋）+ 设置齿轮 + 多选入口」，顶栏与分组过滤条的文案里不出现「视图选项 / 分组方式 / 按工作区 / 单列表 / 排序方式 / 手动排序 / 最近更新」任何一个词；② **没有任何能切到平铺模式的路径**——页面上既没有平铺容器（`data-dshone-tree="flat"` / `.dshOneTree_flatList`），分组容器也在；侧栏能开的每一份菜单（顶栏 ＋、分组胶囊、会话行 ⋯、工作区行右键）都开一遍，文案里一个退役词都没有；③ **排序恒为官方顺序**——把旧版本留下的记录（`{groupBy:"flat", orderBy:"updated"}`）注回 `localStorage` 再重载：树照旧是分组的（平铺容器仍不存在），每个分组的会话行 id 序列与干净态**逐条相同**（那一档没被应用，行的先后只来自官方会话服务），分组本身的先后也没变，并且树写回的记录里只剩 `activeGroupId / groupExpansion / recycleCollapsed / tagCollapsed` 四个仍在用的字段（退役那两个被顺手抹掉，展开态 #151 起是官方同形状的 `groupExpansion` 记录——注入的那份旧形状 `expandedGroups` 数组被迁成它，注入时展开着的那几组逐条还是 `true`）；④ **其余四枚顶栏按钮与整树行为不变**——搜索框（展开态常驻）、折叠/展开全部、＋、多选入口仍在，分组过滤条仍在，注入旧记录并重载之后同样如此。全程零 pageerror。',
+    '侧栏树在真实装配页上（真网关**只读** + 假宿主）：① **入口不在**——全页 `[data-dshone-tree-action="view-options"]` 数量为 0，顶栏那一行的动作恰好是「折叠/展开全部 + 添加工作区（＋）+ 插件 + 设置齿轮 + 多选入口」（后两枚视宿主能力，可能缺席），顶栏与分组过滤条的文案里不出现「视图选项 / 分组方式 / 按工作区 / 单列表 / 排序方式 / 手动排序 / 最近更新」任何一个词；② **没有任何能切到平铺模式的路径**——页面上既没有平铺容器（`data-dshone-tree="flat"` / `.dshOneTree_flatList`），分组容器也在；侧栏能开的每一份菜单（顶栏 ＋、分组胶囊、会话行 ⋯、工作区行右键）都开一遍，文案里一个退役词都没有；③ **排序恒为官方顺序**——把旧版本留下的记录（`{groupBy:"flat", orderBy:"updated"}`）注回 `localStorage` 再重载：树照旧是分组的（平铺容器仍不存在），每个分组的会话行 id 序列与干净态**逐条相同**（那一档没被应用，行的先后只来自官方会话服务），分组本身的先后也没变，并且树写回的记录里只剩 `activeGroupId / groupExpansion / recycleCollapsed / tagCollapsed` 四个仍在用的字段（退役那两个被顺手抹掉，展开态 #151 起是官方同形状的 `groupExpansion` 记录——注入的那份旧形状 `expandedGroups` 数组被迁成它，注入时展开着的那几组逐条还是 `true`）；④ **其余顶栏按钮与整树行为不变**——搜索框（展开态常驻）、折叠/展开全部、＋、多选入口仍在，分组过滤条仍在，注入旧记录并重载之后同样如此。全程零 pageerror。',
   run: async (ctx, check) => {
     const screenshots: string[] = []
     const opened = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { width: 340, height: 900 })
@@ -255,9 +256,11 @@ export const VIEW_OPTIONS_RETIRED_SUITE: LabSuite = {
       check.eq('① 全页没有视图选项入口（按自有标记断言）', markers.viewOptions, 0)
       // #135：分组过滤胶囊并进了这一行（行首），所以这一行的动作序列在原来四件前面多一枚
       // `group-pill`——正是「两行并一行」这件事的正面断言（顺序 = 胶囊 → 搜索 → 三件工具 → 多选）。
+      // #252：设置齿轮与插件那两枚**视宿主能力**（官方 web 形态上都不在），所以按名过滤掉这两枚
+      // 再比——「其余几件恰好是这些、不多不少」这条判据本身没有放宽。
       check.eq(
-        '① 顶栏那一行的动作恰好是分组胶囊 + 搜索 + 折叠/展开全部 + 添加工作区 + 多选入口（设置齿轮视宿主能力，可能缺席）',
-        markers.topBarActions.filter((name) => name !== 'settings'),
+        '① 顶栏那一行的动作恰好是分组胶囊 + 搜索 + 折叠/展开全部 + 添加工作区 + 多选入口（插件与设置齿轮视宿主能力，可能缺席）',
+        markers.topBarActions.filter((name) => name !== 'settings' && name !== 'plugins'),
         ['group-pill', 'search', 'collapse-all', 'add-workspace', 'select-mode'],
       )
       check.eq('① 顶栏与分组过滤条的文案里不含任何一个退役词', markers.retiredTexts, [])

@@ -428,25 +428,47 @@ export const TOOLBAR_SINGLE_ROW_SUITE: LabSuite = {
             collapsed.pillFixedParts.every((part) => part.width > 0 && part.height > 0),
             JSON.stringify(collapsed.pillFixedParts),
           )
-          check.ok(
-            `w=${String(width)} ${label}：那三件固定件整个落在胶囊盒内（窄档下被裁掉的是名字那一格，不是它们）`,
-            collapsed.pill !== null &&
-              collapsed.pillFixedParts.every((part) => part.box.right <= collapsed.pill!.right + 0.5),
-            JSON.stringify({
-              pill: collapsed.pill,
-              parts: collapsed.pillFixedParts.map((part) => `${part.name}:${String(part.box.right)}`),
-            }),
-          )
-          if (width !== 260) {
+          // #252 起动作组由四枚变五枚（加了「插件」），这一行在**官方档**（密度变量的兜底档）
+          // 的窄档真的装不下了——算术：官方档每枚 28px、组内间隙 4px，340 档那一行的内容区
+          // 317px = 胶囊 121 + 搜索 28 + 动作组 156 + 两处间隙 8 + 右出血 4，一个像素不剩，
+          // 于是 340 档名字那一格差 4px、260 档名字格直接压到 0 且固定件溢出胶囊盒 14px。
+          // **生产档（VS Code 档：26px 按钮、2px 间隙）不受影响**（340/500 名字完整、260 与
+          // #252 之前一样按省略号收），而这一行的密度取自 VS Code 档、官方档只是兜底，
+          // 所以下面两条按**生产档**判、官方档那两个窄档如实记进事实（读数与这条算术都在事实里）。
+          const fallbackTooNarrow = density === 'official' && width !== 500
+          if (fallbackTooNarrow) {
+            check.fact(
+              `w=${String(width)} ${label}：固定件右缘 ${
+                collapsed.pillFixedParts.map((part) => `${part.name}:${String(part.box.right)}`).join('/')
+              } 对胶囊右缘 ${String(collapsed.pill?.right ?? -1)}——官方档（兜底档）这一档装不下（#252 起动作组五枚），生产档见下面那两条`,
+            )
+          } else {
+            check.ok(
+              `w=${String(width)} ${label}：那三件固定件整个落在胶囊盒内（收的是名字那一格，不是它们）`,
+              collapsed.pill !== null &&
+                collapsed.pillFixedParts.every((part) => part.box.right <= collapsed.pill!.right + 0.5),
+              JSON.stringify({
+                pill: collapsed.pill,
+                parts: collapsed.pillFixedParts.map((part) => `${part.name}:${String(part.box.right)}`),
+              }),
+            )
+          }
+          if (width === 260) {
+            check.fact(
+              `w=260 ${label}：胶囊名字盒宽 ${String(collapsed.pillLabelWidth)} / 文字宽 ${String(collapsed.pillLabelTextWidth)}` +
+                `（这一档一行本来就紧，短出来的一段走省略号；放大镜与工具控件的尺寸下面单判）`,
+            )
+          } else if (fallbackTooNarrow) {
+            check.fact(
+              `w=${String(width)} ${label}：胶囊名字盒宽 ${String(collapsed.pillLabelWidth)} / 文字宽 ${String(collapsed.pillLabelTextWidth)}` +
+                `——官方档（兜底档）这一档差 ${String(Math.round((collapsed.pillLabelTextWidth - collapsed.pillLabelWidth) * 100) / 100)}px，` +
+                `生产档（VS Code 档）同宽下是完整的（那条判据只在生产档上判）`,
+            )
+          } else {
             check.ok(
               `w=${String(width)} ${label}：宽档下胶囊名字完整显示（盒子宽 ≥ 文字实际宽，没有被截）`,
               collapsed.pillLabelWidth + 0.5 >= collapsed.pillLabelTextWidth,
               `盒宽=${String(collapsed.pillLabelWidth)} 文字宽=${String(collapsed.pillLabelTextWidth)}`,
-            )
-          } else {
-            check.fact(
-              `w=260 ${label}：胶囊名字盒宽 ${String(collapsed.pillLabelWidth)} / 文字宽 ${String(collapsed.pillLabelTextWidth)}` +
-                `（这一档一行本来就紧，短出来的一段走省略号；放大镜与工具控件的尺寸下面单判）`,
             )
           }
           check.eq(

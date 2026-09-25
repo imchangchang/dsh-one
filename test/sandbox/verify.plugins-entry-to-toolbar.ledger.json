@@ -1,0 +1,67 @@
+{
+  "title": "DSH One 验收报告：#252「插件」入口从官方那条整行挪进侧栏工具栏",
+  "branch": "agent/plugins-entry-to-toolbar",
+  "commit": "",
+  "environment": {
+    "mode": "浏览器验证（真实仓库模块 + 实验室自起的隔离实例［临时 DSH_HOME + 随机端口 + 真播种］+ 假宿主）+ 上游探针（本机官方产物，只读）",
+    "dsh": "0.1.6-alpha.2",
+    "locale": "zh",
+    "theme": "dark",
+    "image": "n/a（不是沙盒截图）",
+    "date": "2026-09-25T04:55:00Z"
+  },
+  "coverageNote": "本报告的证据来自浏览器验证（`npm run verify:lab`，76 项 3778 条断言全绿、独占窗口约 20.5 分钟）与上游探针（`node scripts/dsh-upstream-watch/probe.mjs --command dsh`，24 项 23 pass / 1 fail），不是沙盒里的人眼截图：这一条改的是「侧栏那一行还在不在、新的入口点得开不开」，判据是页面上的真实读数与真点击（含四条负向对照），沙盒截图看不出更多。截图取自实验室整轮那一轮（`/tmp/lab-final-252/shots/`）。**未验的部分**：① 真 VS Code webview 宿主层——在真编辑器里点侧栏工具栏那一枚、独立页签的左与关、命令面板里那一条，本轮没有开窗（约定：agent 不自己起真窗），需要人工开窗验收一次；② **dsh 0.1.5 两版与 0.1.6-alpha.1 上没有官方插件页**（`@deepseek-ai/dsh-client-ui-plugin-manager` 最早的 npm 版本就是 0.1.6-alpha.2），新增那一枚在这几版上会渲染、点开是空白页——本轮没验，也没按版本门住（命令面板那条 `dshOne.assembledPlugins` 自 #247 起就是这个形态，本轮把同一形态复制到了可见入口上）；③ 0.1.7-alpha.2 仍是「实测不通」的版本，本轮没有拿它跑基线；④ 用户日常那台 3080 全程只被只读探测（R-06 的跑前/跑后对账）。",
+  "items": [
+    {
+      "id": "N-01",
+      "phase": "new-feature",
+      "name": "官方侧栏那条「插件」整行不再占位（遮蔽在注册表里，不是碰巧没渲染）",
+      "expect": "侧栏树（`/tree/sidebar`，真网关只读 + 假宿主）里：`[data-slot=\"sidebar.panellist\"]` 那个出口外面那一枚按钮**没有可见盒子**（DOM 里它还在，正是被摘掉的那个空壳）；`ctx.slots.snapshot()` 里 `sidebar.panellist` 座上上位的是 **priority −1** 那条（我们按同 id 遮蔽的空件、id = `plugins`），官方那条（priority 0）让出渲染位；整页零 pageerror / 零槽位崩溃 / 零装载未激活。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/252-sidebar-before.png",
+        "/tmp/dsh-sandbox-shots/252-shell-seats-sidebar.png"
+      ],
+      "notes": "逐条核对：① **F-74**（扩过的第 2 段）25/25 全过，其中这一条的两句读数为「侧栏：官方那一行 —— DOM 里 1 个可点元素、其中可见 **0** 个（aria-label=\"plugins\"）」与「侧栏：`sidebar.panellist` 座上的占位者 —— `plugins@-1(上位)`、`plugins@0`」，断言「官方那条「插件」整行不再渲染（那一行没有可见的可点元素）」actual=0 **✓**、「座上上位的是我们那条遮蔽件（id `plugins`、priority −1）」✓、「它的 id 就是官方那一行的 id（`plugins`）」✓。② 整页零 pageerror ✓、零槽位崩溃日志 ✓、零装载未激活 ✓。③ **F-75** 15/15：`sidebar 树：sidebar.panellist=声明(list/root) 占位者 2〔plugins、plugins〕 渲染 1锚点/0元素/无文字`，白名单里那条 `sidebar/sidebar.panellist/unrendered` 被**用上**（[白名单] 那一行写清「行被遮蔽、入口由工具栏图标承担、官方件照常装载」），且没有多余条目被点名 ✓。④ 截图：`252-sidebar-before.png` 里侧栏顶部已经直接是工具栏那一行（原来那条整行不在），`252-shell-seats-sidebar.png` 是同一页的壳座位读数现场。⑤ **负向对照**：把遮蔽去掉（删掉 `sidebarLayoutPlugin` 里那条 shadow 注册）→ **F-74 23/25**（红的正是上面那两句：actual=1 且那一行以官方词典的「插件」文案可见）、**F-75 14/15**（红的正是「白名单里的条目都在描述现状」（那条 `unrendered` 用不上了））；`git checkout` 还原后 25/25 与 15/15。"
+    },
+    {
+      "id": "N-02",
+      "phase": "new-feature",
+      "name": "工具栏在设置齿轮左边多了「插件」那一枚，点它端到端把插件页开出来",
+      "expect": "侧栏树里那一枚（`[data-dshone-tree-action=\"plugins\"]`）在场且可见、`aria-label` 是我们词典 `toolbar.plugins` 的 zh/en 两份（「插件」/「Plugins」）、**紧挨设置齿轮左侧**（同一排动作组里正好是它前面那一个元素）；点它 → 假宿主收到**恰好一次** `vscode.openPlugins`、那一趟到达宿主（那一页在宿主侧被标成开着）、整页零 pageerror；插件页本体（plugins 树 + 四张官方配置卡）照旧整页渲染。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/252-sidebar-after-click.png",
+        "/tmp/dsh-sandbox-shots/252-plugins-tree.png"
+      ],
+      "notes": "逐条核对：① 「工具栏那一枚插件图标在场且可见」✓、「aria-label 是我们词典里那条」实测 **插件** ✓、「紧挨设置齿轮左侧」✓（读数 `toolbarAdjacentToGear=true`：`gear.previousElementSibling === toolbar`）。② 点击前宿主没被要过开页（`opened=0`）✓；点击后 **恰好一次** 开页调用（`opened=1`）✓、那一趟到达了宿主（`pageOpen=true`）✓、整页零 pageerror ✓。③ **F-54** 59/59：手工交互点表里新增那一枚「侧栏 · 插件页」的读数是 `元素数 284→284（Δ0）· 弹层 0→0 · 宿主调用 +1 · 语义上行 +1（dshOne.hostCall）· 禁用=false`——**宿主通道那一路响了**，就是这一枚点了有反应的可观测证据。④ **F-74 第 1 段**照旧：plugins 树 `ready=true 槽位锚点=6 崩溃标记=0 崩溃日志=0 未激活=0 pageerror=0`、官方组 `official=官方(6)`、`plugins.item` 锚点 4 枚、四张卡 `bash / agent-loop / subagent / web-search` 逐张落座且摘要一行都在 ✓（入口搬家没动页面本体）。⑤ 真宿主那一半（建/聚焦 `dshOne.assembledPlugins`）不在实验室覆盖内，由 `test/hostCapabilityDeps.test.ts` 的 N-03 守着（走真 deps 拼装，不经过假宿主）。⑥ **负向对照两条**：把工具栏那一枚去掉（`workspaceTreePlugin` 不再注入 `openPlugins`）→ **F-74 14/18**，红的三条是「在场且可见」（`toolbarFound=false`）、「aria-label」（空串）、「紧挨齿轮」（false）；把那一枚的 onClick 改成空函数（入口在、点了什么都不做）→ **F-54 58/59**，红的正是新增那一枚「点下去有可观测反应」（读数 `宿主调用 +0、语义上行 +0`）。两处都 `git checkout` 还原、重建产物。"
+    },
+    {
+      "id": "N-03",
+      "phase": "new-feature",
+      "name": "图标用的是官方那一枚的同一符号（两代名字都在场，探针跟到第 27 枚）",
+      "expect": "新版第 27 枚图标走 `src/pure/officialIcons.ts` 的两代表按枚取：0.1.6 线要 `IconPluginPinwheelOutline16`、0.1.7 线要 `IconPluginPinwheelOutlineRegular`，**两代名字任一在场即通过**；上游探针的 `official-icon-exports` 那一项读本机官方前端产物，报出「27 枚全部在场」。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "逐条核对：① 本地跑探针（自起临时 `DSH_HOME` + 随机端口、只读）= **24 项 23 pass / 1 fail / 0 skip**，其中 `official-icon-exports` 的 detail 原文是 `dsh 0.1.6-alpha.2：27 枚全部在场（读的是本机默认 ~/.dsh 的 profile …，… 下 2 个 js 产物、共 1322 KB）` **✓**；那 1 条 fail 仍是既有的 `client-identifiers`（#240 的 0.1.7 专属名字 `pinnedSessionIds` / `pinSession|unpinSession` 在 0.1.6 的 combo 里不在场）——**与本改动无关的既有红**。② 单测 `test/upstreamIconExports.test.ts` 全过（枚数断言 26 → 27、探针那一条吃合成产物）；`test/pluginLocales.test.ts` 全过（`toolbar.plugins` 的 zh/en 键集齐）。③ **两代同一枚"最硬的一条证据"**（读 `npm pack` 下来的官方产物原件）：0.1.6-alpha.2 的 `IconPluginPinwheelOutline16` 与 0.1.7-alpha.2 的 `IconPluginPinwheelOutline` 图形件**四条 path 的 `d` 逐字相同**（`M7.84457 5.06199C…` / `M5.12742 8.07731C…` / `M8.02457 10.6802C…` / `M10.7476 7.89535C…`），0.1.6 是每条写死 `stroke-width: 1.2`、0.1.7 改成按档位给描边（`Regular` = 1、`Medium` = 1.3）；官方自家插件代码（`dsh-client-ui-plugin-manager` 0.1.7-alpha.2 的 `PluginsPanelIcon`）取的是 `IconPluginPinwheelOutlineRegular`，与表里缺省的 `Regular` 一致。④ 渲染读数：F-54 那一枚的指针落点是 `svg`（图标真的画在按钮里）、F-41 那一族的「同一排图标都渲染成 16 档」在 F-25/F-40 里照旧绿（顶栏动作组的图标尺寸那一条仍要求全为 16）。"
+    },
+    {
+      "id": "N-04",
+      "phase": "new-feature",
+      "name": "四条负向对照（改一处必须当场红，改回来即绿）",
+      "expect": "① 去掉遮蔽 → 红在「那一行不再渲染」与「座上上位的是 priority −1」；② 去掉工具栏那一枚 → 红在「那一枚在场 / 文案 / 紧挨齿轮」；③ 退回 #247 之前的接线（layout 服务不接受 `plugins`）→ 红在「直接调 `selectPanel(\"plugins\")` 不再抛」；④ 入口在场但点了什么都不做 → 红在新增那一枚交互点「点下去有可观测反应」。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "四条的读数（每条都是改一处 → 重建产物 → 单跑 → `git checkout` 还原）：① **F-74 23/25 / F-75 14/15**：失败断言原文 `侧栏：官方那条「插件」整行不再渲染（那一行没有可见的可点元素）（actual=1 expected=0）`、`侧栏：座上上位的是我们那条遮蔽件（id plugins、priority −1）（actual=0 expected=-1）`、`白名单里的条目都在描述现状（用不上的条目 1 条）（sidebar/sidebar.panellist/unrendered）`。② **F-74 14/18**：失败断言原文 `侧栏：工具栏那一枚插件图标在场且可见（{…\"toolbarFound\":false,…}）`、`侧栏：那一枚的 aria-label 是我们词典里那条（zh/en 任一份）（label=\"\" 期望其一=插件 / Plugins）`、`侧栏：那一枚紧挨设置齿轮左侧（…\"toolbarAdjacentToGear\":false…）`；点击那一步按套件新加的那句「不在场就不硬点」记事实跳过（第一次跑时它是 30 秒点击超时把整套件截断，本轮顺手改成一句话事实）。③ **F-74 24/25**：失败断言原文 `侧栏：直接调 selectPanel(\"plugins\") 不再抛（受理这条路是活的）（threw=true message=\"layout.selectPanel: main panel \\\"plugins\\\" is not registered\"）`——#247 现场那句原话。④ **F-54 58/59**：失败断言原文 `[sidebar] 侧栏 · 插件页：点下去有可观测反应（…）（元素数 284→284（Δ0）· 弹层 0→0 · 宿主调用 +0 · 语义上行 +0 · … 禁用=false · 指针落点 svg…）`。四次改动都在提交里被 `git checkout` 还原、`git status` 干净。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "整轮与既有功能不回归（五棵树、四棵生产树 + 对照档、静态自检）",
+      "expect": "整轮 `npm run verify:lab` 全绿；F-01 五棵树契约、F-04 与官方侧栏的外观几何对齐、F-33 / F-42 / F-56 这些枚举过顶栏控件的套件跟着新形态更新后仍绿；`npm test`、`npm run typecheck`、两道静态自检（i18n / 平台兼容性）都过。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "逐条核对：① 整轮 `npm run verify:lab` = **76 项 3778 条断言全过、退出码 0**（2026-09-25 独占窗口约 20.5 分钟；ledger 的 `machine` 那一行记着「别的实验室轮次 0 条」）。逐项与上一轮（#249：76 项 3770 条）的差：**F-74 23 → 25**、**F-56 96 → 105**（顶栏控件跟到五枚）、**F-42 173 → 170**（兜底档那两个窄档改成记事实）、F-33 24 → 24（枚举跟着改、条数不变）、F-54 59 → 59（壳上那一格的 `click` 换成手工表里那一枚），净 +8；其余 71 项逐项同值（F-01 52 / F-04 196 / F-11 26 / F-75 15 / R-06 6 等一条不差）。② **F-04 PARITY 196/196**：三档宽度下与官方侧栏的外观几何对齐照旧（摘掉那一行没有动几何口径）。③ **F-33 24/24**：「顶栏那一行的动作恰好是 …」这条把「插件」与「设置齿轮」一起按名过滤（两枚都视宿主能力），判据没放宽。④ **F-42** 的口径变化写明在套件里：动作组五枚之后**兜底档（官方档：28px 按钮 + 4px 间隙）**在 260/340 两档装不下那一行（算术：内容区 317px = 胶囊 121 + 搜索 28 + 动作组 156 + 两处间隙 8 + 右出血 4），**生产档（VS Code 档：26px + 2px）三档都不受影响**——所以那两条改成在生产档上判、兜底档记事实（本轮唯一一处覆盖面净减：2 条断言 → 事实，README 里如实记着）。⑤ `npm test` **1177 / 1177 全过**（枚数断言那一条跟着改成 27）；`npm run typecheck` 0 错。⑥ 两道静态自检：i18n「无漏同步」、平台兼容性「没有平台分支代码、也没有状态分支（无需声明文件）」。⑦ R-06 6/6：整轮零请求打到实例之外、零原生副作用调用；用户日常那台 3080 只被只读探测（跑前/跑后会话数 1370 / 1370）。"
+    }
+  ]
+}
