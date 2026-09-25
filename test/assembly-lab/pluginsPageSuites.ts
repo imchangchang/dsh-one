@@ -392,14 +392,22 @@ export const PLUGINS_PAGE_SUITE: LabSuite = {
       check.eq('侧栏：点击前宿主没被要过开页', before.opened, 0)
       shots.push(await shot(ctx, sidebarPage, 'f-74-2-sidebar-before'))
 
-      await clickToolbarPlugins(sidebarPage)
+      // 那一枚不在场时不硬点（在场那一条已经判红）：让失败信息停在「它不在场」，而不是
+      // 一条 `page.click` 30 秒超时把整套件截断（#252 的 NC-2 实测过那种形态）。
+      if (!before.toolbarFound) {
+        check.fact('侧栏：工具栏那一枚不在场，跳过下面那几条点击判据（「在场且可见」那一条已经判红）')
+      } else {
+        await clickToolbarPlugins(sidebarPage)
 
-      // ④ 宿主真的被要了一次，且那一趟到达了宿主（那一页在宿主侧被标成开着）。
-      //    真宿主那一半（建/聚焦独立编辑器页 `dshOne.assembledPlugins`）由宿主侧判据
-      //    `test/hostCapabilityDeps.test.ts` 的 N-03 守着（走真 deps 拼装，不经过假宿主）。
-      const clicked = await waitForEntry(sidebarPage, (facts) => facts.opened === 1 && facts.pageOpen)
-      check.eq('侧栏：点工具栏那一枚之后假宿主收到恰好一次开页调用', clicked.opened, 1)
-      check.ok('侧栏：那一趟到达了宿主（独立编辑器页在宿主侧被标成开着）', clicked.pageOpen, JSON.stringify(clicked))
+        // ④ 宿主真的被要了一次，且那一趟到达了宿主（那一页在宿主侧被标成开着）。
+        //    真宿主那一半（建/聚焦独立编辑器页 `dshOne.assembledPlugins`）由宿主侧判据
+        //    `test/hostCapabilityDeps.test.ts` 的 N-03 守着（走真 deps 拼装，不经过假宿主）。
+        const clicked = await waitForEntry(sidebarPage, (facts) => facts.opened === 1 && facts.pageOpen)
+        check.eq('侧栏：点工具栏那一枚之后假宿主收到恰好一次开页调用', clicked.opened, 1)
+        check.ok('侧栏：那一趟到达了宿主（独立编辑器页在宿主侧被标成开着）', clicked.pageOpen, JSON.stringify(clicked))
+        shots.push(await shot(ctx, sidebarPage, 'f-74-3-sidebar-after-click'))
+      }
+
       // ⑤ 整页干净（改前那一行点下去会抛 `is not registered`，这条一直在看着它）。
       const gaps = contractGaps(sidebar.capture)
       const notRegistered = gaps.pageErrors.filter((line) => NOT_REGISTERED_RE.test(line))
@@ -407,7 +415,6 @@ export const PLUGINS_PAGE_SUITE: LabSuite = {
       check.eq('侧栏：整页零 pageerror', gaps.pageErrors, [])
       check.eq('侧栏：零槽位崩溃日志', gaps.crashes, [])
       check.eq('侧栏：零装载未激活', gaps.bootFails, [])
-      shots.push(await shot(ctx, sidebarPage, 'f-74-3-sidebar-after-click'))
 
       // ⑥ 校验本身没被删（就地负向对照）：不在本树 keyed `main` 上的面板 id 照旧抛官方那句。
       //    「受理 `plugins`」那条同时是**行若回来也仍然管用**的保证（见 sidebarLayoutPlugin
