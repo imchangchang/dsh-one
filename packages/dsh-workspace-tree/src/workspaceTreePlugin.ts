@@ -193,6 +193,7 @@ import {
   type TagGroupsFile,
 } from '../../../src/pure/sessionTagGroups.ts'
 import type { GroupFile } from '../../../src/pure/dshStateFile.ts'
+import { pageHasOfficialPluginsPage } from '../../../src/pure/officialPluginsPage.ts'
 import { isSessionAlreadyOwnedError } from '../../../src/pure/sessionOwnership.ts'
 import type { SessionListLike } from '../../../src/pure/workspaceTreeView.ts'
 import { hostCapabilities, type CapabilityContext } from '@dsh-one/dsh-plugin-kit/hostCapabilities'
@@ -702,7 +703,14 @@ export function apply(ctx: TreeContext): void {
       // 时才注入，官方 web 形态不注入 = 那一枚不渲染（那一端官方外框自己渲染那个全局面板，
       // 没有「独立页」这回事）。走的是同一条能力口 `openPlugins()`：官方侧栏那条行点的
       // 也是它（经本树 layout 服务转过来），两条入口到达宿主的是同一件事。
-      ...(caps.pluginsPage
+      //
+      // #253：**再加上页面侧那条判据**——这一代的官方插件页在不在本页清单里
+      // （`hasOfficialPluginsPage`，读 `__DSH_BOOT__`）。缺了它，0.1.5 两版与
+      // 0.1.6-alpha.1 上会渲染出一枚点开是空白的按钮：那些版本里官方没有插件页
+      // （那一件包 0.1.6-alpha.2 起才发），而「宿主有没有独立页」这条能力口在 VS Code
+      // 上恒为真。两条都要成立才注入；为什么要按清单判、不按版本号或座判，见那个文件的
+      // 文件头（三条候选读数逐条实测过）。
+      ...(caps.pluginsPage && pageHasOfficialPluginsPage()
         ? {
             openPlugins: (): void => {
               caps.openPlugins().catch((reason: unknown) => {

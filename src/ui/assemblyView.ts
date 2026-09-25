@@ -12,6 +12,7 @@ import { assemblyPageHtml } from './assembly/pageHtml.ts'
 import { defaultHostBridgeDeps, subscribeHostCalls, type HostBridgeDeps } from './assembly/hostBridge.ts'
 import { createGatewayWorkspaceRoots } from './assembly/hostWorkspaceRoots.ts'
 import { panelOpenSessionIds, panelSessionsMessage, routeSelection } from '../pure/sessionPanelRouting.ts'
+import { hasOfficialPluginsPage } from '../pure/officialPluginsPage.ts'
 import { pluginsPageMessage } from '../pure/pluginsPageRouting.ts'
 import { chatPanelTabTitle, panelTabTitle } from '../pure/panelTab.ts'
 import { panelTabIconPath } from './panelIcon.ts'
@@ -1992,6 +1993,19 @@ async function createPluginsPanel(
       vscode.l10n.t('Failed to load the UI manifest from the dsh gateway: {0}', errorText(err)),
     )
     return { ok: false, step: 'manifest' }
+  }
+  // #253：这一代的官方有没有插件页——判据是**即将装进这一页的那份清单里有没有官方那一件包**
+  // （`hasOfficialPluginsPage`，见 `pure/officialPluginsPage.ts` 文件头的三条候选读数比较）。
+  // 没有就别开：那一件包不在时这一页是一片空白（0.1.5 两版与 0.1.6-alpha.1 就是这样，
+  // 官方插件页 0.1.6-alpha.2 起才发），给用户一行说明比开一个空页签好。
+  // 侧栏工具栏那一枚（页面侧）读的是同一份判据的另一个影子（本页 `__DSH_BOOT__`），
+  // 所以这两条入口在每一代上的去留是同一个答案。
+  if (!hasOfficialPluginsPage(assembly.wire)) {
+    logger.info('plugins open: this dsh has no plugins page (its manifest has no plugin-manager entry)')
+    void vscode.window.showInformationMessage(
+      vscode.l10n.t('The connected dsh has no plugins page, so there is nothing to open'),
+    )
+    return { ok: false, step: 'no-plugins-page' }
   }
   let mirror: AssemblyMirror
   try {

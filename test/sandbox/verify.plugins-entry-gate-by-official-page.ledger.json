@@ -1,0 +1,74 @@
+{
+  "title": "DSH One 验收报告：#253「插件」入口按官方这一代有没有插件页出现",
+  "branch": "agent/plugins-entry-gate-by-official-page",
+  "commit": "508da76d",
+  "environment": {
+    "mode": "浏览器验证（真实仓库模块 + 实验室自起的隔离实例［临时 DSH_HOME + 随机端口 + 真播种］+ 假宿主；候选版本各装一份临时树）+ 宿主侧单测（假 vscode 模块 + 假网关 + 真宿主代码）",
+    "dsh": "0.1.6-alpha.2（整轮与「有那一页」那一档）/ 0.1.6-alpha.1 / 0.1.5-rc.2（「没有那一页」那一档）",
+    "locale": "zh",
+    "theme": "dark",
+    "image": "n/a（不是沙盒截图）",
+    "date": "2026-09-25T06:00:00Z"
+  },
+  "coverageNote": "本报告的证据来自浏览器验证（新套件 F-76 在三代 dsh 上各跑一遍 + 0.1.6-alpha.2 上整轮 `npm run verify:lab` 77 项 3790 / 3790 零红）与宿主侧单测（`test/pluginsPageGate.test.ts`，假 `vscode` 模块 + 假网关 + 真宿主代码），不是沙盒里的人眼截图：这一条改的是「那一枚在不在场、点了会发生什么」，判据是页面上的真实读数与真点击、加上命令那条的宿主侧结果，沙盒截图看不出更多。**未验的部分**：① 真 VS Code webview 宿主层——在真编辑器里点侧栏工具栏那一枚、独立页签的开与关、命令面板那条在更老的 dsh 上给不给那一行说明，本轮没有开窗（约定：agent 不自己起真窗），需要人工开窗验收一次；② `0.1.5-rc.3` 没有单独跑（与 `0.1.5-rc.2` 在官方产物上同一条边界，解包核过：`sidebar.panellist` 座在场、`IconPluginPinwheelOutline*` 与 `dsh-client-ui-plugin-manager` 都不在场）；③ `0.1.7-alpha.2` 仍是「实测不通」的版本（#244 记着四条启动期问题），没有拿它跑基线；④ 用户日常那台 3080（0.1.6-alpha.2）全程只被只读探测（R-06 的跑前/跑后对账）。",
+  "items": [
+    {
+      "id": "N-01",
+      "phase": "new-feature",
+      "name": "「这一代有插件页」那一档：那一枚在场、点它真的开页（0.1.6-alpha.2）",
+      "expect": "侧栏树（真网关只读 + 假宿主）上：本页 `__DSH_BOOT__` 清单里**有**官方那一件包（`@deepseek-ai/dsh-client-ui-plugin-manager`），且与当天网关**未经我们过滤**的官方 wire 在这个 id 上一致；工具栏那一枚（`[data-dshone-tree-action=\"plugins\"]`）在场且可见、文案取我们词典 `toolbar.plugins`；点它 → 假宿主收到**恰好一次**开页调用、那一趟到达了宿主（独立编辑器页在宿主侧被标成开着）；官方那条整行在页面上没有可见的可点元素；零 pageerror / 零槽位崩溃 / 零装载未激活、侧栏树首屏就绪。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/253-f-76-1-with-plugins-page.png"
+      ],
+      "notes": "逐条核对（**F-76 12/12**，2.9 秒）：① 事实行原文「侧栏树（dsh 0.1.6-alpha.2）：本页清单 **50** 条、含官方插件页那一件包=**true**；当天网关官方 wire **58** 条、含那一件包=**true**；工具栏那一枚 —— 在场=**true** 可见=**true** aria-label=\"插件\"；官方那条整行可见的可点元素=**0**；开页调用=**0**」✓。② 「两份清单在这个 id 上一致」✓（排除「被我们自己 block 掉了」）。③ 「那一枚在场 ⟺ 这一代官方有插件页」✓、「那一枚可见 ⟺ …」✓、「那一枚在场且可见」✓、「aria-label 是我们词典里那条」✓。④ 点击前宿主没被要过（opened=0）✓；点它之后**恰好一次**开页调用（opened=1）✓、那一趟到达了宿主（pageOpen=true）✓。⑤ 整页零 pageerror ✓、零槽位崩溃 ✓、零装载未激活 ✓、侧栏树首屏就绪 ✓。⑥ 同一轮还顺带记着「官方那条整行没有可见的可点元素 = 0」✓（#252 的遮蔽形态没被这次改动碰坏）。⑦ 截图 `253-f-76-1-with-plugins-page.png`（那一枚在场的那一页）。"
+    },
+    {
+      "id": "N-02",
+      "phase": "new-feature",
+      "name": "「这一代没有插件页」那一档：那一枚不在场、点不了、也不报错（0.1.6-alpha.1 / 0.1.5-rc.2）",
+      "expect": "同样一棵侧栏树、同一份套件：本页清单与官方 wire 里**都没有**官方那一件包；工具栏那一枚**根本不在 DOM 里**（不是隐藏、不是禁用——没有可点的元素）；宿主一次都没被要过开页；官方那条整行没有可见的可点元素；零 pageerror / 零槽位崩溃 / 零装载未激活、侧栏树首屏就绪（改前这两版上整棵自有树会因为那一枚的图标加载失败而消失，见 N-04）。",
+      "result": "pass",
+      "screenshots": [
+        "/tmp/dsh-sandbox-shots/253-f-76-2-without-plugins-page.png"
+      ],
+      "notes": "逐条核对（**F-76 两版各 11/11**）：① `0.1.6-alpha.1` 事实行「本页清单 **48** 条、含那一件包=**false**；官方 wire **56** 条、含那一件包=**false**；那一枚 —— 在场=**false** 可见=**false** aria-label=\"\"；官方那条整行可见的可点元素=**0**；开页调用=**0**」✓；② `0.1.5-rc.2`（版本门下界）事实行「本页清单 **45** 条、官方 wire **53** 条，两处都没有那一件包；那一枚在场=**false** 可见=**false**；官方那条整行可见的可点元素=**0**；开页调用=**0**」✓；③ 「这一代没有插件页：那一枚根本不在 DOM 里」✓（两版都读到 `toolbarFound=false`，套件因此在两版上都不点它——没有可点的元素，也就没有「点了报错」这条路）✓；④ 「宿主一次都没被要过开页」✓；⑤ 两版都零 pageerror / 零槽位崩溃 / 零装载未激活、侧栏树首屏就绪 ✓。⑥ 截图 `253-f-76-2-without-plugins-page.png`（那一枚不在场的那一页：工具栏里只有其余几枚）。"
+    },
+    {
+      "id": "N-03",
+      "phase": "new-feature",
+      "name": "命令面板那条同一判据：这一代没有插件页时不开页签、只给一行说明（宿主侧）",
+      "expect": "真宿主那份建面板流程（`src/ui/assemblyView.ts` 的 `createPluginsPanel`，假 `vscode` 模块 + 假网关）：清单里**有**官方那一件包时执行 `dshOne.assembledPlugins` ⇒ 建出插件页面板、装上装配页、一行提示都不弹；清单里**没有**时 ⇒ **不建面板**、恰好一行 `info` 说明（l10n 那条英文基线）、留一行 `plugins open: …` 日志。另判纯函数在清单形状对不上时按「这一代没有」处置。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "逐条核对（`test/pluginsPageGate.test.ts` **3/3**）：① 纯函数：清单里有 ⇒ true、只有别的条目 ⇒ false、形状对不上（`undefined` / `null` / `'wire'` / `42` / `{}` / `{entries:null}` / `{entries:'client-modules'}` / `{entries:[null,7]}`）逐项 false ✓（判据缺席时宁可少一枚入口）。② 正面（清单里有那一件包）：命令建出 `dshOne.assembledPlugins` 面板、装的是装配页（HTML 里有 `__DSH_BOOT__`）、`h.messages.length === 0`（一行提示都不弹）、日志恰好一行 `plugins panel created` ✓。③ 负面（清单里没有）：**零个**该 viewType 的面板 ✓、提示恰好一条且 level 是 **info**（不是 error）✓、文案逐字等于 l10n 里那条英文基线 ✓、日志恰好一行 `plugins open: this dsh has no plugins page (its manifest has no plugin-manager entry)` ✓。④ 同一份 harness 的既有用例照旧全过（`test/hostCapabilityDeps.test.ts` 4/4 含 N-03 那条端到端、`test/settingsPanelLiveness.test.ts` 8/8、`test/chatPanelLiveness.test.ts` 10/10）——假网关那份清单的缺省档（有那一件包）与生产 0.1.6-alpha.2 一致。"
+    },
+    {
+      "id": "N-04",
+      "phase": "new-feature",
+      "name": "顺带查出的第二处 #252 尾巴：那一枚的图标在那三版上让整件工作区树插件加载失败",
+      "expect": "那一枚的图标 `IconPluginPinwheelOutline` 的两代名字只在 0.1.6-alpha.2 起的官方 primitives 里在场；#252 把 `officialIcon(...)` 写在模块顶层 ⇒ 0.1.5 两版与 0.1.6-alpha.1 上按 #236 的语义抛「两个名字都不在场」，整件工作区树插件被页面自愈从本页清单里摘掉（侧栏里我们那棵树整棵不见）。修法 = 图标也按同一条判据取（这一代没有那一页就不取），改后那三版上侧栏树照常就绪。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "逐条核对：① **官方产物读数**（解包 npm 上四份 `@deepseek-ai/dsh-client-ui-primitives`）：`0.1.5-rc.2` / `0.1.5-rc.3` / `0.1.6-alpha.1` 三份 `lib/index.js` 里 `IconPluginPinwheelOutline*` **一个都没有**，`0.1.6-alpha.2` 那份有 `IconPluginPinwheelOutline16` ✓（与 `dsh-client-ui-plugin-manager` 那一件包的版本边界完全重合）。② **改前实测**（`0.1.5-rc.2` 上单跑 `--suite F-76`）：**9/11**，失败两条原文是「零装载未激活（缺服务 / 缺钩子）（actual=[\"Error: failed to import loader entry c3e7bb59 (@dsh-one/dsh-workspace-tree): dsh official icon export missing: IconPluginPinwheelOutline expects `IconPluginPinwheelOutlineRegular` on this generation and `IconPluginPinwheelOutline16` on the previous one, neither is exported by @deepseek-ai/dsh-client-ui-primitives.\", \"page self-heal: the boot audit named [@dsh-one/dsh-workspace-tree] -> dropping … and reloading this page once - …\", \"page self-heal: stripped [@dsh-one/dsh-workspace-tree] from this page's manifest; …\"] expected=[]）」与「侧栏树首屏就绪（自有树挂上了）（ready=false）」——即整件自有树插件被摘掉 ✓。③ **改后同一天同一版**：**11/11**、侧栏树就绪 ✓。④ 同处更正了 #252 写在 `sidebarLayoutPlugin` 里的那句判断（「座在不在」与「行在不在」是两件事：`sidebar.panellist` 那个座在 0.1.5-rc.3 与 0.1.6-alpha.1 的官方 `dsh-client-ui-sidebar` 里照样声明，见下一条）。"
+    },
+    {
+      "id": "N-05",
+      "phase": "new-feature",
+      "name": "负向对照：把判据去掉（那一枚恒显示）⇒ 在「这一代没有」那一档上必须重新红",
+      "expect": "把两处改回「恒显示」——注入条件只留 `caps.pluginsPage`、图标换成哪一代都有的一枚（不换的话先撞 #236 那条，量到的会是 N-04 那种失败）——重建产物后在 `0.1.5-rc.2` 上单跑 `--suite F-76`：三条关系式断言必须红。改回来（用 `--from` 指同一棵候选树）必须恢复绿。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "逐条核对：① 改后单跑 **8/11**，失败三条逐字是「工具栏那一枚「插件」图标在场 ⟺ 这一代官方有插件页（actual=true expected=false）」「那一枚可见 ⟺ 这一代官方有插件页（actual=true expected=false）」「这一代没有插件页：那一枚根本不在 DOM 里（没有可点的元素）（actual=true expected=false）」✓——正是用户改前看到的那一枚。② 两次用的是**同一棵候选树**（先 `--keep` 留下 `/var/folders/…/T/dsh-lab-version-zCcK3M`，改回来用 `--from` 指它）⇒ 读数差异只来自代码，不来自装出来的树 ✓。③ 改回来 **11/11**、退出码 0 ✓。④ 分析：为什么负向对照在「这一代有」那一档上不会红——那一档本来就该在场，判据（清单读数）为真时渲染与否是同一个答案；所以负向对照只打「这一代没有」那一侧，这正是本 issue 要的那个边界。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "整轮与既有功能不回归（五棵树 + 静态自检 + 既有判据）",
+      "expect": "0.1.6-alpha.2 上整轮 `npm run verify:lab` 全绿；F-74（那一页本身与入口端到端）、F-75（壳座位对账）、F-54（交互活性与壳上入口扫描）、F-01（五棵树契约）这些与本次改动相邻的套件读数不变；`npm test`、`npm run typecheck`、两道静态自检（i18n / 平台兼容性）都过。",
+      "result": "pass",
+      "screenshots": [],
+      "notes": "逐条核对：① 整轮 `npm run verify:lab`（0.1.6-alpha.2）：**77 项 3790 / 3790 零红**（2026-09-25 独占窗口、约 21 分钟）。② 相邻套件：F-74 25/25、F-75 15/15、F-54 59/59、F-01 52/52、R-06 6/6。③ `npm test`：**1180 / 1180 全过**（比 #252 那一轮多 3 条，正是新加的那三条用例）。④ `npm run typecheck` 0 错。⑤ 两道静态自检：i18n「无漏同步」（新增的 `vscode.l10n.t` 那条 key 在 en/zh 两份 bundle 里都有）、平台兼容性「没有平台分支代码、也没有状态分支（无需声明文件）」。⑥ R-06：整轮零请求打到实例之外、零原生副作用调用；用户日常那台 3080 只被只读探测。"
+    }
+  ]
+}

@@ -75,6 +75,7 @@
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import { Menu, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import { officialIcon } from '@dsh-one/dsh-plugin-kit/officialIcons'
+import { pageHasOfficialPluginsPage } from '../../../../src/pure/officialPluginsPage.ts'
 import { COLLAPSE_ALL_GLYPH_TRANSFORM, COLLAPSE_ALL_GLYPHS, type CollapseAllGlyph } from './collapseAllGlyph.ts'
 import { GroupFilterBar } from './groupFilterBar.ts'
 import { SEARCH_QUERY_MAX } from './search.ts'
@@ -84,11 +85,27 @@ import type { Translate } from './types.ts'
 const IconChecklistOutline = officialIcon('IconChecklistOutline')
 const IconCloseFill = officialIcon('IconCloseFill')
 const IconFolderOpenOutline = officialIcon('IconFolderOpenOutline')
-const IconPluginPinwheelOutline = officialIcon('IconPluginPinwheelOutline')
 const IconPlusOutline = officialIcon('IconPlusOutline')
 const IconProjectAddOutline = officialIcon('IconProjectAddOutline')
 const IconSearchOutline = officialIcon('IconSearchOutline')
 const IconSettingsOutline = officialIcon('IconSettingsOutline')
+
+/**
+ * 「插件」那一枚的图标（#252；#253 起按代取）。
+ *
+ * 它的两代名字（0.1.6 的 `IconPluginPinwheelOutline16` ↔ 0.1.7 的 `IconPluginPinwheelOutlineRegular`）
+ * 都属于官方 plugin-manager 那一件包，而**那一枚图标与那一件包的版本边界是同一条**
+ * （#253 实测：解开 npm 上 0.1.5-rc.2 / 0.1.5-rc.3 / 0.1.6-alpha.1 / 0.1.6-alpha.2 四份
+ * 官方 primitives，`IconPluginPinwheelOutline*` 只在 0.1.6-alpha.2 的产物里在场）。
+ *
+ * 所以**这一代没有插件页时不取它**：判据与那一枚入口的注入完全同一条（这一份清单里有没有
+ * 官方那一件包，见 `onOpenPlugins`）。按老写法在模块顶层无条件取，那三版上 `officialIcon`
+ * 的 #236 语义会当场抛错（「两个名字都不在场」）——**整件工作区树插件随之加载失败**，
+ * 页面自愈把它从本页清单里摘掉（0.1.5-rc.2 实测形态：侧栏里我们那棵树整棵不见、
+ * 页面上一条 `failed to import loader entry …（@dsh-one/dsh-workspace-tree）`）。
+ * 有那一页的那几代照旧按枚取：官方哪天把名字改掉，仍在那里响亮地抛（#236 的守卫不动）。
+ */
+const IconPluginPinwheelOutline = pageHasOfficialPluginsPage() ? officialIcon('IconPluginPinwheelOutline') : undefined
 
 /**
  * 「折叠 / 展开全部」那枚图标（#118）：方框加减号，自绘 SVG。
@@ -388,7 +405,11 @@ export function TopBar(props: TopBarProps): unknown {
       // `PluginsPanelIcon` 就是 `IconPluginPinwheelOutline16`
       //（0.1.6-alpha.2 的 `lib/client.js:2135`；0.1.7-alpha.2 里叫 `…Regular`），所以走官方图标
       // 对照表按枚取（`src/pure/officialIcons.ts`），不自绘近似图。
-      props.onOpenPlugins === undefined
+      //
+      // #253：两个条件都要成立才渲染——宿主有独立插件页（`onOpenPlugins` 在不在，见
+      // workspaceTreePlugin 的注入面）**且**这一代官方真有插件页（图标那条判据与它是同一条，
+      // 见 `IconPluginPinwheelOutline` 上方）。第一条在 VS Code 上恒真，真正决定去留的是第二条。
+      props.onOpenPlugins === undefined || IconPluginPinwheelOutline === undefined
         ? null
         : h(Tooltip, {
             label: tr('toolbar.plugins'),

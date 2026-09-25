@@ -18,9 +18,11 @@
  *   `@dsh-one/vscode-settings-gear` 遮蔽渲染空件藏掉。设置页仍是独立编辑器页
  *   （@dsh-one/vscode-settings-ui-layout）。
  * - 插件入口 = **顶栏齿轮左边那一枚**（#252 起由 workspace tree 插件渲染，经宿主能力口
- *   `openPlugins` 触发）；官方侧栏那条「插件」整行（`sidebar.panellist` 上 id `plugins`
- *   的条目）由本插件按同 id + priority −1 遮蔽，它的行盒子另按 css-module 名后缀摘掉
- *   （为什么分两段见 CSS 上方那段举证）。插件页仍是独立编辑器页（plugins 树）。
+ *   `openPlugins` 触发；#253 起只在**这一代官方真有插件页**的 dsh 上出现——判据与那一枚的
+ *   图标同一条，见 `pure/officialPluginsPage.ts`）；官方侧栏那条「插件」整行
+ *   （`sidebar.panellist` 上 id `plugins` 的条目）由本插件按同 id + priority −1 遮蔽，
+ *   它的行盒子另按 css-module 名后缀摘掉（为什么分两段见 CSS 上方那段举证）。
+ *   插件页仍是独立编辑器页（plugins 树）。
  * - 头部抛光（#70 VS Code 验收「很生硬」返修）：品牌位遮蔽（brand.mark/name
  *   渲染空件 priority -1）+ logoRow 整行隐藏——VS Code 原生视图头已自报
  *   家门，官方 DeepSeek 品牌块重复且占 60px；头部密度只微调（root 顶
@@ -594,12 +596,19 @@ export function apply(ctx: ShellContext): void {
     // keyed `main` 上的 key），list 槽的遮蔽语义就是「同一个 cell（id）里优先号最小者上位」
     // ——与 settingsLayoutPlugin 那两处、settingsGearPlugin 那一条同一套做法。
     //
-    // 为什么走 `slots.inject` 而不是直接 `register`：这一行是 **0.1.6-alpha.2 起**才有的
-    // （`sidebar.panellist` 这个座由官方 ui-sidebar 的 children 表声明；0.1.5 两版与
-    // 0.1.6-alpha.1 上既没有这个座、也没有这一行——`@deepseek-ai/dsh-client-ui-plugin-manager`
-    // 这个包在 npm 上最早的版本就是 0.1.6-alpha.2）。直接 register 在更老的版本上会撞
-    // `slot "sidebar.panellist" is not declared` 当场抛错；`inject` 的官方语义是「等这个座
-    // 被声明出来」，座不存在时回调永不跑——老版本上既不报错、也没有行可留。
+    // 为什么走 `slots.inject` 而不是直接 `register`：**那条「座在不在」与「行在不在」是两件
+    // 事**（#253 更正 #252 写下的这句判断）。座是官方 ui-sidebar 的 children 表声明的，
+    // **0.1.5 两版与 0.1.6-alpha.1 上照样在**（#253 解开 npm 上那几份产物核过：两代的
+    // `lib/client.js` 里都有 `renderSlot("sidebar.panellist", …)` 与 `entriesOfSlot` /
+    // `subscribe` 两处调用）；那三版上少的是**注册进这一格的那条行**——它的注册方是
+    // `@deepseek-ai/dsh-client-ui-plugin-manager`，而那件包在 npm 上最早的版本就是
+    // 0.1.6-alpha.2。所以那三版上这一段 inject 回调**照常会跑**，只是它遮蔽的是「谁都没有」：
+    // 格子里只有我们这条空件，壳照旧为它画一行、行里出口是空的，那一行由上面那条
+    // `[class*="panelRow"]:has([data-slot="sidebar.panellist"]:empty)` 摘掉（实验室 F-76 在
+    // 0.1.5-rc.2 上读的就是这个形态：可见的可点元素 0 个）。仍用 `inject` 而不用直接
+    // `register`：座是别的条目的 children 表声明的，直接 register 会撞
+    // `slot "sidebar.panellist" is not declared`（官方语义见 `dsh-client-ui-renderer` 的 inject
+    // 实现），`inject` 才是「等它被声明出来」的正规挂法。
     const disposePanelRowShadow = ctx.slots.inject('sidebar.panellist', () =>
       ctx.slots.register({ name: 'sidebar.panellist', id: PLUGINS_PANEL_ID, priority: -1 }, Nothing),
     )
