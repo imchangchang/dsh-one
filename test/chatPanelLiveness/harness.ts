@@ -28,6 +28,7 @@ import * as path from 'node:path'
 import type { AddressInfo } from 'node:net'
 import type { Logger } from '../../src/log.ts'
 import type { ServerManager } from '../../src/server/manager.ts'
+import { OFFICIAL_PLUGINS_PAGE_PLUGIN_ID } from '../../src/pure/officialPluginsPage.ts'
 import {
   createStubWebview,
   panels,
@@ -103,11 +104,31 @@ export interface Harness {
   close(): Promise<void>
 }
 
-/** 一份最小合法 wire：bootstrap + application 各一批，前端资产三样齐全。 */
-function gatewayHtml(): string {
+/** harness 起法：缺省那一档就是 0.1.6-alpha.2 的形状。 */
+export interface HarnessOptions {
+  /**
+   * 假网关那份清单里**有没有官方插件页那一件包**（#253）——缺省 true（0.1.6-alpha.2 起
+   * 的形状）。给 false 就是更老的 dsh 的形状（0.1.5 两版与 0.1.6-alpha.1）：清单里没有
+   * `@deepseek-ai/dsh-client-ui-plugin-manager`，于是页面侧与宿主侧都会按「这一代没有插件页」
+   * 处置（判据源见 `src/pure/officialPluginsPage.ts`）。
+   */
+  officialPluginsPage?: boolean
+}
+
+/**
+ * 一份最小合法 wire：bootstrap + application 各一批，前端资产三样齐全。
+ *
+ * `officialPluginsPage` 决定那份清单里有没有官方插件页那一件包——它在 `entries` 与
+ * application 批的 `entries` 两处同进同出（`filterWire` 的清单一致性自检读的正是这两处）。
+ */
+function gatewayHtml(options: { officialPluginsPage: boolean }): string {
+  // 官方那一件在清单里的样子：id = 包名，url/rev 与原 combo 的分批形态一致。
+  const official = options.officialPluginsPage
+    ? [{ id: OFFICIAL_PLUGINS_PAGE_PLUGIN_ID, url: '/plugins/??dsh-client-ui-plugin-manager/client.js&rev=officialrev', rev: 'officialrev' }]
+    : []
   const wire = {
     rev: 'labrev',
-    entries: [{ id: 'client-modules', url: '/plugins/??client-modules/client.js&rev=bootrev', rev: 'bootrev' }],
+    entries: [{ id: 'client-modules', url: '/plugins/??client-modules/client.js&rev=bootrev', rev: 'bootrev' }, ...official],
     batches: [
       {
         phase: 'bootstrap',
@@ -119,7 +140,7 @@ function gatewayHtml(): string {
         phase: 'application',
         url: '/plugins/??client-modules/client.js&rev=apprev',
         rev: 'apprev',
-        entries: ['client-modules'],
+        entries: ['client-modules', ...official.map((entry) => entry.id)],
       },
     ],
   }
@@ -163,10 +184,12 @@ function fakeWebviewView(webview: StubWebview): {
   }
 }
 
-export async function startHarness(): Promise<Harness> {
+export async function startHarness(options: HarnessOptions = {}): Promise<Harness> {
+  // 缺省 = 0.1.6-alpha.2 的形状（清单里有官方插件页那一件包）；显式 false 才是更老那一代。
+  const html = gatewayHtml({ officialPluginsPage: options.officialPluginsPage !== false })
   const server = http.createServer((_req, res) => {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
-    res.end(gatewayHtml())
+    res.end(html)
   })
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
   const gatewayUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`

@@ -81,6 +81,7 @@ import { OFFICIAL_PIN_SUITE } from './officialPinSuites.ts'
 import { PROFILE_PLUGIN_SERVICE_SUITE } from './profilePluginServiceSuites.ts'
 import { ROSTER_REVS_SUITE } from './rosterRevsSuites.ts'
 import { PLUGINS_PAGE_SUITE } from './pluginsPageSuites.ts'
+import { PLUGINS_ENTRY_GATE_SUITE } from './pluginsEntryGateSuites.ts'
 import { ARCHIVED_RESTORE_SUITE } from './archivedRestoreSuites.ts'
 import { SHELL_SEAT_SUITE } from './shellSeatSuites.ts'
 import { listSessions } from '../../src/server/dshRpc.ts'
@@ -6698,4 +6699,9 @@ export const SUITES: ReadonlyArray<LabSuite> = [
   // 「声明了没有 / 座上有没有人 / 页面上渲染出来了没有」，缺席的一律要在带理由的白名单里
   // （表与白名单在 shellSeats.ts，F-54 的壳上入口扫描共用同一份）。
   SHELL_SEAT_SUITE,
+  // #253「插件」入口按官方这一代有没有插件页出现（F-76：F-01…F-75 与 R-06 已占，按
+  // 「从未占用的继续」顺延；套件本体在 pluginsEntryGateSuites.ts，同为独立文件，
+  // 少一处合入热点）。它判的是一条关系（那一枚在不在场 ⟺ 这一代官方有没有那一页），
+  // 所以同一份套件在 0.1.5 两版、0.1.6-alpha.1 与 0.1.6-alpha.2 上都跑得出来结论。
+  PLUGINS_ENTRY_GATE_SUITE,
 ]
