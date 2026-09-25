@@ -264,6 +264,7 @@
   "Failed to open the chat panel: {0}": "对话面板打不开：{0}",
   "Failed to open the settings panel: {0}": "设置面板打不开：{0}",
   "Failed to open the plugins panel: {0}": "插件页打不开：{0}",
+  "The connected dsh has no plugins page, so there is nothing to open": "当前 dsh 没有插件页，没有可打开的内容",
   "The dsh version is unknown; this chat UI was verified against {0}. Install a verified dsh with: {1}": "无法确定 dsh 版本；本对话界面实测支持 {0}。安装受支持的 dsh：{1}",
   "The connected dsh is {0}, outside the range this chat UI was verified against ({1}). Install a verified dsh with: {2}": "当前连接的 dsh 是 {0}，不在本对话界面实测支持的范围内（{1}）。安装受支持的 dsh：{2}",
   "DSH sidebar failed to load: {0}": "DSH 侧栏加载失败：{0}",
