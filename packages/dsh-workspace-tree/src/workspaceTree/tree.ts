@@ -123,6 +123,7 @@ export function WorkspaceTree(props: TreeProps): unknown {
     createWorkspaceFolder,
     newSessionInWorkspace,
     openSettings,
+    openPlugins,
     searchSessions,
     searchResultLimit,
     loadGroups,
@@ -1734,6 +1735,7 @@ export function WorkspaceTree(props: TreeProps): unknown {
         ? {}
         : { onCreateWorkspaceFolder: () => addWorkspace(createWorkspaceFolder) }),
       ...(openSettings === undefined ? {} : { onOpenSettings: openSettings }),
+      ...(openPlugins === undefined ? {} : { onOpenPlugins: openPlugins }),
       selectMode,
       onToggleSelectMode: () => (selectMode ? exitSelection() : selectionEntrySignal.enter()),
       filter: {

@@ -228,6 +228,10 @@ export const ZH: Record<string, string> = {
   'toolbar.collapseAll': '\u6298\u53E0\u6240\u6709\u5DE5\u4F5C\u533A',
   'toolbar.expandAll': '\u5C55\u5F00\u6240\u6709\u5DE5\u4F5C\u533A',
   'toolbar.settings': '\u8BBE\u7F6E',
+  // #252：「插件」那一枚（悬停提示 + 读屏标签共用一个键，做法同上面那条设置齿轮）。
+  // 措辞用官方那一行自己的说法（官方 plugin-manager 词典的 `panel` = 「插件」/「Plugins」），
+  // 免得同一件事在界面上出现两个名字。
+  'toolbar.plugins': '\u63D2\u4EF6',
   'actions.workspace.aria': '\u5de5\u4f5c\u533a\u201c{name}\u201d\u7684\u64cd\u4f5c',
   'actions.session.aria': '\u4f1a\u8bdd\u201c{name}\u201d\u7684\u64cd\u4f5c',
   'actions.newSession.aria': '\u5728\u201c{name}\u201d\u4e2d\u65b0\u5efa\u4f1a\u8bdd',
@@ -461,6 +465,10 @@ export const EN: Record<string, string> = {
   'toolbar.collapseAll': 'Collapse all workspaces',
   'toolbar.expandAll': 'Expand all workspaces',
   'toolbar.settings': 'Settings',
+  // #252: the Plugins button (hover tooltip and screen-reader label share this key, same as the
+  // settings gear above). Wording follows the official panel row (official plugin-manager
+  // dictionary key `panel` = "插件" / "Plugins") so the same thing is not named twice on screen.
+  'toolbar.plugins': 'Plugins',
   'actions.workspace.aria': 'Workspace actions for {name}',
   'actions.session.aria': 'Session actions for {name}',
   'actions.newSession.aria': 'New session in {name}',

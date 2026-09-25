@@ -17,6 +17,10 @@
  *   说明）；官方底部那一行（`sidebar.settings`，官方 SettingsRoot）由
  *   `@dsh-one/vscode-settings-gear` 遮蔽渲染空件藏掉。设置页仍是独立编辑器页
  *   （@dsh-one/vscode-settings-ui-layout）。
+ * - 插件入口 = **顶栏齿轮左边那一枚**（#252 起由 workspace tree 插件渲染，经宿主能力口
+ *   `openPlugins` 触发）；官方侧栏那条「插件」整行（`sidebar.panellist` 上 id `plugins`
+ *   的条目）由本插件按同 id + priority −1 遮蔽，它的行盒子另按 css-module 名后缀摘掉
+ *   （为什么分两段见 CSS 上方那段举证）。插件页仍是独立编辑器页（plugins 树）。
  * - 头部抛光（#70 VS Code 验收「很生硬」返修）：品牌位遮蔽（brand.mark/name
  *   渲染空件 priority -1）+ logoRow 整行隐藏——VS Code 原生视图头已自报
  *   家门，官方 DeepSeek 品牌块重复且占 60px；头部密度只微调（root 顶
@@ -287,8 +291,32 @@ export const DENSITY_CSS =
 //   那条同源——哈希前缀（hHd-Xa_）随官方构建变，后缀 `newSession` 是源码里的
 //   名字，上游改名时这条规则会静默失效（届时官方胶囊会重新出现），随官方版本
 //   核对；规则只摘呈现，不碰官方组件与它注入的 startSession。
+//
+// 官方侧栏那条「插件」整行的摘除（#252）为什么是层 1 + 层 4 两段，举证如下：
+// - **层 1 能拿到的只有那个 cell 里的内容**：那一行是官方 ui-plugin-manager 在
+//   `sidebar.panellist`（**list** 槽）上注册的条目（`id: "plugins"`）；同 id +
+//   priority −1 再注册一个空件就能把官方那一条从渲染位挤掉（层 1，见 apply 里的
+//   shadow）。但**行盒子不是那个条目画的**——它是官方侧栏壳自己的 JSX：壳把
+//   `slots.entriesOfSlot("sidebar.panellist")` 映射成一串 `PanelRow`
+//   （`dsh-client-ui-sidebar/lib/client.js` 的 `panels.map(…)` → `PanelRow`），
+//   条目只填那个 `panelGlyph` 出口。所以层 1 单独用会留下一个**空行**（一个没有
+//   图标、`label` 回落到条目 id 的按钮）——比原来更糟。
+// - **层 2/3 没有对应服务 API 与 seam**：官方没有「隐藏某个全局面板行」的入口
+//   （`ctx.layout.selectPanel` 是选中、不是隐藏），`__DSH_*` 那几个 seam 也不管
+//   侧栏的行渲染。
+// - 于是行盒子这一段走**层 4**：只摘那一行——判据是**它那个 panelGlyph 出口里一个
+//   条目节点都没有**（`[data-slot="sidebar.panellist"]:empty`），也就是「这一行是我们
+//   遮蔽过的那一条」这件事在 DOM 上的样子。按 `:has()` 从出口反选行盒子，**只命中
+//   我们自己遮蔽掉的那一行**，官方哪天在同一个座上加第二行（不管加在我们前面还是
+//   后面）都照常渲染（AGENTS.md 的「官方新增默认保留」）。
+//   稳定性风险：`[class*="panelRow"]` 与出口名都与上面两条同源（哈希前缀随官方构建
+//   变、后缀是源码里的名字），上游改名时规则静默失效、那一行会重新出现——实验室
+//   F-74 的「那一行不再渲染」那条断言看着它（读的是那一行有没有可见盒子）。
+//   残余形态说明：行摘掉之后，它所在的那个 `nav`（`panelList`）自己还有
+//   `margin-bottom: 8px`（宽形态 12px）留着，所以侧栏顶部还余下这一小段留白。
+//   不去动那个 `nav`：它是官方壳的容器，将来官方再加一行时它得照旧带着自己的间距。
 const CSS =
-  '.dshOneSidebarShell_frame,.dshOneSidebarShell_side{padding-left:0!important;padding-right:0!important;margin-left:0!important;margin-right:0!important}.dshOneSidebarShell_frame{background:var(--dsw-alias-bg-base);height:100%;display:flex;overflow:hidden;position:relative}.dshOneSidebarShell_side{flex:1;min-width:0;background:var(--dsw-specific-sidebar-fill);border-right:.5px solid var(--dsw-alias-border-l3);overflow:hidden}.dshOneSidebarShell_side [class*="logoRow"]{display:none}.dshOneSidebarShell_side [data-dshone-official-root]>[class*="newSession"]{display:none}.dshOneSidebarShell_side [data-dshone-official-root]{--dsh-sidebar-inline-padding:0px;padding-top:4px;max-width:none!important;margin-left:0!important;margin-right:0!important}.dshOneSidebarShell_overlay{z-index:20;pointer-events:none;position:absolute;inset:0}' +
+  '.dshOneSidebarShell_frame,.dshOneSidebarShell_side{padding-left:0!important;padding-right:0!important;margin-left:0!important;margin-right:0!important}.dshOneSidebarShell_frame{background:var(--dsw-alias-bg-base);height:100%;display:flex;overflow:hidden;position:relative}.dshOneSidebarShell_side{flex:1;min-width:0;background:var(--dsw-specific-sidebar-fill);border-right:.5px solid var(--dsw-alias-border-l3);overflow:hidden}.dshOneSidebarShell_side [class*="logoRow"]{display:none}.dshOneSidebarShell_side [class*="panelRow"]:has([data-slot="sidebar.panellist"]:empty){display:none}.dshOneSidebarShell_side [data-dshone-official-root]>[class*="newSession"]{display:none}.dshOneSidebarShell_side [data-dshone-official-root]{--dsh-sidebar-inline-padding:0px;padding-top:4px;max-width:none!important;margin-left:0!important;margin-right:0!important}.dshOneSidebarShell_overlay{z-index:20;pointer-events:none;position:absolute;inset:0}' +
   DENSITY_CSS
 const CSS_TAG_ID = '@dsh-one/vscode-sidebar-ui-layout/SidebarFrame.css'
 if (typeof document !== 'undefined' && document.querySelector(`style[data-plugin-css="${CSS_TAG_ID}"]`) === null) {
@@ -473,6 +501,13 @@ export const inject = ['slots', 'theme']
  * 为什么本树的 `panelInfo` 不能再是那份恒定 null 的共用实例：官方侧栏给每个全局面板
  * 渲染一行，行的选中态就是这份快照——这一页在另一个 webview 里，只有这里写它，
  * 那一行才会亮。`PANEL_INFO_SNAPSHOT` 那份只读常量继续给不落选中态的树用。
+ *
+ * **#252 起这条路是「行若回来也仍然管用」的那条**：那一行已由本插件按同 id + priority −1
+ * 遮蔽、行盒子也摘掉了（见 CSS 上方那段举证），所以平时没有任何界面元素会调到这里；入口在
+ * 工具栏那一枚插件图标上（它直接走能力口 `openPlugins()`，不经过本树的服务）。留着这条受理
+ * 是有意的：官方哪天把那一行放回来（或我们的遮蔽失效），点它照旧能开页，而不是当场抛
+ * `is not registered`。同理，`syncPluginsPageState` 那份选中态回灌一时没有消费方（读它的
+ * 就是那个 `PanelRow`），一并留着——行回来时它就该跟着亮。
  */
 function openPluginsPage(panelInfo: PanelInfoSource, logger: (line: string) => void): void {
   void hostCapabilities()
@@ -550,7 +585,26 @@ export function apply(ctx: ShellContext): void {
     const disposeBrandName = ctx.slots.inject('sidebar.brand.name', () =>
       ctx.slots.register({ name: 'sidebar.brand.name', priority: -1 }, Nothing),
     )
+    // 「插件」那一行的遮蔽（#252，机制层 1）：藏掉官方侧栏里那条全局面板行，
+    // 入口改由工具栏那一枚插件图标承担（`workspaceTree/toolbar.ts`，走同一条能力口
+    // `openPlugins()`）。官方件**照常装载**（插件页本体还要靠它，block list 一个字不动），
+    // 只是那一条不再进渲染位。
+    //
+    // 为什么是「同 id + priority −1」：官方那条的 id 是 `plugins`（= `PANEL_ID`，同时是
+    // keyed `main` 上的 key），list 槽的遮蔽语义就是「同一个 cell（id）里优先号最小者上位」
+    // ——与 settingsLayoutPlugin 那两处、settingsGearPlugin 那一条同一套做法。
+    //
+    // 为什么走 `slots.inject` 而不是直接 `register`：这一行是 **0.1.6-alpha.2 起**才有的
+    // （`sidebar.panellist` 这个座由官方 ui-sidebar 的 children 表声明；0.1.5 两版与
+    // 0.1.6-alpha.1 上既没有这个座、也没有这一行——`@deepseek-ai/dsh-client-ui-plugin-manager`
+    // 这个包在 npm 上最早的版本就是 0.1.6-alpha.2）。直接 register 在更老的版本上会撞
+    // `slot "sidebar.panellist" is not declared` 当场抛错；`inject` 的官方语义是「等这个座
+    // 被声明出来」，座不存在时回调永不跑——老版本上既不报错、也没有行可留。
+    const disposePanelRowShadow = ctx.slots.inject('sidebar.panellist', () =>
+      ctx.slots.register({ name: 'sidebar.panellist', id: PLUGINS_PANEL_ID, priority: -1 }, Nothing),
+    )
     return () => {
+      disposePanelRowShadow()
       disposeBrandMark()
       disposeBrandName()
       disposeRegistration()
@@ -558,7 +612,7 @@ export function apply(ctx: ShellContext): void {
       disposePanelInfo()
       disposeService()
     }
-  }, 'dsh-one sidebar shell: layout service + panel-info hook + root registration + brand shadow')
+  }, 'dsh-one sidebar shell: layout service + panel-info hook + root registration + brand shadow + panel-row shadow')
 
   ctx.effect(() => {
     const presenter = new ThemePresenter()

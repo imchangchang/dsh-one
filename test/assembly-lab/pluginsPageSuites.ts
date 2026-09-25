@@ -1,5 +1,5 @@
 /**
- * 官方「插件」页在 VS Code 侧有落点了（#247，F-74）。
+ * 官方「插件」页在 VS Code 侧有落点、入口在侧栏工具栏那一枚（#247 + #252，F-74）。
  *
  * 独立成一个文件、不写进 `suites.ts` 的理由与 F-64…F-73 同一：那个文件是本批开发的
  * 合入热点，新套件放外面能少一半冲突面。注册方式是在 `suites.ts` 的 `SUITES` 末尾
@@ -8,39 +8,46 @@
  * ## 这一条要证的形状（改前 / 改后）
  *
  * 官方 web 的「插件」页是 **keyed `main` 上的全局面板**（key = `plugins`），由官方
- * 外框按选中态取键渲染；它的入口是官方侧栏 `sidebar.panellist` 上那一行。dsh-one 的
- * 侧栏树里那一行是渲染出来的（官方 ui-sidebar 声明了那个座），但：
+ * 外框按选中态取键渲染。它的入口换过两次，**两次都在这条套件里**：
  *
- * - **改前**：点它走官方 `ctx.layout.selectPanel('plugins')` → 落到我们提供的 layout
- *   服务的缺省判据 `() => false` → 抛官方那句
- *   `layout.selectPanel: main panel "plugins" is not registered`，页面上什么都不动；
- *   插件页本体与它自己声明那三个座上的四张官方配置卡在 VS Code 侧一个入口都没有。
- * - **改后**：侧栏树的 layout 服务受理这个 id（机制层 2：官方通过服务契约调我们的
- *   服务）→ 经宿主能力口 `openPlugins` 请宿主开独立编辑器页（plugins 树）→ 那一行的
- *   选中态（官方 PanelRow 读 root 槽位钩子 `panelInfo`）跟着亮；页面上那一页真的
- *   渲染出官方内容（四张配置卡坐落在 `plugins.item` 上）。
+ * - **#247 改前**：入口是官方侧栏 `sidebar.panellist` 上那一行，点它走官方
+ *   `ctx.layout.selectPanel('plugins')` → 落到我们提供的 layout 服务的缺省判据
+ *   `() => false` → 抛官方那句 `layout.selectPanel: main panel "plugins" is not
+ *   registered`，页面上什么都不动；插件页本体与它自己声明那三个座上的四张官方配置卡
+ *   在 VS Code 侧一个入口都没有。
+ * - **#247 改后**：侧栏树的 layout 服务受理这个 id（机制层 2：官方通过服务契约调我们的
+ *   服务）→ 经宿主能力口 `openPlugins` 请宿主开独立编辑器页（plugins 树）；页面上那一页
+ *   真的渲染出官方内容（四张配置卡坐落在 `plugins.item` 上）。
+ * - **#252 改后（今天）**：入口从官方那条整行挪到**我们侧栏工具栏那一枚插件图标**
+ *   （紧挨设置齿轮左侧，与 #99 把设置入口收到齿轮是同一个先例）——官方那条整行按同 id +
+ *   priority −1 遮蔽、行盒子另按 css-module 名后缀摘掉（见 `sidebarLayoutPlugin`），
+ *   工具栏那一枚直接走**同一条能力口** `openPlugins()`。官方件照常装载（插件页本体靠它）。
  *
- * 所以本套件分两段，**两段都要**：只验页面本身（页面装得起来）证不了「点那一行能
- * 打开它」，只验点击（假宿主记了一笔）证不了「打开的那一页里真有官方内容」。
+ * 所以本套件三段，**三段都要**：只验页面本身（页面装得起来）证不了「点入口能打开它」，
+ * 只验点击（假宿主记了一笔）证不了「打开的那一页里真有官方内容」。
  *
  * ## 判据的三块与它们的来源
  *
  * 1. **plugins 树页面**（`/tree/plugins`）：官方页面本体在场、官方那两组的组名与计数
  *    对得上、四张配置卡都在（`plugins.item` 锚点 4 枚 + 四个卡名逐字在场）、零
  *    `slot entry crashed` / 零装载未激活 / 零 pageerror / 零 `data-slot-error`。
- * 2. **侧栏那一行的端到端**：点 `[data-slot="sidebar.panellist"]` 里那一枚按钮 →
- *    假宿主收到恰好一次开页调用 + 那一行 `aria-current="page"` + 页面上**不再**出现
- *    改前那条 `is not registered` pageerror；再让假宿主模拟「用户把那一页关掉」→
- *    选中态回落。
+ * 2. **侧栏那一处**（#252）：官方那条整行**不再渲染**（那一行没有可见的可点元素）、
+ *    `sidebar.panellist` 座上上位的是我们那条遮蔽件（priority −1）；工具栏那一枚在场、
+ *    文案是我们词典里那条、紧挨设置齿轮左侧；点它 → 假宿主收到**恰好一次**开页调用、
+ *    那一趟到达了宿主（独立编辑器页被标成开着）+ 整页零 pageerror。真宿主那一半
+ *    （建/聚焦 `dshOne.assembledPlugins`）由 `test/hostCapabilityDeps.test.ts` 的 N-03 守着。
  * 3. **校验本身没被删**（同一页上的就地负向对照）：经 fiber 探针留下的 `ctx` 反射取
  *    `layout` 服务，直接调 `selectPanel('dshOne.no.such.panel')` **必须**照旧抛官方
- *    那句，调 `selectPanel('plugins')` 不许抛——证明改的是「受理哪个 id 的处置」，
- *    不是把校验删掉。
+ *    那句，调 `selectPanel('plugins')` 不许抛——后者同时是「官方哪天把那一行放回来，
+ *    点它照旧能开页」的保证。
  *
- * **整轮改前/改后的负向对照不在套件里**（要换代码重建产物才跑得出来），读数与做法
- * 记在 `test/assembly-lab/README.md` 的累计记录里：把 sidebar 树的 layout 服务换回
- * `new LayoutController()`（= 改前那份），重建产物、单跑 `--suite F-74`，第 2 段整体
- * 转红并复现那条 pageerror。
+ * **整轮改前/改后的负向对照不在套件里**（要换代码重建产物才跑得出来），读数与做法记在
+ * `test/assembly-lab/README.md` 的累计记录里。今天这一版本的两条：
+ *
+ * - 去掉遮蔽（删掉 `sidebarLayoutPlugin` 里那条 `sidebar.panellist` 的 shadow 注册）→
+ *   第 2 段的「那一行不再渲染」与「座上上位的是 priority −1 那条」转红；
+ * - 去掉工具栏那一枚（`workspaceTreePlugin` 不再注入 `openPlugins`）→「那一枚在场」
+ *   与点击那几条转红（点击前的读数为 `toolbarFound=false`）。
  *
  * ## 文案的出处（官方件的文案，我们那份词典里没有也不该有）
  *
@@ -49,12 +56,17 @@
  * `bundlesTitle`、四张卡的 `bashTitle` / `agentLoopTitle` / `subagentTitle` /
  * `webSearchTitle`（`@deepseek-ai/dsh-client-ui-settings-plugins` 的 locale 字典
  * `settings.plugins`）。zh / en 两份都认（页面语言由整轮跑法钉死，判据不该绑死语言）。
+ *
+ * **工具栏那一枚的文案不是官方文案**：它出自我们自己的词典
+ * （`packages/dsh-workspace-tree/src/workspaceTree/locale.ts` 的 `toolbar.plugins`），
+ * 所以它按 `ours` 那一档读（`TOOLBAR_PLUGINS_LABELS`，两份取值逐字对上那条键）。
  */
 import * as fsp from 'node:fs/promises'
 import * as path from 'node:path'
 import type { Page } from 'playwright'
 import { contractGaps, openTreePage, slotFacts, type OpenedPage } from './harness.ts'
 import { LAB_TREES, type LabTreeRoute } from './labServer.ts'
+import { readSeatSnapshot } from './shellSeats.ts'
 import type { LabSuite, SuiteContext } from './suites.ts'
 
 const route = (name: string): LabTreeRoute => {
@@ -94,11 +106,14 @@ const OFFICIAL_CARD_LABELS: ReadonlyArray<readonly string[]> = [
 ]
 
 /**
- * 官方侧栏面板行那一枚按钮的文案（`panel`，zh / en 两份）。出处：同上的
- * plugin-manager 字典（`panel: "插件"` / `"Plugins"`）。C 组实测里那一行的
- * `aria-label` 就是它。
+ * 工具栏那一枚「插件」图标的文案（#252）：**不是官方文案**，出自我们自己的词典
+ * `packages/dsh-workspace-tree/src/workspaceTree/locale.ts` 的 `toolbar.plugins`
+ * （`\u63D2\u4EF6` / `Plugins`）——悬停提示与读屏标签共用那一对取值。
+ *
+ * 措辞跟着官方那一行（官方 plugin-manager 字典的 `panel` 也是「插件」/「Plugins」），
+ * 同一件事在界面上只有一个名字；但取值来自我们的词典，所以是 `ours` 那一档。
  */
-const OFFICIAL_PANEL_ROW_LABELS = ['插件', 'Plugins'] as const
+const TOOLBAR_PLUGINS_LABELS = ['插件', 'Plugins'] as const
 
 /** 官方那句「未注册」错误的原句（官方 ui-layout 与我们那份判据同一句）。 */
 const NOT_REGISTERED_RE = /is not registered/
@@ -167,46 +182,75 @@ async function waitForCardFacts(page: Page, timeoutMs = 15_000): Promise<PageFac
   return facts
 }
 
-interface PanelRowFact {
-  /** 那一枚按钮在不在（官方侧栏壳渲染出来的行）。 */
-  found: boolean
-  label: string
-  current: string | null
-  /** 假宿主收到的开页调用次数（-1 = 假宿主不在场）。 */
+interface SidebarEntryFact {
+  /** 官方那条「插件」整行：那一行在 DOM 里还有几个、其中几个是可见的（有非零盒子）。 */
+  rowButtons: number
+  visibleRowButtons: number
+  rowLabel: string
+  /** 工具栏那一枚插件图标（`data-dshone-tree-action="plugins"`）。 */
+  toolbarFound: boolean
+  toolbarLabel: string
+  toolbarVisible: boolean
+  /** 它在动作组里紧挨着设置齿轮吗（同一排、正好是齿轮前面那一个元素）。 */
+  toolbarAdjacentToGear: boolean
+  /** 假宿主收到的开页调用次数（-1 = 假宿主不在场）、那一页在宿主侧现在开着没有。 */
   opened: number
+  pageOpen: boolean
 }
 
-/** 侧栏那一行的读数（按钮属性 + 假宿主那份调用记录）。 */
-async function panelRowFacts(page: Page): Promise<PanelRowFact> {
+/**
+ * 侧栏两处的读数（#252）：官方那一行（应当只剩一个不可见的空壳）+ 工具栏那一枚（新的入口）。
+ *
+ * 为什么「官方那一行」按**可见盒子**读，而不是按它在不在 DOM 里：那一行由本树按同 id +
+ * priority −1 遮蔽（层 1），行盒子另按 css-module 名后缀摘掉（层 4，见 sidebarLayoutPlugin
+ * 的 CSS 举证）——两道里任何一道失效，那一行都会重新**看得见**，而 DOM 里它始终是同一个
+ * `[data-slot="sidebar.panellist"]` 出口。所以判据读「有没有可见的那一行」。
+ */
+async function sidebarEntryFacts(page: Page): Promise<SidebarEntryFact> {
   return page.evaluate(() => {
-    const glyph = document.querySelector('[data-slot="sidebar.panellist"]')
-    const button = glyph === null ? null : glyph.closest('button')
-    const host = (globalThis as { __LAB_HOST__?: { pluginsOpened?: unknown[] } }).__LAB_HOST__
+    const visible = (element: Element): boolean => {
+      const box = element.getBoundingClientRect()
+      if (box.width <= 0 || box.height <= 0) return false
+      const style = getComputedStyle(element)
+      return style.display !== 'none' && style.visibility !== 'hidden'
+    }
+    const glyphs = Array.from(document.querySelectorAll('[data-slot="sidebar.panellist"]'))
+    const buttons = glyphs
+      .map((glyph) => glyph.closest('button'))
+      .filter((button): button is HTMLButtonElement => button !== null)
+    const toolbar = document.querySelector<HTMLElement>('[data-dshone-tree-action="plugins"]')
+    const gear = document.querySelector<HTMLElement>('[data-dshone-tree-action="settings"]')
+    const host = (globalThis as { __LAB_HOST__?: { pluginsOpened?: unknown[]; pluginsPageOpen?: boolean } }).__LAB_HOST__
     return {
-      found: button !== null,
-      label: button?.getAttribute('aria-label') ?? '',
-      current: button?.getAttribute('aria-current') ?? null,
+      rowButtons: buttons.length,
+      visibleRowButtons: buttons.filter(visible).length,
+      rowLabel: buttons[0]?.getAttribute('aria-label') ?? '',
+      toolbarFound: toolbar !== null,
+      toolbarLabel: toolbar?.getAttribute('aria-label') ?? '',
+      toolbarVisible: toolbar !== null && visible(toolbar),
+      toolbarAdjacentToGear: toolbar !== null && gear !== null && gear.previousElementSibling === toolbar,
       opened: host?.pluginsOpened?.length ?? -1,
+      pageOpen: host?.pluginsPageOpen === true,
     }
   })
 }
 
-/** 点那一行（整条链路：官方 PanelRow 的 onClick → 官方 `ctx.layout.selectPanel` → 我们的 layout 服务）。 */
-async function clickPanelRow(page: Page): Promise<void> {
-  await page.locator('[data-slot="sidebar.panellist"]').locator('..').click()
+/** 点工具栏那一枚（#252 起的入口：页面侧能力口 `openPlugins()` → 宿主）。 */
+async function clickToolbarPlugins(page: Page): Promise<void> {
+  await page.click('[data-dshone-tree-action="plugins"]')
 }
 
-/** 等某一格读数到位（异步链路：受理 → 宿主回执 → 选中态），超时后返回最后一拍。 */
-async function waitForRow(
+/** 等某一格读数到位（异步链路：能力口 → 宿主回执），超时后返回最后一拍。 */
+async function waitForEntry(
   page: Page,
-  predicate: (facts: PanelRowFact) => boolean,
+  predicate: (facts: SidebarEntryFact) => boolean,
   timeoutMs = 5_000,
-): Promise<PanelRowFact> {
+): Promise<SidebarEntryFact> {
   const deadline = Date.now() + timeoutMs
-  let facts = await panelRowFacts(page)
+  let facts = await sidebarEntryFacts(page)
   while (!predicate(facts) && Date.now() < deadline) {
     await page.waitForTimeout(100)
-    facts = await panelRowFacts(page)
+    facts = await sidebarEntryFacts(page)
   }
   return facts
 }
@@ -238,13 +282,14 @@ async function callSelectPanel(page: Page, panelId: string | null): Promise<{ th
 export const PLUGINS_PAGE_SUITE: LabSuite = {
   id: 'F-74',
   phase: 'new-feature',
-  name: '官方「插件」页在 VS Code 侧有落点（plugins 树 + 侧栏那一行端到端）',
+  name: '官方「插件」页在 VS Code 侧有落点、入口在侧栏工具栏那一枚（plugins 树 + #252 的入口搬家）',
   expect:
     'plugins 树页面（`/tree/plugins`）在真实网关只读下渲染出官方插件页本体：官方那两组的组名与计数在场（官方组 ≥ 1）、' +
     '四张官方配置卡都在（`plugins.item` 锚点 4 枚 + 四个卡名逐字在场）、零 `slot entry crashed` / 零装载未激活 / 零 pageerror / 零 `data-slot-error`；' +
-    '侧栏树里点 `[data-slot="sidebar.panellist"]` 里那一枚按钮 → 假宿主收到恰好一次开页调用、那一行 `aria-current="page"`、' +
-    '页面上不再出现改前那条 `layout.selectPanel: main panel "plugins" is not registered` pageerror；假宿主模拟关页之后选中态回落；' +
-    '并且校验本身还在（直接调 `selectPanel(<不存在的面板>)` 照旧抛官方那句原话）。',
+    '侧栏（#252）：官方那条「插件」整行**不再渲染**（那一行没有可见的可点元素）、`sidebar.panellist` 座上上位的是我们那条遮蔽件（priority −1）、' +
+    '工具栏那一枚插件图标在场且紧挨设置齿轮左侧（文案取我们词典 `toolbar.plugins` 的 zh/en 两份）、' +
+    '点它 → 假宿主收到**恰好一次**开页调用、那一趟到达了宿主（独立编辑器页被标成开着）、页面上不再出现 `layout.selectPanel: main panel "plugins" is not registered`；' +
+    '并且校验本身还在（直接调 `selectPanel(<不存在的面板>)` 照旧抛官方那句原话、`selectPanel("plugins")` 不抛）。',
   async run(ctx: SuiteContext, check): Promise<string[]> {
     const shots: string[] = []
 
@@ -311,50 +356,62 @@ export const PLUGINS_PAGE_SUITE: LabSuite = {
     }
 
     // -------------------------------------------------------------------
-    // 第 2 段：侧栏那一行 → 端到端开那一页（本套件的关键，改前这里什么都不发生）
+    // 第 2 段：侧栏——官方那一行不再渲染、入口是工具栏那一枚（#252 改的就是这一段）
     // -------------------------------------------------------------------
     const sidebar = await openTreePage(ctx.browser, ctx.lab, route('sidebar'), { fiberProbe: true })
     const sidebarPage = sidebar.page
     try {
-      const before = await panelRowFacts(sidebarPage)
-      check.ok('侧栏：官方那一条「插件」行在场', before.found, JSON.stringify(before))
-      check.ok(
-        '侧栏：那一行的 aria-label 是官方词典里那条（zh/en 任一份）',
-        OFFICIAL_PANEL_ROW_LABELS.some((label) => label === before.label),
-        `label=${JSON.stringify(before.label)}`,
+      const before = await sidebarEntryFacts(sidebarPage)
+      check.fact(
+        `侧栏：官方那一行 —— DOM 里 ${String(before.rowButtons)} 个可点元素、其中可见 ${String(before.visibleRowButtons)} 个（aria-label=${JSON.stringify(before.rowLabel)}）；` +
+          `工具栏那一枚 —— 在场=${String(before.toolbarFound)} 可见=${String(before.toolbarVisible)} aria-label=${JSON.stringify(before.toolbarLabel)} 紧挨齿轮=${String(before.toolbarAdjacentToGear)}；` +
+          `开页调用=${String(before.opened)} 那一页在宿主侧开着=${String(before.pageOpen)}`,
       )
-      check.fact(`侧栏：点击前 aria-current=${JSON.stringify(before.current)} 开页调用=${String(before.opened)}`)
-      check.eq('侧栏：点击前那一行没有选中态', before.current, null)
+      // ① 官方那条整行不再渲染（#252 的第一半）。两道里任何一道失效那一行都会重新可见：
+      //    层 1 遮蔽（同 id + priority −1 顶掉官方那条）、层 4 行盒子摘除（见 sidebarLayoutPlugin）。
+      check.eq('侧栏：官方那条「插件」整行不再渲染（那一行没有可见的可点元素）', before.visibleRowButtons, 0)
+      // ② 遮蔽确实发生在**注册表**里（不是碰巧没渲染）：`sidebar.panellist` 这个座上，
+      //    上位的应当是 priority −1 那一条（我们那条空件），官方那条（priority 0）让出渲染位。
+      const seatSnapshot = await readSeatSnapshot(sidebarPage)
+      const panellist = seatSnapshot.seats.find((seat) => seat.name === 'sidebar.panellist')
+      const occupants = panellist?.occupants ?? []
+      const winner = occupants.find((occupant) => occupant.active)
+      check.fact(
+        `侧栏：\`sidebar.panellist\` 座上的占位者 —— ${occupants.map((occupant) => `${occupant.id || '(无 id)'}@${String(occupant.priority)}${occupant.active ? '(上位)' : ''}`).join('、') || '（一个都没有）'}`,
+      )
+      check.eq('侧栏：座上上位的是我们那条遮蔽件（id `plugins`、priority −1）', winner?.priority, -1)
+      check.eq('侧栏：它的 id 就是官方那一行的 id（`plugins`）', winner?.id, 'plugins')
+      // ③ 新的入口在工具栏，紧挨设置齿轮左侧，文案是我们词典里那条（zh/en 任一份）。
+      check.ok('侧栏：工具栏那一枚插件图标在场且可见', before.toolbarFound && before.toolbarVisible, JSON.stringify(before))
+      check.ok(
+        '侧栏：那一枚的 aria-label 是我们词典里那条（zh/en 任一份）',
+        TOOLBAR_PLUGINS_LABELS.some((label) => label === before.toolbarLabel),
+        `label=${JSON.stringify(before.toolbarLabel)} 期望其一=${TOOLBAR_PLUGINS_LABELS.join(' / ')}`,
+      )
+      check.ok('侧栏：那一枚紧挨设置齿轮左侧（同一排动作组里正好是它前面那一个元素）', before.toolbarAdjacentToGear, JSON.stringify(before))
       check.eq('侧栏：点击前宿主没被要过开页', before.opened, 0)
       shots.push(await shot(ctx, sidebarPage, 'f-74-2-sidebar-before'))
 
-      await clickPanelRow(sidebarPage)
+      await clickToolbarPlugins(sidebarPage)
 
-      // ① 宿主真的被要了一次（改前这里恒 0：缺省判据直接抛错，什么都不会发生）。
-      const clicked = await waitForRow(sidebarPage, (facts) => facts.opened === 1)
-      check.eq('侧栏：点那一行之后假宿主收到恰好一次开页调用', clicked.opened, 1)
-      // ② 选中态跟着走（官方 PanelRow 读 root 槽位钩子 panelInfo，那份快照由我们写）。
-      const lit = await waitForRow(sidebarPage, (facts) => facts.current === 'page')
-      check.eq('侧栏：那一行进入选中态（aria-current=page）', lit.current, 'page')
-      // ③ 改前那条 pageerror 不再出现——本套件的核心负向判据。
+      // ④ 宿主真的被要了一次，且那一趟到达了宿主（那一页在宿主侧被标成开着）。
+      //    真宿主那一半（建/聚焦独立编辑器页 `dshOne.assembledPlugins`）由宿主侧判据
+      //    `test/hostCapabilityDeps.test.ts` 的 N-03 守着（走真 deps 拼装，不经过假宿主）。
+      const clicked = await waitForEntry(sidebarPage, (facts) => facts.opened === 1 && facts.pageOpen)
+      check.eq('侧栏：点工具栏那一枚之后假宿主收到恰好一次开页调用', clicked.opened, 1)
+      check.ok('侧栏：那一趟到达了宿主（独立编辑器页在宿主侧被标成开着）', clicked.pageOpen, JSON.stringify(clicked))
+      // ⑤ 整页干净（改前那一行点下去会抛 `is not registered`，这条一直在看着它）。
       const gaps = contractGaps(sidebar.capture)
       const notRegistered = gaps.pageErrors.filter((line) => NOT_REGISTERED_RE.test(line))
-      check.eq('侧栏：零「未注册」pageerror（改前这里恒有一条）', notRegistered, [])
+      check.eq('侧栏：零「未注册」pageerror（#247 改前这里恒有一条）', notRegistered, [])
       check.eq('侧栏：整页零 pageerror', gaps.pageErrors, [])
       check.eq('侧栏：零槽位崩溃日志', gaps.crashes, [])
       check.eq('侧栏：零装载未激活', gaps.bootFails, [])
       shots.push(await shot(ctx, sidebarPage, 'f-74-3-sidebar-after-click'))
 
-      // ④ 关掉那一页：宿主推一条广播，选中态回落（否则那一行会永远亮着）。
-      await sidebarPage.evaluate(() => {
-        const host = (globalThis as { __LAB_HOST__?: { pluginsPageClosed?: () => void } }).__LAB_HOST__
-        host?.pluginsPageClosed?.()
-      })
-      const closed = await waitForRow(sidebarPage, (facts) => facts.current === null)
-      check.eq('侧栏：宿主报「那一页关掉了」之后选中态回落', closed.current, null)
-      shots.push(await shot(ctx, sidebarPage, 'f-74-4-sidebar-after-close'))
-
-      // ⑤ 校验本身没被删（就地负向对照）：不在本树 keyed `main` 上的面板 id 照旧抛官方那句。
+      // ⑥ 校验本身没被删（就地负向对照）：不在本树 keyed `main` 上的面板 id 照旧抛官方那句。
+      //    「受理 `plugins`」那条同时是**行若回来也仍然管用**的保证（见 sidebarLayoutPlugin
+      //    的 openPluginsPage 说明）。
       const unknown = await callSelectPanel(sidebarPage, 'dshOne.no.such.panel')
       check.ok(
         '侧栏：直接调 selectPanel(<不存在的面板>) 照旧抛官方那句「未注册」（校验没被删）',

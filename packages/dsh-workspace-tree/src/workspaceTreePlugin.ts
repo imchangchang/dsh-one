@@ -698,6 +698,19 @@ export function apply(ctx: TreeContext): void {
             },
           }
         : {}),
+      // #252 顶栏那一枚「插件」（在设置齿轮左边）：与上面那条设置同形——宿主有独立插件页
+      // 时才注入，官方 web 形态不注入 = 那一枚不渲染（那一端官方外框自己渲染那个全局面板，
+      // 没有「独立页」这回事）。走的是同一条能力口 `openPlugins()`：官方侧栏那条行点的
+      // 也是它（经本树 layout 服务转过来），两条入口到达宿主的是同一件事。
+      ...(caps.pluginsPage
+        ? {
+            openPlugins: (): void => {
+              caps.openPlugins().catch((reason: unknown) => {
+                console.warn('[dsh-one] open plugins failed:', reason)
+              })
+            },
+          }
+        : {}),
       // #109 工作区行的工作区动作（hover 的「在 VS Code 打开」与右键的「在新窗口打开
       // 文件夹」共用这一条）：能力口如实上报，官方 web 形态没有编辑器窗口 → 不注入 =
       // 两个入口都不出现。

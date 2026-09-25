@@ -31,7 +31,7 @@
  * 新增一条 = 在 `IDENTIFIERS` 里加一行（出处文件 + 形状 + 我方使用点），并在
  * `docs/dsh-compat-checklist.md` 的清单里登记。
  *
- * 另有一项不在 `IDENTIFIERS` 里：**我们取用的 26 枚官方图标的导出名**（#236）。它查的不是
+ * 另有一项不在 `IDENTIFIERS` 里：**我们取用的官方图标的导出名**（#236 立的表，#252 起 27 枚）。它查的不是
  * 某一个符号的形状，而是「两代名字里至少一个还在不在」——判据、为什么不读 combo 而读前端
  * 产物，写在 `checkOfficialIconExports` 的文件头上。
  */
@@ -160,7 +160,7 @@ function artifactPath(root, dep) {
 }
 
 /**
- * 我们取用的 26 枚官方图标在**官方前端产物**里的导出名是否还在（#236）。
+ * 我们取用的官方图标在**官方前端产物**里的导出名是否还在（#236 立的表，#252 起 27 枚）。
  *
  * ## 为什么读前端产物、不读包文件
  *
@@ -175,8 +175,8 @@ function artifactPath(root, dep) {
  *
  * ## 为什么不查 combo（`clientContract.mjs` 那一面）
  *
- * combo 是官方**插件**拼成的大文件，里面只有各插件**引用**过的那几个图标名。我们这 26 枚
- * 里，官方插件自己用到的只有 18 枚（实测 0.1.7-alpha.2 的 `@deepseek-ai/dsh-client-ui-*`
+ * combo 是官方**插件**拼成的大文件，里面只有各插件**引用**过的那几个图标名。表里这些
+ * 里，官方插件自己用到的只有一部分（实测 0.1.7-alpha.2 的 `@deepseek-ai/dsh-client-ui-*`
  * 各包：`IconChevronLeftOutline` / `IconCopyOutline` / `IconDownloadOutline` /
  * `IconFolderOpenOutline` / `IconRefreshOutline` / `IconRightUpOutline` / `IconSettingsOutline` /
  * `IconUserOutline` 这 8 枚官方自己没在这些插件里用过），查 combo 会把那 8 枚报成「上游删了」

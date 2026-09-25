@@ -24,23 +24,30 @@
  * 整片崩。所以这份表的作用是：**把两代名字放在一处，运行时挑在场的那一个；两个都不在场时
  * 当场抛错**，别让 `undefined` 悄悄流到渲染。
  *
- * ## 这 26 组对应关系是怎么定的（不是猜的）
+ * ## 这 27 组对应关系是怎么定的（不是猜的）
  *
  * 三条互相独立的证据，逐枚核过（量法见下面的「线宽怎么量的」）：
  *
  * 1. **名字一一对应**：老一代的每一枚 `IconX<尺寸>`，在新一代里恰好有一对
  *    `IconX Medium` / `IconX Regular`，字干逐字相同（`IconArchiveOutline20` ↔
- *    `IconArchiveOutlineMedium` / `IconArchiveOutlineRegular`）。26 组的字干全部对得上，
+ *    `IconArchiveOutlineMedium` / `IconArchiveOutlineRegular`）。27 组的字干全部对得上，
  *    没有第二个候选、也没有一对多。
  * 2. **新一代的默认渲染尺寸 = 老一代的尺寸后缀**：新一代的图形件（`IconXxxArtwork`）都带
  *    `size = <数字>`，那串数字与老一代名字里的后缀**逐枚相等**（`IconCloseFill` 的图形件
  *    `size = 14`、老名是 `IconCloseFill14`；`IconArchiveOutline` 的是 `size = 20`、老名是
- *    `IconArchiveOutline20`）。26 组全部相等——这是「同一枚图标」最硬的一条证据，说明官方只是
+ *    `IconArchiveOutline20`）。27 组全部相等——这是「同一枚图标」最硬的一条证据，说明官方只是
  *    把名字里的那一档尺寸挪进了默认值，图标本身没换人。
+ *    **第 27 枚（#252 加的那一枚「插件」）比这一条还硬**：两代的图**画数据逐字相同**——
+ *    0.1.6-alpha.2 的 `IconPluginPinwheelOutline16` 与 0.1.7-alpha.2 的
+ *    `IconPluginPinwheelOutline` 图形件都是同一个 16×16 视框下的那四条 path（`d` 逐字相等），
+ *    0.1.6 是每条写死 `stroke-width: 1.2`，0.1.7 改成按档位给描边粗细（`Regular` = 1、
+ *    `Medium` = 1.3）。也就是说这一枚两代之间**只有名字与档位写法变了，画的图一个字节没动**。
  * 3. **官方自家插件代码的取用**（`@deepseek-ai/dsh-client-ui-*` 各包 0.1.7-alpha.2 的
- *    `lib/client.js`）：26 枚里有 18 枚被官方插件自己用到，**18 枚全取 `Regular`**；官方插件
+ *    `lib/client.js`）：27 枚里有 19 枚被官方插件自己用到，**19 枚全取 `Regular`**（第 19 枚
+ *    就是 #252 那一枚：`dsh-client-ui-plugin-manager` 的 `PluginsPanelIcon` 在 0.1.7-alpha.2
+ *    取 `IconPluginPinwheelOutlineRegular`）；官方插件
  *    代码里用 `Medium` 的只有两处，都在 14px——输入框那枚加号（`IconPlusOutlineMedium, { size: 14 }`）
- *    与侧栏宽形态的「新会话」（`IconNewChatOutlineMedium, { size: 14 }`）。我们这 26 枚在插件里
+ *    与侧栏宽形态的「新会话」（`IconNewChatOutlineMedium, { size: 14 }`）。我们这 27 枚在插件里
  *    渲染的尺寸是 12/14/16，与官方用 `Regular` 的那批同档。
  *
  * **两档选哪一档**：全表取 `Regular`（`DEFAULT_ICON_WEIGHT`），依据是第 3 条——官方插件代码
@@ -85,6 +92,7 @@
  * | `IconFolderOpen` | `IconFolderOpen16` | 16 | 1.938 | 0.1211 | 16 | 16 | 0.0813 | 0.0625 | Medium | 2× Regular |
  * | `IconFolderOpenOutline` | `IconFolderOpenOutline16` | 16 | 1.448 | 0.0905 | 16 | 16 | 0.0813 | 0.0625 | Medium | 未用 |
  * | `IconPlusOutline` | `IconPlusOutline16` | 16 | 1.235 | 0.0772 | 16 | 16 | 0.0813 | 0.0625 | Medium | 1× Medium（输入框）+ 1× Regular |
+ * | `IconPluginPinwheelOutline`（#252 补） | `IconPluginPinwheelOutline16` | 16 | 1.200（描边） | 0.0750 | 16 | 16 | 0.0813 | 0.0625 | Medium | 1× Regular |
  * | `IconProjectAddOutline` | `IconProjectAddOutline16` | 16 | 1.184 | 0.0740 | 16 | 16 | 0.0813 | 0.0625 | Medium | 1× Regular |
  * | `IconRefreshOutline` | `IconRefreshOutline16` | 16 | 1.390 | 0.0868 | 16 | 16 | 0.0813 | 0.0625 | Medium | 未用 |
  * | `IconRightUpOutline` | `IconRightUpOutline16` | 16 | 1.481 | 0.0926 | 16 | 16 | 0.0813 | 0.0625 | Medium | 未用 |
@@ -141,9 +149,11 @@ export interface OfficialIconFork {
 export const DEFAULT_ICON_WEIGHT: IconWeight = 'Regular'
 
 /**
- * 我们取用的 26 枚官方图标：键 = 新一代基名，值 = 上一代的尺寸后缀名。
+ * 我们取用的 27 枚官方图标：键 = 新一代基名，值 = 上一代的尺寸后缀名。
  *
- * 全部 26 组的「新一代默认 size = 上一代尺寸后缀」在 0.1.7-alpha.2 上逐枚核过（文件头的表）。
+ * 全部 27 组的「新一代默认 size = 上一代尺寸后缀」在 0.1.7-alpha.2 上逐枚核过（文件头的表）；
+ * 其中第 27 枚（`IconPluginPinwheelOutline`，#252 侧栏工具栏那枚「插件」）两代连图画数据都
+ * 逐字相同，见文件头第 2 条那一小段。
  */
 export const OFFICIAL_ICON_FORKS = {
   IconAlarmClockOutline: { sized: 'IconAlarmClockOutline16' },
@@ -163,6 +173,7 @@ export const OFFICIAL_ICON_FORKS = {
   IconFolderClose: { sized: 'IconFolderClose16' },
   IconFolderOpen: { sized: 'IconFolderOpen16' },
   IconFolderOpenOutline: { sized: 'IconFolderOpenOutline16' },
+  IconPluginPinwheelOutline: { sized: 'IconPluginPinwheelOutline16' },
   IconPlusOutline: { sized: 'IconPlusOutline16' },
   IconProjectAddOutline: { sized: 'IconProjectAddOutline16' },
   IconRefreshOutline: { sized: 'IconRefreshOutline16' },

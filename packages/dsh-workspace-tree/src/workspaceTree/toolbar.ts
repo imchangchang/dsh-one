@@ -5,8 +5,8 @@
  * - **行首 = 分组过滤胶囊**（`GroupFilterBar`，原来自己在列表区占一行）：它落在行内容基准
  *   那条竖线上，也就是下面「官方搜索栏」展开时左缘落的那条线（#125 的口径，几何由
  *   F-35 / F-39 判）。
- * - **右 = 官方搜索栏 + 折叠/展开全部 + 添加工作区 + 设置齿轮 + 多选入口**：
- *   见下面两条。
+ * - **右 = 官方搜索栏 + 折叠/展开全部 + 添加工作区 + 插件 + 设置齿轮 + 多选入口**：
+ *   见下面两条（「插件」那一枚是 #252 加的，紧挨设置齿轮左侧）。
  *
  * **搜索展开时其余控件让位，输入框独占整行**（#135，用户拍板）。让位方式 = **官方那套
  * 「收起来」**，不是另做「更多」菜单、也不是压成图标——举证：官方 ui-workspace 的
@@ -49,16 +49,19 @@
  * `headerActionsHidden` 同名同事；那一刻它们不可见也不接指针，Esc / 清除收起搜索后原样
  * 回来——见文件头让位那一节）。
  *
- * - **右 = 折叠/展开全部 · 添加工作区（＋）· 设置齿轮 · 多选入口**：前三件是 #99 新增的。
+ * - **右 = 折叠/展开全部 · 添加工作区（＋）· 插件 · 设置齿轮 · 多选入口**：前两件是 #99 新增的。
  *   折叠/展开全部按「全部工作区是否已折叠」显示对应图标——**方框加减号**（#118 起：还有
  *   展开着的就显示方框横杠 = 折叠全部，全折叠了就显示方框十字 = 展开全部；图标出处与
  *   官方为何没有这一枚见 `collapseAllGlyph.ts`）；添加工作区是两项菜单（选已有文件夹 /
- *   创建新工作区目录）；设置齿轮打开我们的设置页（宿主能力口 `openSettings`，宿主没有
+ *   创建新工作区目录）；插件打开官方那个「插件」页面板在我们 shell 里的落点（宿主能力口
+ *   `openPlugins`，宿主没有独立插件页时不渲染）；设置齿轮打开我们的设置页（宿主能力口
+ *   `openSettings`，宿主没有
  *   独立设置页时不渲染——官方 web 侧设置归官方底部那一行）。多选入口是 #81 已有的，
  *   #108 起走选择态的**唯一入口 API**（`selection.ts` 的 `selectionEntrySignal.enter()`），
  *   会话行菜单里那一项「选择多个」也调它（菜单项本体属「菜单补全」那条）。
  *
- *   #131 起这一行**只有上述四枚**：官方那枚视图选项菜单（分组方式 / 排序方式）与它带出的
+ *   #131 起这一行**只有上述这几枚**（#252 起动作组是五枚：折叠全部 / 添加工作区 / 插件 /
+ *   设置 / 多选）：官方那枚视图选项菜单（分组方式 / 排序方式）与它带出的
  *   平铺单列表模式一起退役（用户实测：那两节照早先插件抄来、意义不大），
  *   侧栏恒为「按工作区 + 官方顺序」。
  *
@@ -81,6 +84,7 @@ import type { Translate } from './types.ts'
 const IconChecklistOutline = officialIcon('IconChecklistOutline')
 const IconCloseFill = officialIcon('IconCloseFill')
 const IconFolderOpenOutline = officialIcon('IconFolderOpenOutline')
+const IconPluginPinwheelOutline = officialIcon('IconPluginPinwheelOutline')
 const IconPlusOutline = officialIcon('IconPlusOutline')
 const IconProjectAddOutline = officialIcon('IconProjectAddOutline')
 const IconSearchOutline = officialIcon('IconSearchOutline')
@@ -149,6 +153,12 @@ export interface TopBarProps {
   onCreateWorkspaceFolder?: (() => void) | undefined
   /** 设置齿轮：宿主有独立设置页时才渲染（能力口 `settingsPage`）。 */
   onOpenSettings?: (() => void) | undefined
+  /**
+   * 插件图标（#252）：宿主有独立插件页时才渲染（能力口 `pluginsPage`）。位置紧挨设置齿轮
+   * 左侧——它是官方侧栏那条「插件」整行的替代入口（那一行已由本树按同槽位名 + 同 id +
+   * priority −1 遮蔽），图标与官方那一行用的是**同一枚**官方符号（见下面渲染处）。
+   */
+  onOpenPlugins?: (() => void) | undefined
   selectMode: boolean
   onToggleSelectMode: () => void
   /**
@@ -370,6 +380,32 @@ export function TopBar(props: TopBarProps): unknown {
           ),
         }),
       }),
+      // 插件（#252）：官方侧栏那条「插件」整行的替代入口，紧挨设置齿轮左侧。
+      //
+      // 为什么在这里（而不是让官方那一行继续占位）：设置那一枚就是同一个先例（#99 定稿——
+      // 设置入口从官方底部那行收到工具栏齿轮）。侧栏级的入口都归这一排，官方那两行都不再占位。
+      // 图标与官方那一行**同一枚**符号：官方 `@deepseek-ai/dsh-client-ui-plugin-manager` 的
+      // `PluginsPanelIcon` 就是 `IconPluginPinwheelOutline16`
+      //（0.1.6-alpha.2 的 `lib/client.js:2135`；0.1.7-alpha.2 里叫 `…Regular`），所以走官方图标
+      // 对照表按枚取（`src/pure/officialIcons.ts`），不自绘近似图。
+      props.onOpenPlugins === undefined
+        ? null
+        : h(Tooltip, {
+            label: tr('toolbar.plugins'),
+            side: 'bottom',
+            delayMs: 500,
+            children: h(
+              'button',
+              {
+                type: 'button',
+                className: 'dshOneTree_iconButton',
+                'aria-label': tr('toolbar.plugins'),
+                'data-dshone-tree-action': 'plugins',
+                onClick: props.onOpenPlugins,
+              },
+              h(IconPluginPinwheelOutline, { size: 16 }),
+            ),
+          }),
       // 设置齿轮（#99）：宿主有独立设置页时才有这一枚（官方 web 侧设置归官方底部行）。
       props.onOpenSettings === undefined
         ? null
