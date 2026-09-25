@@ -221,10 +221,10 @@ function subscribeAssemblyProbe(webview: vscode.Webview, logger: Logger): vscode
 }
 
 /**
- * 宿主调用通道的依赖（三棵树共用）：VS Code 工作区目录 + ~/.dsh + **网关上各会话的
- * 工作目录集合**。后者是因为 git.show 的 cwd 按「当前会话所属工作区」传（页面侧从
- * 官方 sessions 服务取，见 gitCardPlugin），那个目录未必是 VS Code 打开的目录，
- * 但它一定出现在网关的会话清单里——用这份服务端数据当允许根，页面伪造不了。
+ * 宿主调用通道的允许根里的**追加那一份**（四棵树共用）：网关上各会话的工作目录集合。
+ * 为什么需要它：git.show 的 cwd 按「当前会话所属工作区」传（页面侧从官方 sessions
+ * 服务取，见 gitCardPlugin），那个目录未必是 VS Code 打开的目录，但它一定出现在网关的
+ * 会话清单里——用这份服务端数据当允许根，页面伪造不了。
  *
  * 为什么不是 workspace.list：现代 dsh（0.1.2）没有这个端点（实测 POST
  * /api/workspace/list 返回 not found，与编造方法名同响应；官方客户端走
@@ -234,30 +234,45 @@ function subscribeAssemblyProbe(webview: vscode.Webview, logger: Logger): vscode
  */
 const gatewayRootsByManager = new WeakMap<ServerManager, () => Promise<readonly string[]>>()
 
-function hostBridgeDeps(
+/**
+ * 侧栏面板专属的宿主能力（#99 顶栏齿轮 / ＋ 菜单「创建新工作区目录」、#176「添加完接着
+ * 开新会话」、#247 官方侧栏那条「插件」行）。其余面板不给 = 那几枚入口在它们的页面里
+ * 不出现（能力口按 `viaBridge` 如实上报，但页面侧另有 `settingsPage` / `workspaceCreate`
+ * 判定，见 hostCapabilities）。
+ *
+ * **键集与 `hostBridgeDeps` 里那几条展开一一对应**：这里的每一条都必须原样搬进返回的
+ * deps，漏一条就是「页面调得动、宿主恒回 `unsupported`」（#247 的现场）——`test/hostCapabilityDeps.test.ts`
+ * 按这份类型逐个键钉住，往这里加第五条时它会在 typecheck 就先红。
+ */
+export interface SidebarPanelActions {
+  openSettings?: () => void
+  createWorkspaceDirectory?: () => Promise<unknown>
+  /**
+   * #176：在某个工作区里新建会话并打开（转发既有 `dshOne.session.new` 命令）。
+   * 与上面两条一样是**该面板专属**的能力——只有侧栏那棵树需要它。
+   */
+  newSessionInWorkspace?: (workspaceId: string) => void
+  /**
+   * #247：打开（或聚焦）官方插件页（那个全局面板在我们的 shell 里是一个独立编辑器页）。
+   * 同样是侧栏面板专属：官方侧栏那条「插件」行的点击经 `ctx.layout.selectPanel` 落到
+   * 侧栏树的 layout 服务上，受理方再经能力口 `openPlugins` 回到宿主。
+   */
+  openPlugins?: () => void
+}
+
+/**
+ * 宿主调用通道的依赖装配点（四棵树的 webview 都挂它，panelActions 只有侧栏树给）：
+ * VS Code 工作区目录 + ~/.dsh + 上面那份追加允许根，加上下面逐条列的宿主动作。
+ *
+ * 导出是给 `test/hostCapabilityDeps.test.ts` 用的：那一组判据直接对这个函数断言
+ * 「给了的每一条能力都必须原样出现在返回的 deps 里」——装配实验室用的假宿主自己
+ * 应答能力调用，跑到的是「页面叫得动」，跑不到这一层（#247 穿透实验室的正是这个缺口）。
+ */
+export function hostBridgeDeps(
   manager: ServerManager,
   logger: Logger,
   gatewayOrigin?: () => string | undefined,
-  /**
-   * 侧栏面板专属的两条能力（#99 顶栏齿轮 / ＋ 菜单「创建新工作区目录」）。其余
-   * 面板不给 = 那两枚入口在它们的页面里不出现（能力口按 `viaBridge` 如实上报，
-   * 但页面侧另有 `settingsPage` / `workspaceCreate` 判定，见 hostCapabilities）。
-   */
-  panelActions?: {
-    openSettings?: () => void
-    createWorkspaceDirectory?: () => Promise<unknown>
-    /**
-     * #176：在某个工作区里新建会话并打开（转发既有 `dshOne.session.new` 命令）。
-     * 与上面两条一样是**该面板专属**的能力——只有侧栏那棵树需要它。
-     */
-    newSessionInWorkspace?: (workspaceId: string) => void
-    /**
-     * #247：打开（或聚焦）官方插件页（那个全局面板在我们的 shell 里是一个独立编辑器页）。
-     * 同样是侧栏面板专属：官方侧栏那条「插件」行的点击经 `ctx.layout.selectPanel` 落到
-     * 侧栏树的 layout 服务上，受理方再经能力口 `openPlugins` 回到宿主。
-     */
-    openPlugins?: () => void
-  },
+  panelActions?: SidebarPanelActions,
 ): HostBridgeDeps {
   let roots = gatewayRootsByManager.get(manager)
   if (roots === undefined) {
@@ -301,6 +316,12 @@ function hostBridgeDeps(
     },
     // #99 侧栏顶栏：设置齿轮与 ＋ 菜单的「创建新工作区目录」。两项都是**该面板
     // 专属**的能力，由调用方注入；缺省不给 = 那两个入口在别的页面里不出现。
+    //
+    // 这四条展开与 `SidebarPanelActions` 的键集一一对应，**一条都不能少**：#247 的
+    // 现场就是这里少了 `openPlugins` 那一条，于是 `hostBridge.ts` 派发表里的
+    // `deps.openPlugins === undefined` 恒真，用户点侧栏那条「插件」行永远得到
+    // `unsupported`（`host call vscode.openPlugins rejected: unsupported`）。
+    // 判据见 test/hostCapabilityDeps.test.ts。
     ...(panelActions?.openSettings === undefined ? {} : { openSettings: panelActions.openSettings }),
     ...(panelActions?.createWorkspaceDirectory === undefined
       ? {}
@@ -308,6 +329,7 @@ function hostBridgeDeps(
     ...(panelActions?.newSessionInWorkspace === undefined
       ? {}
       : { newSessionInWorkspace: panelActions.newSessionInWorkspace }),
+    ...(panelActions?.openPlugins === undefined ? {} : { openPlugins: panelActions.openPlugins }),
   }
 }
 
