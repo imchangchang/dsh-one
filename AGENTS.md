@@ -33,6 +33,8 @@
 
 **验证四层与跑法**（2026-09-16 起，浏览器验证 harness 已入库）：**浏览器验证**（`npm run verify:lab`，harness 在 `test/assembly-lab/`）用 Playwright 打开装配页跑断言——页面由仓库真实模块构建、数据面是本机真实 dsh 网关（只读）、宿主侧是假宿主，**本机整轮约 15 分钟**（实测 899 / 938 / 942 秒；只跑某个套件用 `--suite <套件号>`，几十秒），是**第一道**，改装配相关代码（block list / 树定义 / 自有插件 / mirror / pageHtml）后必跑；**官方 web 真机**（`npm run verify:plugins-official`，脚本 `scripts/verify-plugins-official.mjs`）在隔离的临时 HOME + 临时 profile 里把自有插件包装进 profile，用 Playwright 打开**官方页面本身**验加载与行为，约 2 分钟，改插件包（`packages/dsh-*` 的清单/产物/补丁）后必跑；**VS Code 验证**（`scripts/dev-ui-test.sh`）起隔离 VS Code 窗口实测 webview 宿主层（CSP/剪贴板/原生菜单/多 webview 生命周期），慢，是**最终准绳**；**沙盒**（`test/sandbox/run-sandbox.sh`）在 code-server 里装真插件 vsix 做宣发截图与人工核对。四者不互相替代（实验室验的是我们的装配页、真机验的是官方页面）。跑法与套件清单见 `test/assembly-lab/README.md` 与 `docs/plugin-packages.md`。
 
+**宿主能力的改动不能只靠实验室验（2026-09-25，#247）**：实验室的宿主侧是**假宿主**（`test/assembly-lab/fakeHost.ts`），它自己应答能力调用，验到的只是「页面叫得动」那一半；**真宿主那份 deps 拼装**（`ui/assemblyView.ts` 的 `hostBridgeDeps()` —— 把哪个面板的哪几条能力搬进 deps）它从头到尾跑不到。#247 就是这么穿透的：`openPlugins` 没被搬进 deps，用户点侧栏那条「插件」行永远得到 `unsupported`，而实验室与真机脚本全绿。所以凡动宿主能力（`HostBridgeDeps` 的键、`HOST_CALLS` 白名单、各面板 `panelActions` 的注入）的改动，除了实验室，**必须有一条走真 deps 拼装/真宿主代码的单测**——常驻实现是 `test/hostCapabilityDeps.test.ts`（`test/chatPanelLiveness/` 的假 vscode 模块钩子下真跑 `hostBridgeDeps()`，外加一条端到端）。
+
 **起真 VS Code 窗口只有人跑（agent 一律不许自己起）**：`scripts/dev-ui-test.sh` 或任何 `code --extensionDevelopmentPath …` 都会在用户桌面上真的弹出一个窗口、抢走焦点，而 agent 自己既看不见也点不了它；用户上一轮已经被弹窗打扰过（2026-09-16）。规则：
 - agent 一律先用**浏览器验证**；改完装配相关代码跑 `npm run verify:lab` 就够，不要为了「看一眼」起窗口；
 - **唯一例外**：问题落在浏览器验证覆盖不到的 webview 宿主层（CSP / 剪贴板 / 原生菜单 / 多 webview 生命周期），且**先告诉用户「接下来会弹一个窗口」**再起；

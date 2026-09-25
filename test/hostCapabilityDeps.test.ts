@@ -16,14 +16,20 @@
  *    漏一条即红、且报错点名是哪个键。测试对象按 `Required<SidebarPanelActions>` 标注，
  *    所以日后往那份类型里加第五条却忘了搬，`npm run typecheck` 先红（运行时判据只在
  *    「类型里有、拼装里漏」时兜底）；
- * 2. 端到端再走一遍用户那条路：侧栏 webview 发 `vscode.openPlugins` → 必须真的开出
+ * 2. **同一类错的通用兜底**：把 `hostBridge.ts` 派发表里「按 deps 的某个键有没有分叉」的
+ *    键全部扫出来（今天 10 条），逐条要求装配点在「给了全部 panelActions」这一档下必须
+ *    有着落——将来新加一条靠注入的能力而忘了搬，这里就红，不必等有人点到它；
+ * 3. 端到端再走一遍用户那条路：侧栏 webview 发 `vscode.openPlugins` → 必须真的开出
  *    `dshOne.assembledPlugins` 面板，且**不得**出现那条 `rejected: unsupported`。
  *
  * 负向对照（读数写在本任务的报告里）：把 `hostBridgeDeps` 里 `openPlugins` 那条展开删掉，
- * 下面两条当场红——第一条点名 `openPlugins`，第二条复现用户现场那一行；还原即绿。
+ * 第 1、2、3 条当场红——第 1 条点名 `openPlugins`，第 3 条的失败信息复现用户现场那一行；
+ * 还原即绿。
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 import { registerHooks } from 'node:module'
 import { loadSource, resolveSpecifier } from './chatPanelLiveness/vscodeHooks.ts'
 import { startHarness } from './chatPanelLiveness/harness.ts'
@@ -47,18 +53,43 @@ async function loadHost(): Promise<typeof import('../src/ui/assemblyView.ts')> {
   return await import('../src/ui/assemblyView.ts')
 }
 
+/** 侧栏那一棵树的配置：四条能力全给（`extension.ts` 就是这么接的）。 */
+function fullActions(): Required<SidebarPanelActions> {
+  return {
+    openSettings: () => {},
+    createWorkspaceDirectory: async () => ({ workspaceId: 'lab-workspace' }),
+    newSessionInWorkspace: () => {},
+    openPlugins: () => {},
+  }
+}
+
+/** `hostBridge.ts` 派发表（`runHostCall`）的函数体原文。 */
+function dispatchBody(): string {
+  const source = fs.readFileSync(path.join(import.meta.dirname, '..', 'src', 'ui', 'assembly', 'hostBridge.ts'), 'utf8')
+  const start = source.indexOf('export async function runHostCall(')
+  assert.ok(start >= 0, '找不到 runHostCall（本判据的静态半边失效，要跟着改）')
+  const end = source.indexOf('\n}', start)
+  assert.ok(end >= 0, 'runHostCall 的函数体没配平（本判据的静态半边失效，要跟着改）')
+  return source.slice(start, end)
+}
+
+/**
+ * 派发表里「按 deps 的某个键有没有分叉」的那些键——分叉的结局就是那个键缺席时回
+ * `unsupported`，所以这些键都必须由装配点搬进来。（函数体外那些 `deps.X === undefined`
+ * 是转发缺省值：gitPath / timeoutMs / log / gatewayOrigin / fetchGateway / extraAllowedRoots，
+ * 不在这条判据的口径里。）
+ */
+function guardedDepsKeys(): string[] {
+  return [...new Set([...dispatchBody().matchAll(/deps\.(\w+)\s*===\s*undefined/g)].map((match) => match[1]!))]
+}
+
 /** `hostBridgeDeps` 要的那两件：本组判据不碰服务状态与会话清单，给最小替身即可。 */
 const managerStub = { getStatus: () => ({ state: 'stopped' as const }) } as unknown as ServerManager
 const loggerStub = { info: () => {}, warn: () => {}, error: () => {} } as unknown as Logger
 
 test('hostBridgeDeps：panelActions 给了的每一条都必须原样出现在 deps 里（#247 的漏键现场）', async () => {
   const view = await loadHost()
-  const actions: Required<SidebarPanelActions> = {
-    openSettings: () => {},
-    createWorkspaceDirectory: async () => ({ workspaceId: 'lab-workspace' }),
-    newSessionInWorkspace: () => {},
-    openPlugins: () => {},
-  }
+  const actions = fullActions()
   assert.deepEqual(Object.keys(actions).sort(), [...EXPECTED_KEYS].sort(), '这份能力表变了：测试对象要与 SidebarPanelActions 同步')
 
   const deps = view.hostBridgeDeps(managerStub, loggerStub, undefined, actions)
@@ -78,6 +109,23 @@ test('hostBridgeDeps：没给 panelActions 时这四条一律缺席（别的页�
   const deps = view.hostBridgeDeps(managerStub, loggerStub)
   for (const key of EXPECTED_KEYS) {
     assert.equal(deps[key], undefined, `${key} 在没给 panelActions 时不该有实现（那几枚入口是侧栏专属）`)
+  }
+})
+
+test('派发表里按 deps 键分叉的能力，装配点在「四条都给全」这一档下都必须有着落', async () => {
+  const view = await loadHost()
+  const keys = guardedDepsKeys()
+  // 反向防呆：静态扫描抓不到东西时这条判据会空转，所以钉死它的读数（今天 10 条）。
+  assert.ok(guardedDepsKeys().includes('openPlugins'), `派发表里没扫到 deps.openPlugins 的分叉，本判据失效：${keys.join(', ')}`)
+  assert.ok(keys.length >= 10, `扫到的分叉键比预期少（今天 10 条，实到 ${keys.length}）：${keys.join(', ')}`)
+
+  const deps = view.hostBridgeDeps(managerStub, loggerStub, () => 'http://127.0.0.1:1', fullActions()) as unknown as Record<string, unknown>
+  for (const key of keys) {
+    assert.notEqual(
+      deps[key],
+      undefined,
+      `派发表里 deps.${key} 缺席时回 unsupported，而装配点没把它搬进来——#247 就是这个形态（用户侧「点了没反应」，日志一条 rejected: unsupported）`,
+    )
   }
 })
 
