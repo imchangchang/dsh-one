@@ -454,6 +454,13 @@ export const SEAT_WAIVERS: readonly SeatWaiver[] = [
     reason:
       '设置改成 VS Code 侧独立编辑器页（#70）：官方那行设置入口在这棵树上由自有空件按同 id + priority −1 遮蔽（settingsGearPlugin），所以座上只剩一个不渲染的条目、页面上的锚点里零节点，是有意的——入口在工具栏齿轮与命令面板上',
   },
+  {
+    tree: 'sidebar',
+    seat: 'sidebar.panellist',
+    verdict: 'unrendered',
+    reason:
+      '官方侧栏那条「插件」整行在这棵树上由自有空件按同 id + priority −1 遮蔽（机制层 1，同 settingsGearPlugin 那一条的做法），行盒子另按 css-module 名后缀摘掉（机制层 4，举证见 sidebarLayoutPlugin 的 CSS 上方那段）——所以座上两个占位者（我们那条 priority −1 的空件 + 官方那条 priority 0）都不进渲染位，页面上的锚点里零节点，是有意的：入口改由侧栏工具栏那一枚插件图标承担（#252，紧挨设置齿轮左侧，走同一条能力口 `openPlugins`）。**不是「内容进不来」**：官方件照常装载（插件页本体在 plugins 树上），官方那条行若哪天回来（遮蔽或那条 CSS 被上游改名撞失效）也能照常点开那一页（见 sidebarLayoutPlugin 的 openPluginsPage）',
+  },
   // ---- chat 树：对话区这一页 ----
   { tree: 'chat', seat: 'sidebar.panellist', verdict: 'absent', reason: WHY.sidebarElsewhere },
   { tree: 'chat', seat: 'sidebar.settings', verdict: 'absent', reason: WHY.sidebarElsewhere },
@@ -608,8 +615,9 @@ export const CLICKABLE_SELECTOR = 'button, [role="button"], [role="tab"], a[href
  *    取没选中态的，一格全是被选中的候选才算「settled」（如实记进读数，不硬判）。
  * 2. **锚点被包在一个可点元素里时取那个祖先**：官方侧栏的行是
  *    `<button …><div data-slot="sidebar.panellist">图标 + 文字</div></button>`——按钮在锚点
- *    **外面**，`querySelectorAll` 找不到它。本锚点里一条候选都没有时才退到 `closest`，
- *    并且只认锚点外面那一枚（`ancestor: true`），免得把外层容器的某种可点元素当成入口。
+ *    **外面**，`querySelectorAll` 找不到它（#252 起那一行被遮蔽 + 行盒摘掉，这个形态在今天的
+ *    读数里不出现，但规则留着：同形的行随时可能回来）。本锚点里一条候选都没有时才退到
+ *    `closest`，并且只认锚点外面那一枚（`ancestor: true`），免得把外层容器的某种可点元素当成入口。
  * 3. **可见且可用**：盒子非零、不是 `disabled` / `aria-disabled`。
  */
 export async function markSeatEntries(page: Page, names: readonly string[]): Promise<SeatEntryReading[]> {
@@ -738,7 +746,8 @@ export interface SeatClickRule {
  * 逐格规则（`tree × seat`）。
  *
  * 哪几格需要规则：**这一轮渲染出了条目**的格（`markSeatEntries` 的读数）。逐棵树读数出来的
- * 是 sidebar 树 3 格（`sidebar.panellist` / `sidebar.footer.action` / `sidebar.workspaces`）、
+ * 是 sidebar 树 2 格（`sidebar.footer.action` / `sidebar.workspaces`；#252 起
+ * `sidebar.panellist` 那一格渲染 0 个条目——官方那条行被遮蔽 + 行盒摘掉，见下面那条 `waive`）、
  * chat 树 2–3 格（`main` / `plugins.item`；右栏展开着时再加 `rightbar`）、settings 树 3 格
  * （`main` / `settings.section` / `settings.action`）、plugins 树 2 格（`main` /
  * `plugins.item`），本表按「这一格**可能**渲染出条目」逐格表态，多出来的表态不算漏项——
@@ -752,9 +761,9 @@ export const SEAT_CLICK_RULES: readonly SeatClickRule[] = [
   {
     tree: 'sidebar',
     seat: 'sidebar.panellist',
-    kind: 'click',
-    expect:
-      '官方那一行的 onClick 是 `ctx.layout.selectPanel("plugins")`，落到**我们提供的** layout 服务上受理、经宿主能力口开插件页（#247）：假宿主会收到一次开页调用，那一行的选中态跟着亮',
+    kind: 'waive',
+    reason:
+      '这一格的那一行已经不渲染了（#252）：官方那条「插件」行由本树按同 id + priority −1 遮蔽、行盒子另按 css-module 名后缀摘掉，所以这一轮它渲染出 0 个条目——**入口改由侧栏工具栏那一枚插件图标承担**（`SIDEBAR_POINTS` 的「侧栏 · 插件页」那一枚，走同一条能力口 `openPlugins`）。这一格不点：它的行若哪天回来（上游改名把那条 CSS 撞失效），点它是经本树 layout 服务转能力口开页（不是原地发生的事），而「那一行不再渲染」这件事由 F-74 的侧栏那一段正面判着（读那一行有没有可见盒子）',
   },
   {
     tree: 'sidebar',

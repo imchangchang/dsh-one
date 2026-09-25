@@ -112,6 +112,12 @@ export interface TreeProps extends PendingHookProps {
    * （官方 web 侧设置是官方侧栏底部那一行），齿轮就不渲染。
    */
   openSettings?: (() => void) | undefined
+  /**
+   * #252 顶栏插件那一枚（紧挨设置齿轮左侧）：宿主能力口 `openPlugins` 的封装。
+   * **undefined = 这个宿主没有独立插件页**（官方 web 侧那一页由官方外框自己渲染），
+   * 这一枚就不渲染。
+   */
+  openPlugins?: (() => void) | undefined
   searchSessions: (query: string, signal: AbortSignal) => Promise<SearchPage>
   searchResultLimit: number
   /**

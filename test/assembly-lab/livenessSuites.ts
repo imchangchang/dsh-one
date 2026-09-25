@@ -1445,6 +1445,17 @@ const SIDEBAR_POINTS: ReadonlyArray<LivenessPoint> = [
     expect: '进入多选态',
   },
   {
+    label: '侧栏 · 插件页',
+    // #252：官方侧栏那条「插件」整行搬到了工具栏（紧挨齿轮左边），所以这一枚是这个入口的
+    // 唯一形态。文案取**我们自己**词典的 `toolbar.plugins`（措辞跟着官方那一行 = 「插件」/
+    // 「Plugins」，但这两种取值出自我们的词典，所以是 ours 档）。
+    // 选择器按 `data-dshone-tree-action` 收窄：官方那条被遮蔽的行还在 DOM 里（aria-label
+    // 回落到条目 id = "plugins"，不在这两份取值里），按动作标记认才不会认错件。
+    textSources: [{ zh: '插件', tier: 'ours' }],
+    selector: textSelector('插件', (label) => `[data-dshone-tree-action="plugins"][aria-label="${label}"]`),
+    expect: '经宿主能力口打开插件页（宿主通道上多一条 vscode.openPlugins；真宿主那一半开/聚焦独立编辑器页）',
+  },
+  {
     label: '侧栏 · 回收站入口',
     textSources: [{ zh: '回收站', tier: 'ours' }],
     selector: textSelector('回收站', (label) => `[data-slot="sidebar.footer.action"] button[aria-label^="${label}"]`),

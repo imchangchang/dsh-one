@@ -338,7 +338,7 @@ async function main() {
     if (found.root === null) {
       const why = `找不到官方产物目录（找过：${found.tried.join('、')}）——这一面未核实，不能当成没问题`
       record('official-identifiers', '官方内部标识符在场（本机官方产物，存在性检查）', 'fail', why)
-      record('official-icon-exports', '官方图标导出名在场（我们取用的 26 枚，两代任一在场即通过）', 'fail', why)
+      record('official-icon-exports', '官方图标导出名在场（我们取用的图标，两代任一在场即通过）', 'fail', why)
       record('block-list-drift', 'block list 补全（按官方服务依赖离线算出）', 'fail', why)
     } else {
       const r = checkOfficialIdentifiers({ root: found.root, version, profile: found.profile })

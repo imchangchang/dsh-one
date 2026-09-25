@@ -38,11 +38,11 @@
  *
  * ## 图标名为什么不在这里查（#236）
  *
- * 我们取用的 26 枚官方图标（两代名字的对照表：`src/pure/officialIcons.ts`）由
+ * 我们取用的官方图标（两代名字的对照表：`src/pure/officialIcons.ts`，#252 起 27 枚）由
  * `officialIdentifiers.mjs` 的 `official-icon-exports` 那一项查，不在这里。原因是**这里查
  * 不到**：combo 是官方**插件**拼成的大文件，里面只出现各插件**引用**过的图标名，而导出表
  * （真契约）在页面自己那份 chunk 里（`dsh-web-frontend/dist/assets/index-*.js`，primitives
- * 被打进它）。实测 0.1.7-alpha.2 的 `@deepseek-ai/dsh-client-ui-*` 各包：我们这 26 枚里官方
+ * 被打进它）。实测 0.1.7-alpha.2 的 `@deepseek-ai/dsh-client-ui-*` 各包：表里这些图标官方
  * 插件自己用到 18 枚，另外 8 枚（`IconChevronLeftOutline` / `IconCopyOutline` /
  * `IconDownloadOutline` / `IconFolderOpenOutline` / `IconRefreshOutline` / `IconRightUpOutline` /
  * `IconSettingsOutline` / `IconUserOutline`）官方在这些插件里一次都没引用——照 combo 查会把

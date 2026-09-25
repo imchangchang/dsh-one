@@ -65,7 +65,7 @@ const SELECTION_BAR = '[data-dshone-tree="selection-bar"]'
  * 顶栏右侧那几枚控件（量焦点路径时逐枚走一遍）。顺序 = 页面上从左到右，最右一枚是
  * 「选择多个」——#130 报的就是点它（用户报的另一枚「视图选项」已被 #131 退役）。
  */
-const TOP_ACTIONS = ['collapse-all', 'add-workspace', 'settings', 'select-mode'] as const
+const TOP_ACTIONS = ['collapse-all', 'add-workspace', 'plugins', 'settings', 'select-mode'] as const
 const RIGHTMOST_ACTION = 'select-mode'
 
 /** 三档宽度（与 F-29 / F-31 / F-35 / F-44 同一套：窄 / 用户侧栏 / 宽）。 */

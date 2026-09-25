@@ -59,7 +59,7 @@ npm `latest`（= `next`）今天指的版本（2026-09-23 实测），所以照 
 
 `@deepseek-ai/dsh-client-ui-primitives` 的图标导出在 0.1.7-alpha.2 整批换了一代写法：0.1.6-alpha.2 是尺寸后缀（`IconCloseFill14`、`IconArchiveOutline20`），0.1.7-alpha.2 是字重后缀（`IconCloseFillMedium` / `IconCloseFillRegular`），两代**互不重叠**。模块加载器按名字取导出，取不到不报错、只是 `undefined`，于是渲染时才炸：`slot entry crashed in 'sidebar.workspaces': Error: Minified React error #130`。
 
-我们取用的 34 个名字里 26 个是这代消失的图标，剩下 8 个（`Button` / `HoverCard` / `Menu` / `Modal` / `StateDot` / `Tooltip` / `relativeTime` / `writeClipboard`）两代都在。适配工作另立 #236；在那之前 0.1.7-alpha.2 不算支持版本。
+我们取用的 35 个名字里 27 个是这代消失的图标，剩下 8 个（`Button` / `HoverCard` / `Menu` / `Modal` / `StateDot` / `Tooltip` / `relativeTime` / `writeClipboard`）两代都在。适配工作另立 #236；在那之前 0.1.7-alpha.2 不算支持版本。
 
 **整轮读数（2026-09-23，候选版本装到临时目录、独占跑）**：69 项 **11 过 / 58 红**；断言按各套件实际跑到的条数合计 **409 / 592**（大量套件在头一两条上就中止，所以条数远少于全绿那一版的 3620——**这两个条数不可直接比**）。红项按根因只有一类，另有一项是空过：
 
@@ -181,7 +181,7 @@ F-72 在那一代判**负向不变量**（不渲染空壳、不翻出归档会�
 | id | 检查内容 | 判定方式 |
 |---|---|---|
 | official-identifiers | 11 条官方内部标识符在场（下表），任一条消失即 fail | 逐条在它的**出处文件**里按**形状**查存在性（不比对内容）；不成立时报出条目名、出处文件与我方使用点 |
-| official-icon-exports | 我们取用的 **26 枚官方图标**的导出名在场（#236），任一枚两代名字都不在场即 fail | 官方前端把 primitives 打进了页面自己那份 chunk（`@deepseek-ai/dsh-web-frontend/dist/assets/index-*.js`），所以读那份产物：逐枚查「这一代的名字（`<基名><档位>`）或上一代的名字（尺寸后缀名）」**至少一个在场**（对照表与运行时的取用口是同一份 `src/pure/officialIcons.ts`）。不成立时**当场报出是哪一枚**、两代各要什么名——名字消失时页面上的表现是自有插件崩成 React #130（元素类型 `undefined`），那句话看不出是哪枚图标。产物目录读不到时报红，不降级。 |
+| official-icon-exports | 我们取用的 **27 枚官方图标**的导出名在场（#236 立的表、#252 加第 27 枚），任一枚两代名字都不在场即 fail | 官方前端把 primitives 打进了页面自己那份 chunk（`@deepseek-ai/dsh-web-frontend/dist/assets/index-*.js`），所以读那份产物：逐枚查「这一代的名字（`<基名><档位>`）或上一代的名字（尺寸后缀名）」**至少一个在场**（对照表与运行时的取用口是同一份 `src/pure/officialIcons.ts`）。不成立时**当场报出是哪一枚**、两代各要什么名——名字消失时页面上的表现是自有插件崩成 React #130（元素类型 `undefined`），那句话看不出是哪枚图标。产物目录读不到时报红，不降级。 |
 | block-list-drift | 三棵树的 block list 覆盖官方**服务依赖**闭包（#227），以及 profile 里的第三方插件在这三棵树里**放不放得下**（#242，同一份 `blockListDrift.mjs` + `src/pure/blockListDerivation.ts`） | 离线读本机官方包：每件的服务面 = bundle 导出的 `inject`（它等哪些服务）＋提供服务的调用点（`super(ctx, "X")` / `ctx.reflect.provide("X", …)`）。按规则「一棵树挡掉的包，凡是等它的 entry 也一起挡掉」补全，与 `wireFilter.ts` 的清单对比：**少挡一条即 fail**（点出它、它等的服务、被挡的提供方）；规则算不出来的手写条目（形态/角色理由）只报读数——多挡无害，少挡才让整页 boot 失败。**第三方插件**（#242）从 profile 的 `dsh.profile.bundles` 读，只报不挡：某棵树里它等的服务的提供方全被挡掉即 fail（点名插件、服务、被挡的提供方），处置由维护者定。取不到就红：一个官方包都没读到、某件（官方或第三方）bundle 读不到或解析不出 `inject` 导出、`dsh.profile.bundles` 点了名的第三方包装在 node_modules 下找不到、或有插件在等的服务在官方包里找不到提供方（框架/主机层那一族 `loader` / `modules` / `remote.*` 除外）。 |
 
 这条的**判据是服务**，不是 `package.json` 的 `dsh.client.inject`：后者是**模块 id** 表（wire 里每个 entry 的 `inject` 就是它），只决定装载顺序——按它做闭包会把三棵树里真正要用的官方件一起挡掉（实测 chat 2 → 38、sidebar 13 → 39、settings 14 → 38 条，把对话区与官方侧栏壳都算进去了），而依赖方并不会因为对方被挡而不激活（对话区那棵树挡了 `ui-layout`、`ui-conversation` 的模块表里就列着它，对话区照样全绿）。真正决定启动审计的是 bundle 里的**服务名**表：缺一个服务，cordis 就停在 `pending (waiting for service: X)`——#225 那起事故（侧栏树挡了 `ui-conversation` 却没挡等它的 `ui-plan`）正是这一类。

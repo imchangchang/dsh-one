@@ -21,11 +21,14 @@ DSH One 是 dsh 与 VS Code 之间的桥接扩展。dsh 由用户自己装、自
 | `CHAT_TREE` | 编辑器标签页，命令 `dshOne.assembledChat`（单例，可另开会话标签页） | 2 条：官方外框、官方侧栏 | `@dsh-one/vscode-chat-ui-layout` | theme-follow、session-boot、dsh-session-export、dsh-git-card、dsh-context-menu、dsh-composer-clear |
 | `SIDEBAR_TREE` | 侧栏 view `dshOne.chat` | 13 条：官方外框、对话区那几件、设置子页组、侧栏专属件 | `@dsh-one/vscode-sidebar-ui-layout` | theme-follow、settings-gear、session-bridge、dsh-workspace-tree |
 | `SETTINGS_TREE` | 编辑器标签页，命令 `dshOne.assembledSettings`（单例） | 14 条：官方外框、官方侧栏、对话流卡片组 | `@dsh-one/vscode-settings-ui-layout` | theme-follow |
-| `PLUGINS_TREE` | 编辑器标签页，命令 `dshOne.assembledPlugins`（单例），也是侧栏那条「插件」行的落点 | 14 条：与设置页同一份构成（官方外框、官方侧栏、对话流卡片组） | `@dsh-one/vscode-plugins-ui-layout` | theme-follow |
+| `PLUGINS_TREE` | 编辑器标签页，命令 `dshOne.assembledPlugins`（单例），也是侧栏工具栏那枚「插件」图标的落点 | 14 条：与设置页同一份构成（官方外框、官方侧栏、对话流卡片组） | `@dsh-one/vscode-plugins-ui-layout` | theme-follow |
 
-**plugins 树（#247）为什么是一棵独立的树**：官方那个「插件」页是官方 web 里的一个**全局面板**——它挂在 keyed `main` 上（key = `plugins`），由官方外框按 `panelInfo.activePanelId` 取键渲染；它的入口（官方侧栏 `sidebar.panellist` 上那一行）在侧栏 webview 里，页面本体却要在另一份装配里。两件事决定了它不能落在任何既有树上：我们的每棵树都是一个独立的 webview、各自只渲染自己那几条 keyed 条目。所以照设置页的先例给它单开一棵树 + 一个编辑器页，页面本体仍是官方那条 keyed 条目自己的渲染（本树只声明 keyed `main` 与 `shell.overlay` 两个座），它自己声明的三个子座（`plugins.item` / `plugins.bundle.config` / `plugins.row.config`）随之落下——官方那四张配置卡（终端 / Agent 循环 / Subagent / 网页搜索）因此一起回到 VS Code 侧。
+**plugins 树（#247）为什么是一棵独立的树**：官方那个「插件」页是官方 web 里的一个**全局面板**——它挂在 keyed `main` 上（key = `plugins`），由官方外框按 `panelInfo.activePanelId` 取键渲染；它的入口在侧栏 webview 里（#247 时是官方侧栏 `sidebar.panellist` 上那一行，#252 起换成我们侧栏工具栏里齿轮左边那一枚），页面本体却要在另一份装配里。两件事决定了它不能落在任何既有树上：我们的每棵树都是一个独立的 webview、各自只渲染自己那几条 keyed 条目。所以照设置页的先例给它单开一棵树 + 一个编辑器页，页面本体仍是官方那条 keyed 条目自己的渲染（本树只声明 keyed `main` 与 `shell.overlay` 两个座），它自己声明的三个子座（`plugins.item` / `plugins.bundle.config` / `plugins.row.config`）随之落下——官方那四张配置卡（终端 / Agent 循环 / Subagent / 网页搜索）因此一起回到 VS Code 侧。
 
-那一行点了之后做什么落在**我们提供的 `layout` 服务**上（机制层 2：官方侧栏的 `PanelRow` 点击就是 `ctx.layout.selectPanel(id)`，官方通过服务契约调我们的实现）：`LayoutController` 的 `openPanel` 处置只受理 `plugins` 这个 id，经宿主能力口 `openPlugins()` 请宿主开（或聚焦）那一页，宿主确认建成之后才把 `panelInfo.activePanelId` 写成 `plugins`（官方 `PanelRow` 的选中态读的就是这份快照），宿主关掉那一页时再推一条 `dshOne.pluginsPage` 让它回落。不受理的面板 id 照旧抛官方那句 `is not registered`。
+入口点了之后做什么，两条路都汇到**同一条宿主能力口** `openPlugins()`（扩展宿主开/聚焦那个编辑器页）：
+
+- **今天的入口 = 侧栏工具栏那一枚**（#252，紧挨设置齿轮左侧）：它由可移植的工作区树插件渲染，直接调能力口。官方那条整行（`sidebar.panellist` 上 id `plugins` 的条目）由侧栏 frame 按**同 id + priority −1** 遮蔽（机制层 1），行盒子另按 css-module 名后缀摘掉（机制层 4，举证见 `sidebarLayoutPlugin` 的 CSS 上方）——官方件照常装载，插件页本体靠它。
+- **官方那条行若回来**（上游改名把那条 CSS 撞失效）也仍然管用：官方 `PanelRow` 的点击是 `ctx.layout.selectPanel(id)`，落在**我们提供的 `layout` 服务**上（机制层 2），`LayoutController` 的 `openPanel` 处置只受理 `plugins` 这个 id，经能力口开页、宿主确认建成之后才把 `panelInfo.activePanelId` 写成 `plugins`（官方 `PanelRow` 的选中态读的就是这份快照），宿主关掉那一页时再推一条 `dshOne.pluginsPage` 让它回落。不受理的面板 id 照旧抛官方那句 `is not registered`。
 
 浏览器验证（`npm run verify:lab`）在真网关上跑**五棵树**：上面四棵生产树，加一棵只存在于实验室的对照档 `sidebar-official`（同一份 block list、只是不装自有工作区树插件，用来把「自有树」与「官方浏览区」逐项对照）。
 
@@ -203,7 +206,7 @@ dsh 上游出于安全只监听 `127.0.0.1`（拒绝 `--host 0.0.0.0`），所�
 | 侧栏细槽 | `sidebar.workspaces`、`sidebar.workspaces.directoryFlow`、`sidebar.brand.mark` / `sidebar.brand.name`、`sidebar.settings` | 自有工作区树遮蔽 `sidebar.workspaces`；自有 frame 提供品牌位并遮蔽官方品牌块；设置齿轮遮蔽 `sidebar.settings` |
 | 设置页 | `settings.section`、`settings.header`、`settings.action`、`settings.onboarding` | 自有设置 frame 渲染官方的设置节、标题、动作与官方那两条 onboarding（`settings.onboarding` 是单步游标：与设置面板同级、一次只放当前那一步，`#249`） |
 | 对话区 | `conversation.input.overlay`、`conversation.session.header.utilities` | 清空件的提示浮层、会话日志导出的入口 |
-| 壳座位（#248） | `sidebar.panellist`、`sidebar.footer.action`、`plugins.item`、`plugins.bundle.config` / `plugins.row.config`、`settings.trigger`、`settings.onboarding` | 官方那些「页 / 弹层 / 全局面板住在某个壳里」的座：侧栏那一行与插件页本体（`#247`）、回收站入口行、官方插件页那四张配置卡、官方设置弹层自己的触发条与两条 onboarding。**不是每一个都由我们渲染**（`settings.trigger` 就没有渲染面：入口在 VS Code 工具栏齿轮上），钉它们是因为「座名一改这一支就静默失效」——座没声明时官方 `slots.inject` 只是停车（不报错、不打日志） |
+| 壳座位（#248） | `sidebar.panellist`、`sidebar.footer.action`、`plugins.item`、`plugins.bundle.config` / `plugins.row.config`、`settings.trigger`、`settings.onboarding` | 官方那些「页 / 弹层 / 全局面板住在某个壳里」的座：侧栏那一行（`#247`；`#252` 起被遮蔽 + 行盒摘掉，入口在侧栏工具栏那枚插件图标上）与插件页本体、回收站入口行、官方插件页那四张配置卡、官方设置弹层自己的触发条与两条 onboarding。**不是每一个都由我们渲染**（`settings.trigger` 就没有渲染面：入口在 VS Code 工具栏齿轮上），钉它们是因为「座名一改这一支就静默失效」——座没声明时官方 `slots.inject` 只是停车（不报错、不打日志） |
 | 官方件自己声明的座（#248） | `conversation.view`、`sidebar.right.pane.tab` / `.title`、`sidebar.right.tab.menu.item` | 对话区那排视图页签（对话 / 轨迹）与官方右栏四面的页签。**我们一个都不取用**（声明与注入都在官方件那一半），钉它们是因为那是用户看得见的一块面：官方换一套座时装配页上跟着变的就是这些，探针要在这天先响 |
 
 #### 用到的 root 级 hook（4 组）
@@ -293,7 +296,7 @@ dsh 上游出于安全只监听 `127.0.0.1`（拒绝 `--host 0.0.0.0`），所�
 
 | 手段 | 查什么 | 什么时候跑 |
 | --- | --- | --- |
-| 每日上游探针（`scripts/dsh-upstream-watch/probe.mjs`，24 项） | **名字还在不在**：伺服面（wire 协议、认证、RPC、WS 帧、网关 `/` 的启动契约、整包端点、Origin 栅栏，17 项）+ 客户端契约面（整包里的 slot 名/hook 名/字段名，4 项）+ 官方产物面（本机官方包里的 11 条内部标识符 + 我们取用的 26 枚图标的导出名（#236）+ 各棵装配树 block list 的服务依赖补全（`#248` 起含 plugins 树），3 项） | GitHub Actions 每日 04:00（UTC+8），结果进 `upstream-watch` label 的 issue 与 README 徽章 |
+| 每日上游探针（`scripts/dsh-upstream-watch/probe.mjs`，24 项） | **名字还在不在**：伺服面（wire 协议、认证、RPC、WS 帧、网关 `/` 的启动契约、整包端点、Origin 栅栏，17 项）+ 客户端契约面（整包里的 slot 名/hook 名/字段名，4 项）+ 官方产物面（本机官方包里的 11 条内部标识符 + 我们取用的 27 枚图标的导出名（#236 立、#252 加第 27 枚）+ 各棵装配树 block list 的服务依赖补全（`#248` 起含 plugins 树），3 项） | GitHub Actions 每日 04:00（UTC+8），结果进 `upstream-watch` label 的 issue 与 README 徽章 |
 | 浏览器验证的 CONTRACT / FIBER / WIRE-LIVENESS 套件（`npm run verify:lab`） | **装起来活不活**：五棵树零槽位崩溃、零装载未激活、关键槽位有内容、根条目声明覆盖预期槽位名（F-01）；四棵树零 cordis fiber 进 FAILED（F-10，fiber 失败不进浏览器控制台；这一条今天只跑 chat / sidebar / sidebar-official / settings 四棵，plugins 树由 F-01 与 F-74 覆盖）；三棵树 block list 的每个 id 都要在当天 wire 里找得到（F-11，官方改名会让过滤静默失效） | 改装配相关代码后必跑；接新版本时用 `npm run verify:lab-version <版本>` |
 | `docs/dsh-compat-checklist.md` 的「装配面」一节 | 探针查不出的那一类（**名字一个没少、语义变了**）：0.1.6-alpha.2 上客户端契约面全绿，可页面整棵渲染不出来 | 接新版本时按那一节的流程走 |
 

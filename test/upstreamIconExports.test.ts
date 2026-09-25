@@ -3,7 +3,7 @@
  *
  * 三件事，对应这条 bug 的三个环节：
  *
- * 1. **表本身**：26 枚图标的两代名字都在，且「这一代的名字」与「上一代的名字」确实是同一枚
+ * 1. **表本身**：表里的每一枚图标两代名字都在，且「这一代的名字」与「上一代的名字」确实是同一枚
  *    图标的两代写法（基名相同、只差后缀）；
  * 2. **取用口的行为**（`resolveOfficialIcon`）：命名空间里只有老名字时取老名字、只有新名字时
  *    取新名字、**两个都没有时抛错**（静默变 `undefined` 是这次事故的形态，绝不能再回去）；
@@ -66,8 +66,11 @@ const withSynthetic = (root: string, run: (root: string) => void): void => {
   }
 }
 
-test('#236 名字表：26 枚图标的两代名字一一对应（基名相同、只差后缀）', () => {
-  assert.equal(OFFICIAL_ICON_NAMES.length, 26, `表里有 ${OFFICIAL_ICON_NAMES.length} 枚，#236 核过的是 26 枚`)
+test('#236 名字表：图标的两代名字一一对应（基名相同、只差后缀）', () => {
+  // #236 核过 26 枚；#252 加进第 27 枚（`IconPluginPinwheelOutline`，侧栏工具栏那枚「插件」，
+  // 两代连图画数据都逐字相同，见 src/pure/officialIcons.ts 的文件头）。枚数在这里写死，是为了
+  // 让「表悄悄少一枚」当场现形；加一枚时这一行与文件头那张表一起改。
+  assert.equal(OFFICIAL_ICON_NAMES.length, 27, `表里有 ${OFFICIAL_ICON_NAMES.length} 枚，#236 核过 26 枚、#252 加 1 枚`)
   assert.equal(DEFAULT_ICON_WEIGHT, 'Regular', '缺省档位是 Regular（依据见 src/pure/officialIcons.ts 的文件头）')
   for (const icon of OFFICIAL_ICON_NAMES) {
     const fork: OfficialIconFork = OFFICIAL_ICON_FORKS[icon]
@@ -115,14 +118,14 @@ test('#236 取用口：两代名字都不在场时抛错，且错误里写明这
   )
 })
 
-test('#236 探针：本机官方产物里 26 枚齐全 → pass', () => {
+test('#236 探针：本机官方产物里表里的每一枚都齐全 → pass', () => {
   const root = scratchDirSync('dsh-icon-exports-')
   writeAssets(root)
   withSynthetic(root, (dir) => {
     const row = mod.checkOfficialIconExports({ root: dir, version: '0.1.6-alpha.2', profile: '合成产物' })
     assert.equal(row.id, 'official-icon-exports')
     assert.equal(row.status, 'pass', row.detail)
-    assert.match(row.detail, /26 枚全部在场/)
+    assert.match(row.detail, /27 枚全部在场/)
     assert.match(row.detail, /合成产物/)
   })
 })
