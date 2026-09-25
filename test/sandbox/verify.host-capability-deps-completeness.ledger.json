@@ -1,0 +1,79 @@
+{
+  "title": "DSH One 验收报告：#247 返修——宿主能力 deps 拼装漏键（侧栏那条「插件」行点不动）",
+  "branch": "agent/host-capability-deps-completeness",
+  "commit": "dcf2c9d8",
+  "environment": {
+    "mode": "宿主侧单测（假 vscode 模块 + 真 src/ui/assemblyView.ts，与既有 chatPanelLiveness/设置面板 harness 同源）+ 装配实验室整轮（仓库真实模块 + 实验室自起的隔离实例，0.1.6-alpha.2）",
+    "dsh": "0.1.6-alpha.2",
+    "locale": "zh",
+    "theme": "dark",
+    "image": "n/a（没有走沙盒 code-server：本轮无任何页面渲染/观感变化，沙盒截图看不出更多）",
+    "date": "2026-09-25T01:00:00Z"
+  },
+  "coverageNote": "本任务修的是**宿主侧**的一处拼装漏键（`src/ui/assemblyView.ts` 的 `hostBridgeDeps()` 少搬 `openPlugins` 一条），用户看到的是「点侧栏那条「插件」行没反应」。证据有两条来源：① 新增的宿主侧单测 `test/hostCapabilityDeps.test.ts`（经 test/chatPanelLiveness 的假 vscode 模块钩子真跑 `hostBridgeDeps()` 与真派发表，**不经过装配实验室的假宿主**）；② 整轮浏览器验证 `npm run verify:lab`（回归项，确认没碰坏装配页）。**为什么必须新增这一条**：#247 上一轮之所以漏过去，是这一族能力在实验室里由假宿主（`test/assembly-lab/fakeHost.ts`）自己应答——实验室验的是「页面叫得动」那一半，「真宿主那份 deps 拼装」从头到尾没被跑到；假宿主照旧应答能力调用，页面侧叫得动就全绿。**未验的部分**：① 真 VS Code webview 宿主层——在真编辑器里点侧栏那一条「插件」行、独立页签的开与关、命令面板里那一条，本轮按约定**不开真窗**（agent 一律不自己起窗口），留给用户人工验收一次；② 0.1.7-alpha.2 仍是「实测不通」的版本，本轮没拿它跑基线；③ 带 dsh 实例的真机脚本（verify:plugins-official）与本轮改动无关（没动任何插件包），未跑。",
+  "items": [
+    {
+      "id": "N-01",
+      "phase": "new-feature",
+      "name": "宿主 deps 拼装完备性：给了的每条能力都必须原样进 deps（#247 的漏键本体）",
+      "expect": "给 `hostBridgeDeps()` 一份四个键都给全的 panelActions（Required<SidebarPanelActions>）→ 返回的 deps 里四条必须**引用相等**地都在；把任一条展开删掉，当场红且报错点名是哪个键。反向：没给 panelActions 时四条一律缺席（那几枚入口是侧栏专属，别的页面刻意不给）。",
+      "screenshots": [],
+      "result": "pass",
+      "notes": "`node --test test/hostCapabilityDeps.test.ts` 4 条全过。正向读数：deps.openSettings / deps.createWorkspaceDirectory / deps.newSessionInWorkspace / deps.openPlugins 四条全部与传入的函数**引用相等**。缺省读数：同一调用不给 panelActions 时四条都是 undefined（判据第 2 条）。\n**负向对照（本判据的反证）**：把 `hostBridgeDeps` 里 `...(panelActions?.openPlugins === undefined ? {} : { openPlugins: panelActions.openPlugins })` 那一条展开删掉后重跑 → `4 tests / 1 pass / 3 fail`，第 1 条原文：`AssertionError: deps 里没有这一条能力：openPlugins（SidebarPanelActions 与 hostBridge.ts 的派发表里都有它，装配时漏搬 = 页面调它恒回 unsupported）`；还原后 `4/4 pass`。\n另有一层编译期判据：测试对象按 `Required<SidebarPanelActions>` 标注，往类型里加第五条而没同步测试对象时 `npm run typecheck` 直接红。"
+    },
+    {
+      "id": "N-02",
+      "phase": "new-feature",
+      "name": "同一类错的通用兜底：派发表里按 deps 键分叉的能力，装配点都必须有着落",
+      "expect": "静态扫出 `hostBridge.ts` 的 `runHostCall` 里所有「按 deps 某个键有没有分叉」（分叉结局 = 回 unsupported）的键（今天 10 条），逐条要求它们在「四条 panelActions 都给全」这一档的装配结果里存在。将来新加一条靠注入的能力而忘了搬 → 这里当场红，不必等有人点到它。附反向防呆：扫到的条数少于 10 或没抓到 openPlugins 即判据失效。",
+      "screenshots": [],
+      "result": "pass",
+      "notes": "扫到的 10 条：openSessionInNewTab / sessionInPanel / openSessionPanel / panelSessions / openSettings / openPlugins / createWorkspaceDirectory / newSessionInWorkspace / openFolder / openTerminal——在 `hostBridgeDeps(manager, logger, origin, 四条全给)` 的返回里**逐条都在**（前六条本来就无条件给；后四条由 panelActions 注入）。\n**负向对照**：删掉 openPlugins 那条展开后这一条也红：`AssertionError: 派发表里 deps.openPlugins 缺席时回 unsupported，而装配点没把它搬进来——#247 就是这个形态（用户侧「点了没反应」，日志一条 rejected: unsupported）`；还原后绿。"
+    },
+    {
+      "id": "N-03",
+      "phase": "new-feature",
+      "name": "端到端（用户那条路）：侧栏发 vscode.openPlugins → 真开出插件页，且不回 unsupported",
+      "expect": "侧栏 webview 送 `dshOne.hostCall` `vscode.openPlugins`（= 官方侧栏那一行点击在宿主端的那一步）→ 宿主必须回一条 `ok: true` 的能力回执、真的建出 `dshOne.assembledPlugins` 面板并装上装配页（含 `__DSH_BOOT__`）、零错误提示、日志里没有 `host call vscode.openPlugins rejected: unsupported`。",
+      "screenshots": [],
+      "result": "pass",
+      "notes": "实跑读数：回执 1 条且 `ok: true`；面板表里出现 `dshOne.assembledPlugins`，其 `webview.html` 含 `__DSH_BOOT__`；用户提示 0 条；日志里恰好一条 `plugins panel created`、零条 `rejected: unsupported`（上一轮用户机器上的现场就是这一行加上 `this host serves no separate plugins page`）。\n**负向对照**：删掉 openPlugins 那条展开后这一条红，失败原文逐字复现用户现场：`AssertionError: 这条调用被宿主拒了：host call vscode.openPlugins rejected: unsupported {\"code\":\"unsupported\",\"message\":\"this host serves no separate plugins page\"}`；还原后绿。\n本条的失败信息是刻意设计成带出那条日志的——判据要能一眼看出「这就是用户报的那件事」。"
+    },
+    {
+      "id": "R-01",
+      "phase": "regression",
+      "name": "既有测试整轮（npm test）",
+      "expect": "typecheck 与 `npm test`（build + 全部单测）全绿；本轮新增 4 条判据，总数从 1173 涨到 1177，无既有条目转红。",
+      "screenshots": [],
+      "result": "pass",
+      "notes": "`npm run typecheck` 无输出（0 错）；`npm test` = **1177 / 1177 pass**（上一轮 1173，+4 = 本判据文件的 4 条）。改动只碰宿主侧拼装与测试基建，未触碰装配页/插件包。"
+    },
+    {
+      "id": "R-02",
+      "phase": "regression",
+      "name": "装配实验室整轮（npm run verify:lab）",
+      "expect": "整轮全绿（上一轮读数 76 项 3770 条）；本轮改动不进装配页（宿主侧拼装与判据文件），所以各套件读数应当与上一轮同量级、零红。",
+      "screenshots": [],
+      "result": "pass",
+      "notes": "实跑读数：**76 项 3770 条断言全绿**（与上一轮同量级、逐条零红；套件数 76、断言数 3770 与上一轮完全一致）。与本条改动相关的两个套件：F-74（官方「插件」页在 VS Code 侧有落点：plugins 树 + 侧栏那一行端到端）**23/23**、F-01（五棵树的底座契约完备性）**52/52**；R-06（整轮零越界与零原生副作用）6/6。报告产物：`test/assembly-lab/out/verify.lab.report.html`（76 项、截图内嵌 308 张，gitignore），运行日志 `test/assembly-lab/out/verify.lab.ledger.json`。\n本轮用的是实验室自起的隔离实例（临时 DSH_HOME + 随机端口，跑完按 PID 收掉，日志末行 `隔离实例网关已收掉（code=0 signal=null）`）；用户日常那台 3080 全程只读（R-06 只探测了两次）。"
+    },
+    {
+      "id": "R-03",
+      "phase": "regression",
+      "name": "两道静态自检（i18n / 平台兼容性）",
+      "expect": "两道都过；本轮新增行里没有用户可见文案（没有新的 l10n 串）、也没有平台相关代码或按状态变量分叉的平台路径。",
+      "screenshots": [],
+      "result": "pass",
+      "notes": "`bash scripts/check-i18n.sh` → `[i18n] OK：分支 agent/host-capability-deps-completeness 相对 main 的新增行无 i18n 漏同步。`；`bash scripts/check-platform-compat.sh` → `[platform] OK：分支 agent/host-capability-deps-completeness 相对 main 的新增行没有平台分支代码、也没有状态分支（无需声明文件）。`（本轮的 `panelActions?.X === undefined ? {} : {...}` 是能力存在性分叉，不是 existsSync/statSync 那类探测，未命中状态分支口径，故不需要 platform.json）。"
+    },
+    {
+      "id": "R-04",
+      "phase": "regression",
+      "name": "产物重建后四条展开真的进了 dist（用户装到的那份）",
+      "expect": "`npm run build` 之后，`dist/extension.js` 的 `hostBridgeDeps` 里四条展开都在（含 openPlugins），侧栏 provider 也把 `openPlugins` 交给它。",
+      "screenshots": [],
+      "result": "pass",
+      "notes": "`dist/extension.js:5168-5171` 四条逐字在场：openSettings / createWorkspaceDirectory / newSessionInWorkspace / **openPlugins**（`...panelActions?.openPlugins === void 0 ? {} : { openPlugins: panelActions.openPlugins }`）；侧栏那一段 `dist/extension.js:5726/5754` 是 `onOpenPlugins` 形参与 `openPlugins: () => this.onOpenPlugins?.()`，`extension.ts` 的接线在 `dist/extension.js:10207`（`onOpenPlugins: () => void openAssembledPlugins()`）。"
+    }
+  ]
+}
